@@ -5,7 +5,7 @@ const Customer = require('../models/Customer');
 const Vehicle = require('../models/Vehicle');
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
-const { generateEstimatePDF } = require('../utils/pdfGenerator');
+const { generateEstimatePDF, generateCustomerEstimatePDF } = require('../utils/pdfGenerator');
 const router = express.Router();
 
 // Helper to auto-generate Estimate Number
@@ -315,6 +315,27 @@ router.get('/:id/pdf', auth, async (req, res) => {
     generateEstimatePDF(estimate, customer, vehicle, res);
   } catch (error) {
     res.status(500).send({ error: 'Failed to generate PDF: ' + error.message });
+  }
+});
+
+// Download Customer Estimate PDF (No GST Details)
+router.get('/:id/customer-pdf', auth, async (req, res) => {
+  try {
+    const estimate = await Estimate.findById(req.params.id);
+    if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });
+
+    const jobCard = (estimate.jobCardId ? await JobCard.findById(estimate.jobCardId) : null) || {};
+    const customer = (jobCard.customerId ? await Customer.findById(jobCard.customerId) : null) || { name: 'Walk-in Customer', mobile: 'N/A' };
+    const vehicle = (jobCard.vehicleId ? await Vehicle.findById(jobCard.vehicleId) : null) || { vehicleNumber: 'N/A', make: 'N/A', model: 'N/A' };
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=customer-estimate-${estimate.estimateNo}.pdf`);
+
+    await logAction(req.user, 'REPORT_EXPORTED', `Exported Customer PDF for Estimate ${estimate.estimateNo}`, req);
+
+    generateCustomerEstimatePDF(estimate, customer, vehicle, res);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to generate Customer PDF: ' + error.message });
   }
 });
 

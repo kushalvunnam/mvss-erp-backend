@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
-import { Search, Plus, Edit2, FileCheck, Check, X, Download } from 'lucide-react';
+import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText } from 'lucide-react';
 import EstimateForm from './EstimateForm';
 
 export default function Estimates({ token, user, setActiveTab }) {
@@ -517,6 +517,37 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   };
 
+  const handleDownloadCustomerPDF = (est, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (token === 'mock_jwt_token_for_offline_demo') {
+      printEstimate(est);
+    } else {
+      (async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/estimates/${est._id}/customer-pdf`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (!res.ok) throw new Error('Failed to retrieve Customer PDF from server');
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `customer-estimate-${est.estimateNo || 'latest'}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        } catch (err) {
+          console.error('Customer PDF download failed:', err);
+          alert('Error downloading Customer PDF: ' + err.message);
+        }
+      })();
+    }
+  };
+
   const isAdvisorOrAdmin = user?.role === 'Admin' || user?.role === 'Service' || user?.role === 'Spares';
 
   return (
@@ -647,9 +678,16 @@ export default function Estimates({ token, user, setActiveTab }) {
                             <button
                               onClick={(e) => handleDownload(est, e)}
                               className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850"
-                              title="Download Estimate"
+                              title="Download GST Estimate (Internal)"
                             >
-                              <Download className="w-3.5 h-3.5" />
+                              <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDownloadCustomerPDF(est, e)}
+                              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850"
+                              title="Download Customer Estimate (Customer Friendly)"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-indigo-650 dark:text-indigo-400" />
                             </button>
                           </div>
                         </td>
@@ -661,12 +699,20 @@ export default function Estimates({ token, user, setActiveTab }) {
                             <div className="space-y-3 pl-4">
                               <div className="flex justify-between items-center">
                                 <h5 className="font-extrabold uppercase text-[9px] text-slate-400 tracking-wider">Estimate Revision Logs ({est.revisionHistory?.length || 0})</h5>
-                                <button
-                                  onClick={(e) => handleDownload(est, e)}
-                                  className="text-[9px] font-black uppercase text-indigo-650 dark:text-indigo-400 flex items-center gap-1 border border-indigo-200/40 bg-indigo-50/20 px-2 py-0.5 rounded"
-                                >
-                                  <Download className="w-3 h-3" /> Get Latest PDF
-                                </button>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={(e) => handleDownload(est, e)}
+                                    className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 flex items-center gap-1 border border-emerald-200/40 bg-emerald-50/20 px-2 py-0.5 rounded"
+                                  >
+                                    <Download className="w-3 h-3" /> Get GST PDF
+                                  </button>
+                                  <button
+                                    onClick={(e) => handleDownloadCustomerPDF(est, e)}
+                                    className="text-[9px] font-black uppercase text-indigo-650 dark:text-indigo-400 flex items-center gap-1 border border-indigo-200/40 bg-indigo-50/20 px-2 py-0.5 rounded"
+                                  >
+                                    <FileText className="w-3 h-3" /> Get Customer PDF
+                                  </button>
+                                </div>
                               </div>
                               
                               {est.revisionHistory && est.revisionHistory.length > 0 ? (
