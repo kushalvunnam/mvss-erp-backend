@@ -102,10 +102,10 @@ router.get('/stats', auth, async (req, res) => {
         ]
       });
     } else {
-      activeJobCards = await JobCard.countDocuments({ status: { $ne: 'Delivered' } });
-      completedJobCards = await JobCard.countDocuments({ status: 'Delivered' });
+      activeJobCards = await JobCard.countDocuments({ status: { $in: ['Work in Progress', 'Work In Progress', 'Body Shop', 'Repair', 'Quality Test', 'Quality Check', 'Ready for Delivery'] } });
+      completedJobCards = await JobCard.countDocuments({ status: { $in: ['Delivered', 'Closed'] } });
       pendingJobCards = await JobCard.countDocuments({
-        status: { $in: ['Created', 'Inspect Stage', 'Estimation', 'Customer Approval'] }
+        status: { $in: ['Waiting for Customer Approval', 'Created', 'Inspect Stage', 'Estimation', 'Customer Approval'] }
       });
       bodyShopJobs = await JobCard.countDocuments({
         $or: [
@@ -214,6 +214,8 @@ router.get('/stats', auth, async (req, res) => {
       activeJobCards,
       completedJobCards,
       pendingJobCards,
+      waitingPartsJobCards: isHistorical ? 0 : (await JobCard.countDocuments({ status: 'Parts Procuring' })),
+      deliveredJobCards: completedJobCards,
       revenueThisMonth: Math.round(revenueThisMonth * 100) / 100,
       revenueThisYear: Math.round(revenueThisYear * 100) / 100,
       pendingPayments: Math.round(pendingPayments * 100) / 100,

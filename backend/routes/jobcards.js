@@ -220,36 +220,59 @@ router.put('/:id', auth, async (req, res) => {
     let statusChanged = false;
     if (req.body.status && req.body.status !== jobCard.status) {
       statusChanged = true;
-      
-      // Prevent "Delivered" unless billing is completed and Gate Pass is generated (or allow only Admin to override)
-      if (req.body.status === 'Delivered') {
-        const isAdmin = ['Super Admin', 'Admin'].includes(req.user?.role);
-        if (!isAdmin) {
-          const Invoice = require('../models/Invoice');
-          const invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
-          if (!invoice) {
-            return res.status(400).send({ error: 'Billing is not completed. You must finalize the tax invoice before marking the job card as Delivered.' });
-          }
+      const newStatus = req.body.status;
+      const oldStatus = jobCard.status;
 
-          const GatePass = require('../models/GatePass');
-          const gatePass = await GatePass.findOne({ jobCardNumber: jobCard.jobCardNo });
-          if (!gatePass) {
-            return res.status(400).send({ error: 'Gate Pass has not been generated. You must generate a gate pass before marking the job card as Delivered.' });
-          }
+      // Role check: Admin, Service Advisor, Workshop Manager, Branch Manager can update the status.
+      // Other roles have read-only access.
+      const allowedRoles = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager'];
+      if (!allowedRoles.includes(req.user?.role)) {
+        return res.status(403).send({ error: 'You do not have permission to update the Job Card workflow status.' });
+      }
+
+      // Rule 1: Delivered is allowed only after the invoice is generated and payment status is Fully Paid.
+      if (newStatus === 'Delivered') {
+        const Invoice = require('../models/Invoice');
+        const invoice = await Invoice.findOne({ jobCardId: jobCard._id });
+        if (!invoice) {
+          return res.status(400).send({ error: 'Delivered status is allowed only after the Invoice is generated.' });
+        }
+        if (jobCard.paymentStatus !== 'Fully Paid') {
+          return res.status(400).send({ error: 'Delivered status is allowed only when payment status is Fully Paid.' });
+        }
+      }
+
+      // Rule 2: Ready for Delivery should require Quality Test completion.
+      if (newStatus === 'Ready for Delivery') {
+        if (jobCard.qcStatus !== 'Pass') {
+          return res.status(400).send({ error: 'Ready for Delivery status requires Quality Test completion (QC status must be Pass).' });
+        }
+      }
+
+      // Rule 3: Work in Progress can only begin after Parts Procuring or if no parts are required.
+      if (['Work in Progress', 'Work In Progress'].includes(newStatus)) {
+        const Estimate = require('../models/Estimate');
+        const estimate = await Estimate.findOne({ jobCardId: jobCard._id });
+        const hasParts = estimate && estimate.parts && estimate.parts.length > 0;
+        const wasPartsProcuring = oldStatus === 'Parts Procuring' || (jobCard.statusHistory && jobCard.statusHistory.some(h => h.status === 'Parts Procuring'));
+        if (hasParts && !wasPartsProcuring) {
+          return res.status(400).send({ error: 'Work in Progress can only begin after Parts Procuring or if no parts are required.' });
         }
       }
 
       jobCard.statusHistory.push({
-        status: req.body.status,
+        status: newStatus,
+        previousStatus: oldStatus,
         changedAt: new Date(),
         changedBy: req.user ? req.user.name : 'System',
-        remarks: req.body.statusRemarks || ''
+        remarks: req.body.statusRemarks || `Status changed from ${oldStatus} to ${newStatus}`
       });
     }
 
     // Apply updates
     const updates = { ...req.body };
     delete updates.statusHistory;
+    delete updates.statusRemarks;
 
     Object.assign(jobCard, updates);
     await jobCard.save();

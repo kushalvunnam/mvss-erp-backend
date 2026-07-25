@@ -139,6 +139,35 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   }
 
   const isAdvisorOrAdmin = user?.role === 'Admin' || user?.role === 'Service';
+  const isAuthorizedToEdit = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager'].includes(user?.role);
+
+  const handleStatusChange = async (jcId, newStatus) => {
+    const currentJc = jobCards.find(j => j._id === jcId);
+    if (currentJc && currentJc.status === newStatus) return;
+
+    const remarks = window.prompt(`Enter optional remarks for changing status to "${newStatus}":`);
+    if (remarks === null) return; // user cancelled
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus, statusRemarks: remarks })
+      });
+      if (res.ok) {
+        fetchJobCards();
+      } else {
+        const errObj = await res.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to update job card status.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the server.');
+    }
+  };
 
   return (
     <div className="space-y-4 animate-fade-in p-1">
@@ -196,18 +225,13 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {jobCards.length > 0 ? (
           jobCards.map(jc => {
-            let statusColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800';
-            if (jc.status === 'Created') statusColor = 'bg-slate-50 text-slate-600 dark:bg-slate-955/25 dark:text-slate-400';
-            if (jc.status === 'Inspect Stage') statusColor = 'bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400';
-            if (jc.status === 'Estimation') statusColor = 'bg-purple-50 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400';
-            if (jc.status === 'Customer Approval') statusColor = 'bg-pink-50 text-pink-700 dark:bg-pink-950/20 dark:text-pink-400';
-            if (jc.status === 'Work In Progress' || jc.status === 'Work in Progress') statusColor = 'bg-pink-50 text-pink-850 dark:bg-pink-950/20 dark:text-pink-300';
-            if (jc.status === 'Body Shop') statusColor = 'bg-orange-50 text-orange-700 dark:bg-orange-950/20 dark:text-orange-400';
-            if (jc.status === 'Quality Check' || jc.status === 'Quality Test') statusColor = 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/20 dark:text-cyan-400';
-            if (jc.status === 'Ready for Delivery') statusColor = 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400';
-            if (jc.status === 'Delivered') statusColor = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400';
-            if (jc.status === 'Waiting for Customer Approval') statusColor = 'bg-purple-50 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400';
-            if (jc.status === 'Parts Procuring') statusColor = 'bg-amber-50 text-amber-705 dark:bg-amber-950/20 dark:text-amber-400';
+            let statusColor = 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
+            if (jc.status === 'Waiting for Customer Approval') statusColor = 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border border-purple-200/50';
+            else if (jc.status === 'Parts Procuring') statusColor = 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border border-orange-200/50';
+            else if (['Work in Progress', 'Work In Progress'].includes(jc.status)) statusColor = 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200/50';
+            else if (['Quality Test', 'Quality Check', 'Quality Check'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
+            else if (jc.status === 'Ready for Delivery') statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
+            else if (jc.status === 'Delivered') statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
 
             return (
               <div
@@ -218,9 +242,29 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">{jc.jobCardNo}</span>
-                    <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${statusColor}`}>
-                      {jc.status}
-                    </span>
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      {isAuthorizedToEdit ? (
+                        <select
+                          value={jc.status}
+                          onChange={(e) => handleStatusChange(jc._id, e.target.value)}
+                          className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 border ${statusColor}`}
+                        >
+                          <option value="Waiting for Customer Approval">🟣 Waiting for Customer Approval</option>
+                          <option value="Parts Procuring">🟠 Parts Procuring</option>
+                          <option value="Work in Progress">🔵 Work in Progress</option>
+                          <option value="Quality Test">🟡 Quality Test</option>
+                          <option value="Ready for Delivery">🟢 Ready for Delivery</option>
+                          <option value="Delivered">✅ Delivered</option>
+                          {!['Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Ready for Delivery', 'Delivered'].includes(jc.status) && (
+                            <option value={jc.status}>{jc.status}</option>
+                          )}
+                        </select>
+                      ) : (
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${statusColor}`}>
+                          {jc.status}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   
                   <h3 className="text-sm font-extrabold text-slate-800 dark:text-white font-mono tracking-wide">

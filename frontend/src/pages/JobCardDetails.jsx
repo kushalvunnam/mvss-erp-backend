@@ -21,22 +21,22 @@ import {
 const getStatusBadgeClass = (status) => {
   switch (status) {
     case 'Waiting for Customer Approval':
-      return 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-205/40';
+      return 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200/50';
     case 'Parts Procuring':
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-205/40';
+      return 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200/50';
     case 'Work In Progress':
     case 'Work in Progress':
-      return 'bg-pink-100 text-pink-850 dark:bg-pink-950/60 dark:text-pink-300 border-pink-205/40';
+      return 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200/50';
     case 'Quality Check':
     case 'Quality Test':
-      return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-205/40';
+      return 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border-yellow-200/50';
     case 'Ready for Delivery':
-      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-350 border-yellow-250/40';
+      return 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-200/50';
     case 'Delivered':
     case 'Closed':
-      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-255/40';
+      return 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200/50';
     default:
-      return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-200';
+      return 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
   }
 };
 

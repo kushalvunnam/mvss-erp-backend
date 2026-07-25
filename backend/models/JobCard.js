@@ -226,6 +226,7 @@ const JobCardSchema = new mongoose.Schema({
 
   statusHistory: [{
     status: { type: String, required: true },
+    previousStatus: { type: String, default: '' },
     changedAt: { type: Date, default: Date.now },
     changedBy: { type: String, default: '' },
     remarks: { type: String, default: '' }
