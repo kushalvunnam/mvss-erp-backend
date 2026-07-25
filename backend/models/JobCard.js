@@ -240,6 +240,20 @@ const JobCardSchema = new mongoose.Schema({
     remarks: { type: String, default: '' },
     recordedBy: { type: String, default: '' }
   }],
+  finalPayments: [{
+    amount: { type: Number, required: true },
+    paymentType: { type: String, enum: ['Cash', 'Online', 'Card Swipe', 'Scanner Payment'], required: true },
+    transactionId: { type: String, default: '' },
+    referenceNumber: { type: String, default: '' },
+    remarks: { type: String, default: '' },
+    recordedBy: { type: String, default: '' },
+    paymentDate: { type: Date, default: Date.now }
+  }],
+  paymentStatus: {
+    type: String,
+    enum: ['Pending', 'Partially Paid', 'Fully Paid'],
+    default: 'Pending'
+  },
 
   billingSummary: {
     totalPartsUsed: { type: Number, default: 0 },

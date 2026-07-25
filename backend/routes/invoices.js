@@ -296,6 +296,14 @@ router.post('/', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
     const invoice = new Invoice(invoiceData);
     await invoice.save();
 
+    try {
+      const { updateJobCardPaymentStatus } = require('./jobcards');
+      await updateJobCardPaymentStatus(jobCard);
+      await jobCard.save();
+    } catch (err) {
+      console.error('Failed to update job card payment status:', err);
+    }
+
     // Automatically create a notification
     try {
       const Customer = require('../models/Customer');
@@ -419,6 +427,17 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
     invoice.balanceDue = Math.max(0, (invoice.totals.roundedGrandTotal || invoice.totals.grandTotal || 0) - (invoice.advanceReceived || 0));
 
     await invoice.save();
+
+    try {
+      const { updateJobCardPaymentStatus } = require('./jobcards');
+      const jc = await JobCard.findById(invoice.jobCardId);
+      if (jc) {
+        await updateJobCardPaymentStatus(jc);
+        await jc.save();
+      }
+    } catch (err) {
+      console.error('Failed to update job card payment status:', err);
+    }
 
     // Trigger stock deduction and job card updates upon finalization
     if (isFinalizing) {
@@ -590,6 +609,17 @@ router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts'), async (req, res) =
     if (paymentMethod) invoice.paymentMethod = paymentMethod;
     invoice.amountPaid = amountPaid || invoice.totals.grandTotal;
     await invoice.save();
+
+    try {
+      const { updateJobCardPaymentStatus } = require('./jobcards');
+      const jc = await JobCard.findById(invoice.jobCardId);
+      if (jc) {
+        await updateJobCardPaymentStatus(jc);
+        await jc.save();
+      }
+    } catch (err) {
+      console.error('Failed to update job card payment status:', err);
+    }
 
     // Create notification entry
     try {

@@ -8,12 +8,14 @@ import {
   User, 
   Car, 
   CheckCircle2, 
+  CheckCircle,
   AlertTriangle,
   ChevronRight,
   FileCheck,
   Users,
   Receipt,
-  Trash2
+  Trash2,
+  CreditCard
 } from 'lucide-react';
 
 const getStatusBadgeClass = (status) => {
@@ -53,6 +55,14 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     qcStatus: ''
   });
 
+  const [invoice, setInvoice] = useState(null);
+  const [finalAmount, setFinalAmount] = useState('');
+  const [finalPaymentType, setFinalPaymentType] = useState('Cash');
+  const [finalTransactionId, setFinalTransactionId] = useState('');
+  const [finalReferenceNumber, setFinalReferenceNumber] = useState('');
+  const [finalRemarks, setFinalRemarks] = useState('');
+  const [addingFinal, setAddingFinal] = useState(false);
+
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [advanceType, setAdvanceType] = useState('Cash');
   const [paymentMode, setPaymentMode] = useState('Cash');
@@ -83,11 +93,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         })
       });
       if (res.ok) {
-        const data = await res.json();
-        setJc(data);
         setAdvanceAmount('');
         setTransactionId('');
         setAdvanceRemarks('');
+        refreshPaymentData();
       } else {
         const errObj = await res.json().catch(() => ({}));
         alert(errObj.error || 'Failed to record advance payment.');
@@ -97,6 +106,30 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
       alert('Failed to connect to the server.');
     } finally {
       setAddingAdvance(false);
+    }
+  };
+
+  const refreshPaymentData = () => {
+    fetchDetails();
+    fetchInvoice();
+  };
+
+  const fetchInvoice = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/invoices?jobCardId=${jcId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const matching = data.find(inv => inv.jobCardId?._id === jcId || inv.jobCardId === jcId);
+          setInvoice(matching || null);
+        } else {
+          setInvoice(null);
+        }
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -110,8 +143,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         }
       });
       if (res.ok) {
-        const data = await res.json();
-        setJc(data);
+        refreshPaymentData();
       } else {
         const errObj = await res.json().catch(() => ({}));
         alert(errObj.error || 'Failed to delete advance payment.');
@@ -122,22 +154,132 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     }
   };
 
-  const getEstimatedBalanceDue = () => {
-    const totalAdvance = jc?.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
-    let targetTotal = 0;
-    if (estimate && estimate.totals && !isNaN(Number(estimate.totals.roundedGrandTotal))) {
-      targetTotal = Number(estimate.totals.roundedGrandTotal);
-    } else if (jc && jc.estAmt) {
-      const parsedEst = Number(jc.estAmt.toString().replace(/[^0-9.]/g, ''));
-      targetTotal = isNaN(parsedEst) ? 0 : parsedEst;
+  const handleAddFinalPayment = async (e) => {
+    e.preventDefault();
+    if (!finalAmount || parseFloat(finalAmount) <= 0) {
+      alert('Please enter a valid amount.');
+      return;
     }
-    const balance = targetTotal - totalAdvance;
-    return isNaN(balance) ? 0 : Math.max(0, balance);
+    setAddingFinal(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/final-payments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: parseFloat(finalAmount),
+          paymentType: finalPaymentType,
+          transactionId: finalTransactionId,
+          referenceNumber: finalReferenceNumber,
+          remarks: finalRemarks
+        })
+      });
+      if (res.ok) {
+        setFinalAmount('');
+        setFinalTransactionId('');
+        setFinalReferenceNumber('');
+        setFinalRemarks('');
+        refreshPaymentData();
+      } else {
+        const errObj = await res.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to record payment.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the server.');
+    } finally {
+      setAddingFinal(false);
+    }
+  };
+
+  const handleDeleteFinalPayment = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this final payment record?')) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/final-payments/${paymentId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        refreshPaymentData();
+      } else {
+        const errObj = await res.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to delete final payment.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the server.');
+    }
+  };
+
+  const getFinalBillAmount = () => {
+    return invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jc?.billingSummary?.grandTotal || 0);
   };
 
   const getTotalAdvanceReceived = () => {
     const total = jc?.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
     return isNaN(total) ? 0 : total;
+  };
+
+  const getEstimatedBalanceDue = () => {
+    const totalAdvance = getTotalAdvanceReceived();
+    let targetTotal = getFinalBillAmount();
+    const balance = targetTotal - totalAdvance;
+    return isNaN(balance) ? 0 : Math.max(0, balance);
+  };
+
+  const getBalancePayable = () => {
+    return Math.max(0, getFinalBillAmount() - getTotalAdvanceReceived());
+  };
+
+  const getTotalFinalPayments = () => {
+    return jc?.finalPayments ? jc.finalPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
+  };
+
+  const getPendingAmount = () => {
+    return Math.max(0, getBalancePayable() - getTotalFinalPayments());
+  };
+
+  const getTotalReceived = () => {
+    return getTotalAdvanceReceived() + getTotalFinalPayments();
+  };
+
+  const getCombinedPaymentHistory = () => {
+    const history = [];
+    if (jc?.advancePayments) {
+      jc.advancePayments.forEach(p => {
+        history.push({
+          id: p._id,
+          type: 'Advance Deposit',
+          date: p.paymentDate,
+          mode: p.paymentMode || p.type,
+          amount: p.amount,
+          txnId: p.transactionId,
+          recordedBy: p.recordedBy || 'System',
+          remarks: p.remarks,
+          isAdvance: true
+        });
+      });
+    }
+    if (jc?.finalPayments) {
+      jc.finalPayments.forEach(p => {
+        history.push({
+          id: p._id,
+          type: 'Final Settlement',
+          date: p.paymentDate,
+          mode: p.paymentType,
+          amount: p.amount,
+          txnId: p.transactionId || p.referenceNumber,
+          recordedBy: p.recordedBy || 'System',
+          remarks: p.remarks,
+          isAdvance: false
+        });
+      });
+    }
+    return history.sort((a, b) => new Date(b.date) - new Date(a.date));
   };
 
   const handleQtyChange = (partId, val) => {
@@ -250,6 +392,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   useEffect(() => {
     fetchDetails();
     fetchEstimate();
+    fetchInvoice();
   }, [jcId]);
 
   const updateFields = async (updates) => {
@@ -939,7 +1082,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {/* List of Payments */}
             <div className="lg:col-span-2 space-y-2 max-h-60 overflow-y-auto pr-1">
-              <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">Payment Transaction History</span>
+              <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">Advance Deposits History</span>
               {jc.advancePayments && jc.advancePayments.length > 0 ? (
                 jc.advancePayments.map((payment, idx) => (
                   <div key={payment._id || idx} className="flex justify-between items-center bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-850 p-3 rounded-xl shadow-xs group">
@@ -1069,8 +1212,251 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           </div>
         </div>
 
-        {/* Signatures & QR Block */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 border-t border-slate-100 dark:border-slate-800 pt-6">
+        {/* Final Payment / Balance Settlement Section */}
+        <div className="border-t border-slate-150 dark:border-slate-800 pt-6 space-y-4 select-none">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h4 className="text-sm font-black text-slate-850 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                <CreditCard className="w-4 h-4 text-indigo-500" /> Final Payment / Balance Settlement
+              </h4>
+              <p className="text-[11px] text-slate-450 font-semibold mt-0.5">Process and settle the remaining balance for the job card</p>
+            </div>
+            
+            {/* Live calculations */}
+            <div className="flex gap-4">
+              <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 px-3.5 py-2 rounded-xl text-right">
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Balance Payable</span>
+                <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono">
+                  ₹{getBalancePayable().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 px-3.5 py-2 rounded-xl text-right">
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending Amount</span>
+                <span className="text-sm font-black text-rose-600 dark:text-rose-450 font-mono">
+                  ₹{getPendingAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            {/* Form to Receive Payment */}
+            <div className="lg:col-span-2">
+              {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'].includes(user?.role) && (
+                <form onSubmit={handleAddFinalPayment} className="bg-slate-50 dark:bg-slate-950/10 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl space-y-3">
+                  <span className="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b pb-1.5">Receive Final / Balance Payment</span>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Final Bill Amount (Auto)</label>
+                      <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-650 dark:text-slate-350">
+                        ₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Total Advance (Read-Only)</label>
+                      <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-650 dark:text-slate-350">
+                        ₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Balance Payable (Auto)</label>
+                      <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-750 dark:text-slate-250">
+                        ₹{getBalancePayable().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Amount Received (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Amount"
+                        value={finalAmount}
+                        onChange={(e) => setFinalAmount(e.target.value)}
+                        required
+                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Payment Type</label>
+                      <select
+                        value={finalPaymentType}
+                        onChange={(e) => setFinalPaymentType(e.target.value)}
+                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Online">Online</option>
+                        <option value="Card Swipe">Card Swipe</option>
+                        <option value="Scanner Payment">Scanner Payment</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Transaction ID</label>
+                      <input
+                        type="text"
+                        placeholder="Txn ID"
+                        value={finalTransactionId}
+                        onChange={(e) => setFinalTransactionId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Reference Number</label>
+                      <input
+                        type="text"
+                        placeholder="Ref No / Auth Code"
+                        value={finalReferenceNumber}
+                        onChange={(e) => setFinalReferenceNumber(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Remarks</label>
+                      <input
+                        type="text"
+                        placeholder="Remarks..."
+                        value={finalRemarks}
+                        onChange={(e) => setFinalRemarks(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={addingFinal}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    <CheckCircle className="w-4 h-4" /> {addingFinal ? 'Processing...' : 'Receive Payment'}
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {/* Payment Summary */}
+            <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-150 dark:border-slate-850 p-4 rounded-2xl space-y-3">
+              <span className="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b pb-1.5">Payment Summary</span>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
+                  <span className="font-semibold text-slate-400">Final Invoice Amount</span>
+                  <span className="font-bold font-mono text-slate-800 dark:text-white">₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
+                  <span className="font-semibold text-slate-400">Advance Received</span>
+                  <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
+                  <span className="font-semibold text-slate-400">Balance Received</span>
+                  <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">₹{getTotalFinalPayments().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
+                  <span className="font-semibold text-slate-400">Total Received</span>
+                  <span className="font-extrabold font-mono text-emerald-600 dark:text-emerald-400">₹{getTotalReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
+                  <span className="font-semibold text-slate-400">Pending Amount</span>
+                  <span className="font-extrabold font-mono text-rose-600 dark:text-rose-450">₹{getPendingAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2">
+                  <span className="font-semibold text-slate-400">Payment Status</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                    jc?.paymentStatus === 'Fully Paid' 
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-450 border-emerald-200/50' 
+                      : jc?.paymentStatus === 'Partially Paid'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-450 border-amber-200/50'
+                      : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-450 border-rose-200/50'
+                  }`}>
+                    {jc?.paymentStatus || 'Pending'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Transaction History */}
+          <div className="space-y-2 select-none border-t border-slate-150 dark:border-slate-800 pt-4">
+            <h5 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide">Complete Payment History Log</h5>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-bold text-slate-455">
+                    <th className="py-2.5 px-3">Date & Time</th>
+                    <th className="py-2.5 px-3">Payment Class</th>
+                    <th className="py-2.5 px-3">Payment Mode</th>
+                    <th className="py-2.5 px-3 text-right">Amount</th>
+                    <th className="py-2.5 px-3">Transaction / Ref ID</th>
+                    <th className="py-2.5 px-3">Received By</th>
+                    <th className="py-2.5 px-3">Remarks</th>
+                    <th className="py-2.5 px-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {getCombinedPaymentHistory().length > 0 ? (
+                    getCombinedPaymentHistory().map((p) => (
+                      <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-colors">
+                        <td className="py-3 px-3 font-medium text-slate-500 whitespace-nowrap">
+                          {new Date(p.date).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                            p.isAdvance 
+                              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-100/50' 
+                              : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-450 border border-emerald-100/50'
+                          }`}>
+                            {p.type}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-semibold text-slate-700 dark:text-slate-350">
+                          {p.mode}
+                        </td>
+                        <td className="py-3 px-3 text-right font-bold font-mono text-slate-800 dark:text-white whitespace-nowrap">
+                          ₹{p.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-slate-500">
+                          {p.txnId || 'N/A'}
+                        </td>
+                        <td className="py-3 px-3 text-slate-500 font-medium">
+                          {p.recordedBy}
+                        </td>
+                        <td className="py-3 px-3 text-slate-450 italic max-w-xs truncate" title={p.remarks}>
+                          {p.remarks || '-'}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'].includes(user?.role) && (
+                            <button
+                              type="button"
+                              onClick={() => p.isAdvance ? handleDeleteAdvance(p.id) : handleDeleteFinalPayment(p.id)}
+                              className="text-red-500 hover:text-red-700 p-1 rounded-lg transition-colors hover:bg-red-500/10"
+                              title={`Delete ${p.type.toLowerCase()}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="8" className="py-4 text-center text-slate-450 italic">
+                        No payment transactions (advance or final) recorded for this Job Card.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Signatures Block */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 border-t border-slate-100 dark:border-slate-800 pt-6">
           
           {/* Customer Signature box */}
           <div className="flex flex-col items-center justify-between border border-slate-100 dark:border-slate-800 p-4 rounded-2xl h-36">
@@ -1103,36 +1489,6 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <span className="text-[10px] text-slate-400 italic">No signature logged</span>
             )}
             <span className="w-32 border-b border-slate-200 dark:border-slate-700" />
-          </div>
-
-          {/* QR Code Indicator */}
-          <div className="flex flex-col items-center justify-center border border-slate-100 dark:border-slate-800 p-4 rounded-2xl h-36 text-center">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2">Scan Job Card Details</span>
-            {/* Visual QR Code Mock using SVG */}
-            <svg width="60" height="60" viewBox="0 0 100 100" className="text-slate-800 dark:text-slate-200">
-              <rect x="0" y="0" width="25" height="25" fill="currentColor" />
-              <rect x="5" y="5" width="15" height="15" fill="white" />
-              <rect x="8" y="8" width="9" height="9" fill="currentColor" />
-              
-              <rect x="75" y="0" width="25" height="25" fill="currentColor" />
-              <rect x="80" y="5" width="15" height="15" fill="white" />
-              <rect x="83" y="8" width="9" height="9" fill="currentColor" />
-
-              <rect x="0" y="75" width="25" height="25" fill="currentColor" />
-              <rect x="5" y="80" width="15" height="15" fill="white" />
-              <rect x="8" y="83" width="9" height="9" fill="currentColor" />
-
-              {/* Random QR pixels */}
-              <rect x="35" y="10" width="10" height="10" fill="currentColor" />
-              <rect x="50" y="20" width="15" height="5" fill="currentColor" />
-              <rect x="35" y="45" width="15" height="15" fill="currentColor" />
-              <rect x="55" y="50" width="10" height="10" fill="currentColor" />
-              <rect x="80" y="40" width="10" height="20" fill="currentColor" />
-              <rect x="15" y="40" width="5" height="25" fill="currentColor" />
-              <rect x="40" y="75" width="20" height="10" fill="currentColor" />
-              <rect x="75" y="75" width="15" height="5" fill="currentColor" />
-            </svg>
-            <span className="text-[8px] text-slate-400 mt-2 font-mono">ID: {jc.jobCardNo}</span>
           </div>
 
         </div>

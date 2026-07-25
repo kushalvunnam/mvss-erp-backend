@@ -395,6 +395,7 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
       recordedBy: req.user ? req.user.name : 'System'
     });
 
+    await updateJobCardPaymentStatus(jobCard);
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_ADD', `Recorded advance payment of ₹${amount} for Job Card ${jobCard.jobCardNo}`, req);
@@ -427,6 +428,7 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
     if (transactionId !== undefined) payment.transactionId = transactionId || '';
     if (remarks !== undefined) payment.remarks = remarks || '';
 
+    await updateJobCardPaymentStatus(jobCard);
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_UPDATE', `Updated advance payment ID ${payment._id} on Job Card ${jobCard.jobCardNo}`, req);
@@ -435,6 +437,35 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
     res.status(400).send({ error: 'Failed to update advance payment: ' + error.message });
   }
 });
+
+// Helper to update Job Card Payment Status based on invoice grand totals and payments
+const updateJobCardPaymentStatus = async (jobCard) => {
+  const Invoice = require('../models/Invoice');
+  let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
+  if (!invoice) {
+    invoice = await Invoice.findOne({ jobCardId: jobCard._id });
+  }
+
+  const finalBillAmount = invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jobCard.billingSummary?.grandTotal || 0);
+
+  const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + p.amount, 0);
+  const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + p.amount, 0);
+  const totalReceived = totalAdvance + totalFinal;
+
+  const pendingAmount = Math.max(0, finalBillAmount - totalReceived);
+
+  if (finalBillAmount > 0) {
+    if (pendingAmount <= 0.05) {
+      jobCard.paymentStatus = 'Fully Paid';
+    } else if (totalReceived > 0) {
+      jobCard.paymentStatus = 'Partially Paid';
+    } else {
+      jobCard.paymentStatus = 'Pending';
+    }
+  } else {
+    jobCard.paymentStatus = totalReceived > 0 ? 'Partially Paid' : 'Pending';
+  }
+};
 
 // Delete advance payment from Job Card
 router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
@@ -449,6 +480,8 @@ router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin'
 
     const removedPayment = jobCard.advancePayments[paymentIndex];
     jobCard.advancePayments.splice(paymentIndex, 1);
+    
+    await updateJobCardPaymentStatus(jobCard);
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_REMOVE', `Deleted advance payment of ₹${removedPayment.amount} from Job Card ${jobCard.jobCardNo}`, req);
@@ -458,4 +491,74 @@ router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin'
   }
 });
 
+// Get all final payments for a Job Card
+router.get('/:id/final-payments', auth, async (req, res) => {
+  try {
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+    res.send(jobCard.finalPayments || []);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to fetch final payments: ' + error.message });
+  }
+});
+
+// Add final payment to Job Card
+router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+  try {
+    const { amount, paymentType, transactionId, referenceNumber, remarks, paymentDate } = req.body;
+    if (!amount || amount <= 0) {
+      return res.status(400).send({ error: 'Valid final payment amount is required.' });
+    }
+    if (!paymentType) {
+      return res.status(400).send({ error: 'Payment type is required.' });
+    }
+
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    jobCard.finalPayments.push({
+      amount: Number(amount),
+      paymentType,
+      transactionId: transactionId || '',
+      referenceNumber: referenceNumber || '',
+      remarks: remarks || '',
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      recordedBy: req.user ? req.user.name : 'System'
+    });
+
+    await updateJobCardPaymentStatus(jobCard);
+    await jobCard.save();
+
+    await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_ADD', `Recorded final payment of ₹${amount} for Job Card ${jobCard.jobCardNo}`, req);
+    res.send(jobCard);
+  } catch (error) {
+    res.status(400).send({ error: 'Failed to record final payment: ' + error.message });
+  }
+});
+
+// Delete final payment from Job Card
+router.delete('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+  try {
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    const paymentIndex = jobCard.finalPayments.findIndex(p => p._id.toString() === req.params.paymentId);
+    if (paymentIndex === -1) {
+      return res.status(404).send({ error: 'Final payment entry not found.' });
+    }
+
+    const removedPayment = jobCard.finalPayments[paymentIndex];
+    jobCard.finalPayments.splice(paymentIndex, 1);
+
+    await updateJobCardPaymentStatus(jobCard);
+    await jobCard.save();
+
+    await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_REMOVE', `Deleted final payment of ₹${removedPayment.amount} from Job Card ${jobCard.jobCardNo}`, req);
+    res.send(jobCard);
+  } catch (error) {
+    res.status(400).send({ error: 'Failed to delete final payment: ' + error.message });
+  }
+});
+
+router.updateJobCardPaymentStatus = updateJobCardPaymentStatus;
 module.exports = router;
