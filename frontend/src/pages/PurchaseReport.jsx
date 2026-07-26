@@ -231,7 +231,7 @@ export default function PurchaseReport({ token, user }) {
       if (!selected) {
         return { ...row, selectedPartId: '' };
       }
-      return {
+      const rawRow = {
         ...row,
         selectedPartId: selected._id,
         partName: selected.partName || '',
@@ -244,69 +244,79 @@ export default function PurchaseReport({ token, user }) {
         warehouse: selected.warehouse || 'Main Store',
         currentStock: selected.stockQuantity || 0
       };
+      return recalculateRowDiscounts(rawRow, null, null);
     }));
+  };
+
+  const recalculateRowDiscounts = (row, changedField, newValue) => {
+    let updatedRow = { ...row };
+    if (changedField) {
+      updatedRow[changedField] = newValue;
+    }
+
+    const qty = Number(updatedRow.qty) || 0;
+    const rate = Number(updatedRow.purchasePrice) || 0;
+    const gross = qty * rate;
+    const type = updatedRow.discountType || 'Percent';
+
+    if (changedField === 'discountPercent') {
+      const pct = Math.max(0, Math.min(100, parseFloat(newValue) || 0));
+      const calculatedAmt = (gross * (pct / 100)).toFixed(2);
+      updatedRow.discountPercent = newValue;
+      updatedRow.discountAmount = calculatedAmt;
+      updatedRow.discountValue = type === 'Percent' ? pct : calculatedAmt;
+    } else if (changedField === 'discountAmount') {
+      const amt = Math.max(0, Math.min(gross, parseFloat(newValue) || 0));
+      const calculatedPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
+      updatedRow.discountAmount = newValue;
+      updatedRow.discountPercent = calculatedPercent;
+      updatedRow.discountValue = type === 'Percent' ? calculatedPercent : amt;
+    } else if (changedField === 'discountType') {
+      updatedRow.discountType = newValue;
+      if (newValue === 'Percent') {
+        const pct = parseFloat(updatedRow.discountPercent) || 0;
+        updatedRow.discountAmount = (gross * (pct / 100)).toFixed(2);
+        updatedRow.discountValue = pct;
+      } else {
+        const amt = parseFloat(updatedRow.discountAmount) || 0;
+        updatedRow.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
+        updatedRow.discountValue = amt;
+      }
+    } else {
+      if (type === 'Percent') {
+        const pct = parseFloat(updatedRow.discountPercent) || 0;
+        updatedRow.discountAmount = (gross * (pct / 100)).toFixed(2);
+        updatedRow.discountValue = pct;
+      } else {
+        const amt = parseFloat(updatedRow.discountAmount) || 0;
+        const clampedAmt = Math.max(0, Math.min(gross, amt));
+        updatedRow.discountAmount = clampedAmt.toString();
+        updatedRow.discountPercent = gross > 0 ? ((clampedAmt / gross) * 100).toFixed(2) : '0';
+        updatedRow.discountValue = clampedAmt;
+      }
+    }
+
+    return updatedRow;
   };
 
   const handleRowChange = (rowId, field, value) => {
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
-      let updatedRow = { ...row, [field]: value };
-      
-      if (field === 'qty' || field === 'purchasePrice' || field === 'discountType') {
-        const qty = Number(updatedRow.qty) || 0;
-        const rate = Number(updatedRow.purchasePrice) || 0;
-        const gross = qty * rate;
-        
-        const type = updatedRow.discountType || 'Percent';
-        if (type === 'Percent') {
-          const pct = parseFloat(updatedRow.discountPercent) || 0;
-          updatedRow.discountAmount = (gross * (pct / 100)).toFixed(2);
-          updatedRow.discountValue = pct;
-        } else {
-          const amt = parseFloat(updatedRow.discountAmount) || 0;
-          updatedRow.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-          updatedRow.discountValue = amt;
-        }
-      }
-      return updatedRow;
+      return recalculateRowDiscounts(row, field, value);
     }));
   };
 
   const handleDiscountPercentChange = (rowId, value) => {
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
-      const qty = Number(row.qty) || 0;
-      const rate = Number(row.purchasePrice) || 0;
-      const gross = qty * rate;
-      
-      const pct = parseFloat(value) || 0;
-      const calculatedAmt = (gross * (pct / 100)).toFixed(2);
-      
-      return {
-        ...row,
-        discountPercent: value,
-        discountAmount: calculatedAmt,
-        discountValue: row.discountType === 'Percent' ? pct : calculatedAmt
-      };
+      return recalculateRowDiscounts(row, 'discountPercent', value);
     }));
   };
 
   const handleDiscountAmountChange = (rowId, value) => {
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
-      const qty = Number(row.qty) || 0;
-      const rate = Number(row.purchasePrice) || 0;
-      const gross = qty * rate;
-      
-      const amt = parseFloat(value) || 0;
-      const calculatedPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-      
-      return {
-        ...row,
-        discountAmount: value,
-        discountPercent: calculatedPercent,
-        discountValue: row.discountType === 'Percent' ? calculatedPercent : amt
-      };
+      return recalculateRowDiscounts(row, 'discountAmount', value);
     }));
   };
 
