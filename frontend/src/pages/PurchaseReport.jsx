@@ -82,6 +82,8 @@ export default function PurchaseReport({ token, user }) {
     sellingPrice: '',
     mrp: '',
     discountType: 'Percent',
+    discountPercent: 0,
+    discountAmount: 0,
     discountValue: 0,
     gstPercent: 18,
     warehouse: 'Main Store',
@@ -248,7 +250,63 @@ export default function PurchaseReport({ token, user }) {
   const handleRowChange = (rowId, field, value) => {
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
-      return { ...row, [field]: value };
+      let updatedRow = { ...row, [field]: value };
+      
+      if (field === 'qty' || field === 'purchasePrice' || field === 'discountType') {
+        const qty = Number(updatedRow.qty) || 0;
+        const rate = Number(updatedRow.purchasePrice) || 0;
+        const gross = qty * rate;
+        
+        const type = updatedRow.discountType || 'Percent';
+        if (type === 'Percent') {
+          const pct = parseFloat(updatedRow.discountPercent) || 0;
+          updatedRow.discountAmount = (gross * (pct / 100)).toFixed(2);
+          updatedRow.discountValue = pct;
+        } else {
+          const amt = parseFloat(updatedRow.discountAmount) || 0;
+          updatedRow.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
+          updatedRow.discountValue = amt;
+        }
+      }
+      return updatedRow;
+    }));
+  };
+
+  const handleDiscountPercentChange = (rowId, value) => {
+    setPurchaseItems(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+      const qty = Number(row.qty) || 0;
+      const rate = Number(row.purchasePrice) || 0;
+      const gross = qty * rate;
+      
+      const pct = parseFloat(value) || 0;
+      const calculatedAmt = (gross * (pct / 100)).toFixed(2);
+      
+      return {
+        ...row,
+        discountPercent: value,
+        discountAmount: calculatedAmt,
+        discountValue: row.discountType === 'Percent' ? pct : calculatedAmt
+      };
+    }));
+  };
+
+  const handleDiscountAmountChange = (rowId, value) => {
+    setPurchaseItems(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+      const qty = Number(row.qty) || 0;
+      const rate = Number(row.purchasePrice) || 0;
+      const gross = qty * rate;
+      
+      const amt = parseFloat(value) || 0;
+      const calculatedPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
+      
+      return {
+        ...row,
+        discountAmount: value,
+        discountPercent: calculatedPercent,
+        discountValue: row.discountType === 'Percent' ? calculatedPercent : amt
+      };
     }));
   };
 
@@ -259,15 +317,18 @@ export default function PurchaseReport({ token, user }) {
     const gross = qty * rate;
 
     const discountType = row.discountType || 'Percent';
-    const discountValue = Number(row.discountValue) || 0;
+    let discountPercent = Number(row.discountPercent) || 0;
+    let discountAmount = Number(row.discountAmount) || 0;
 
-    let discountAmount = 0;
     if (discountType === 'Percent') {
-      discountAmount = (gross * discountValue) / 100;
+      discountAmount = (gross * discountPercent) / 100;
     } else {
-      discountAmount = discountValue;
+      discountPercent = gross > 0 ? (discountAmount / gross) * 100 : 0;
     }
+
+    // Bounds check
     discountAmount = Math.max(0, Math.min(gross, discountAmount));
+    discountPercent = Math.max(0, Math.min(100, discountPercent));
 
     const taxable = Math.max(0, gross - discountAmount);
     const gstPct = !isNaN(Number(row.gstPercent)) ? Number(row.gstPercent) : 18;
@@ -285,6 +346,7 @@ export default function PurchaseReport({ token, user }) {
 
     return {
       gross: round2(gross),
+      discountPercent: round2(discountPercent),
       discountAmount: round2(discountAmount),
       taxable: round2(taxable),
       gstAmt: round2(gstAmt),
@@ -459,7 +521,7 @@ export default function PurchaseReport({ token, user }) {
     if (finalStatus === 'Unpaid') finalStatus = 'Credit';
 
     const payloadItems = purchaseItems.map(row => {
-      const { taxable, gstAmt, total } = calculateRowTotals(row);
+      const rowCalc = calculateRowTotals(row);
       return {
         partId: row.selectedPartId || undefined,
         partName: row.partName,
@@ -471,8 +533,8 @@ export default function PurchaseReport({ token, user }) {
         mrp: Number(row.mrp) || 0,
         discountType: row.discountType || 'Percent',
         discountValue: Number(row.discountValue) || 0,
-        discountPercent: row.discountType === 'Percent' ? (Number(row.discountValue) || 0) : 0,
-        discountAmount: Number(rowCalc.discountAmount) || 0,
+        discountPercent: Number(row.discountPercent) || 0,
+        discountAmount: Number(row.discountAmount) || 0,
         gstPercent: Number(row.gstPercent) !== undefined ? Number(row.gstPercent) : 18,
         warehouse: row.warehouse || 'Main Store',
         rackLocation: row.rackLocation || '',
@@ -965,8 +1027,8 @@ export default function PurchaseReport({ token, user }) {
                     <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>Rate (₹) *</th>
                     <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>MRP (₹) *</th>
                     <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>Discount Type</th>
-                    <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>Discount Value</th>
-                    <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>Disc Amt (₹)</th>
+                    <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>Discount %</th>
+                    <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>Discount (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '100px', minWidth: '100px', verticalAlign: 'middle', textAlign: 'left' }}>GST %</th>
                     <th className="py-2.5 px-3" style={{ width: '140px', minWidth: '140px', verticalAlign: 'middle', textAlign: 'left' }}>Taxable (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>CGST (₹)</th>
@@ -1092,21 +1154,31 @@ export default function PurchaseReport({ token, user }) {
                           </select>
                         </td>
 
-                        {/* Discount Value */}
+                        {/* Discount % */}
                         <td className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>
                           <input
                             type="number"
                             min="0"
+                            max="100"
+                            step="0.01"
                             placeholder="0"
-                            value={row.discountValue || ''}
-                            onChange={(e) => handleRowChange(row.id, 'discountValue', e.target.value)}
+                            value={row.discountPercent !== undefined && row.discountPercent !== null ? row.discountPercent : ''}
+                            onChange={(e) => handleDiscountPercentChange(row.id, e.target.value)}
                             className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           />
                         </td>
 
-                        {/* Discount Amount (Calculated) */}
-                        <td className="py-2.5 px-3 font-semibold text-slate-600 dark:text-slate-400" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>
-                          ₹{rowCalc.discountAmount.toFixed(2)}
+                        {/* Discount Amount (₹) */}
+                        <td className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={row.discountAmount !== undefined && row.discountAmount !== null ? row.discountAmount : ''}
+                            onChange={(e) => handleDiscountAmountChange(row.id, e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
                         </td>
 
                         {/* GST % */}

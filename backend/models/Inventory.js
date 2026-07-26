@@ -128,6 +128,15 @@ const inventorySchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  discountAmount: {
+    type: Number,
+    default: 0,
+  },
+  discountType: {
+    type: String,
+    enum: ['Percent', 'Fixed', 'Flat'],
+    default: 'Percent'
+  },
   chargeAmount: {
     type: Number,
     default: 0,

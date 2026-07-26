@@ -81,6 +81,63 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     return cleaned;
   };
 
+  const handleDiscountPercentChange = (list, setter, idx, val) => {
+    setManualOverride(false);
+    const updated = [...list];
+    const item = { ...updated[idx] };
+    const qty = Math.max(1, parseFloat(item.qty) || 1);
+    const rate = parseFloat(item.rate) || 0;
+    const gross = qty * rate;
+    
+    const cleanPct = cleanNumberInput(val, true);
+    const pctNum = Math.max(0, Math.min(100, parseFloat(cleanPct) || 0));
+    const calculatedAmt = (gross * (pctNum / 100)).toFixed(2);
+    
+    item.discountPercent = cleanPct;
+    item.discountAmount = calculatedAmt;
+    updated[idx] = item;
+    setter(updated);
+  };
+
+  const handleDiscountAmountChange = (list, setter, idx, val) => {
+    setManualOverride(false);
+    const updated = [...list];
+    const item = { ...updated[idx] };
+    const qty = Math.max(1, parseFloat(item.qty) || 1);
+    const rate = parseFloat(item.rate) || 0;
+    const gross = qty * rate;
+    
+    const cleanAmt = cleanNumberInput(val, true);
+    const amtNum = Math.max(0, Math.min(gross, parseFloat(cleanAmt) || 0));
+    const calculatedPercent = gross > 0 ? ((amtNum / gross) * 100).toFixed(2) : '0';
+    
+    item.discountAmount = cleanAmt;
+    item.discountPercent = calculatedPercent;
+    updated[idx] = item;
+    setter(updated);
+  };
+
+  const handleDiscountTypeChange = (list, setter, idx, type) => {
+    setManualOverride(false);
+    const updated = [...list];
+    const item = { ...updated[idx] };
+    item.discountType = type;
+    
+    const qty = Math.max(1, parseFloat(item.qty) || 1);
+    const rate = parseFloat(item.rate) || 0;
+    const gross = qty * rate;
+    
+    if (type === 'Percent') {
+      const pct = parseFloat(item.discountPercent) || 0;
+      item.discountAmount = (gross * (pct / 100)).toFixed(2);
+    } else {
+      const amt = parseFloat(item.discountAmount) || 0;
+      item.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
+    }
+    updated[idx] = item;
+    setter(updated);
+  };
+
   const handleRowNumericChange = (e, list, setter, idx, field, allowDecimal = true, maxVal = null) => {
     setManualOverride(false);
     const input = e.target;
@@ -91,7 +148,24 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     
     const updatedList = [...list];
     delete updatedList[idx].totalCustom;
-    updatedList[idx] = { ...updatedList[idx], [field]: processedValue };
+    let item = { ...updatedList[idx], [field]: processedValue };
+
+    if (field === 'qty' || field === 'rate') {
+      const qty = Math.max(1, parseFloat(item.qty) || 1);
+      const rate = parseFloat(item.rate) || 0;
+      const gross = qty * rate;
+      const type = item.discountType || 'Percent';
+      
+      if (type === 'Percent') {
+        const pct = parseFloat(item.discountPercent) || 0;
+        item.discountAmount = (gross * (pct / 100)).toFixed(2);
+      } else {
+        const amt = parseFloat(item.discountAmount) || 0;
+        item.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
+      }
+    }
+
+    updatedList[idx] = item;
     setter(updatedList);
 
     requestAnimationFrame(() => {
@@ -1103,46 +1177,40 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                   />
                 </div>
 
-                <div className="w-28 flex gap-1">
-                  <div className="flex-1">
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Discount</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={part.discountType === 'Fixed' ? (part.discountAmount || '') : (part.discountPercent || '')}
-                      onChange={(e) => {
-                        const val = cleanNumberInput(e.target.value, true);
-                        const updated = [...partsList];
-                        if (part.discountType === 'Fixed') {
-                          updated[idx].discountAmount = val;
-                          updated[idx].discountPercent = '0';
-                        } else {
-                          updated[idx].discountPercent = val;
-                          updated[idx].discountAmount = '0';
-                        }
-                        setPartsList(updated);
-                      }}
-                      placeholder="0"
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                    />
-                  </div>
-                  <div className="w-10 shrink-0">
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Type</label>
-                    <select
-                      value={part.discountType || 'Percent'}
-                      onChange={(e) => {
-                        const updated = [...partsList];
-                        updated[idx].discountType = e.target.value;
-                        updated[idx].discountPercent = '0';
-                        updated[idx].discountAmount = '0';
-                        setPartsList(updated);
-                      }}
-                      className="w-full h-[28px] px-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                    >
-                      <option value="Percent">%</option>
-                      <option value="Fixed">₹</option>
-                    </select>
-                  </div>
+                <div className="w-16">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
+                  <select
+                    value={part.discountType || 'Percent'}
+                    onChange={(e) => handleDiscountTypeChange(partsList, setPartsList, idx, e.target.value)}
+                    className="w-full h-[28px] px-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
+                  >
+                    <option value="Percent">Percent (%)</option>
+                    <option value="Fixed">Flat (₹)</option>
+                  </select>
+                </div>
+
+                <div className="w-14">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc %</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={part.discountPercent !== undefined ? part.discountPercent : ''}
+                    onChange={(e) => handleDiscountPercentChange(partsList, setPartsList, idx, e.target.value)}
+                    placeholder="0"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
+                </div>
+
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Amt (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={part.discountAmount !== undefined ? part.discountAmount : ''}
+                    onChange={(e) => handleDiscountAmountChange(partsList, setPartsList, idx, e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
                 </div>
 
                 <div className="w-36">
@@ -1312,49 +1380,41 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
-
-                <div className="w-28 flex gap-1">
-                  <div className="flex-1">
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Discount</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={lab.discountType === 'Fixed' ? (lab.discountAmount || '') : (lab.discountPercent || '')}
-                      onChange={(e) => {
-                        const val = cleanNumberInput(e.target.value, true);
-                        const updated = [...labourList];
-                        if (lab.discountType === 'Fixed') {
-                          updated[idx].discountAmount = val;
-                          updated[idx].discountPercent = '0';
-                        } else {
-                          updated[idx].discountPercent = val;
-                          updated[idx].discountAmount = '0';
-                        }
-                        setLabourList(updated);
-                      }}
-                      placeholder="0"
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                    />
-                  </div>
-                  <div className="w-10 shrink-0">
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Type</label>
-                    <select
-                      value={lab.discountType || 'Percent'}
-                      onChange={(e) => {
-                        const updated = [...labourList];
-                        updated[idx].discountType = e.target.value;
-                        updated[idx].discountPercent = '0';
-                        updated[idx].discountAmount = '0';
-                        setLabourList(updated);
-                      }}
-                      className="w-full h-[28px] px-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                    >
-                      <option value="Percent">%</option>
-                      <option value="Fixed">₹</option>
-                    </select>
-                  </div>
+                <div className="w-16">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
+                  <select
+                    value={lab.discountType || 'Percent'}
+                    onChange={(e) => handleDiscountTypeChange(labourList, setLabourList, idx, e.target.value)}
+                    className="w-full h-[28px] px-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
+                  >
+                    <option value="Percent">Percent (%)</option>
+                    <option value="Fixed">Flat (₹)</option>
+                  </select>
                 </div>
-                            <div className="w-36">
+
+                <div className="w-14">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc %</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={lab.discountPercent !== undefined ? lab.discountPercent : ''}
+                    onChange={(e) => handleDiscountPercentChange(labourList, setLabourList, idx, e.target.value)}
+                    placeholder="0"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
+                </div>
+
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Amt (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={lab.discountAmount !== undefined ? lab.discountAmount : ''}
+                    onChange={(e) => handleDiscountAmountChange(labourList, setLabourList, idx, e.target.value)}
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
+                </div>
+                <div className="w-36">
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">GST %</label>
                   <div className="flex gap-1 items-center">
                     <select

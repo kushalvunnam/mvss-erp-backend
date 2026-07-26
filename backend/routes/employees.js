@@ -209,7 +209,7 @@ router.post('/attendance/bulk', async (req, res) => {
 
     const updatedEmployees = [];
     for (const record of records) {
-      const { employeeId, status } = record;
+      const { employeeId, status, remarks } = record;
       const employee = await Employee.findById(employeeId);
       if (employee) {
         employee.attendance = employee.attendance.filter(a => {
@@ -217,7 +217,13 @@ router.post('/attendance/bulk', async (req, res) => {
           d.setHours(0, 0, 0, 0);
           return d.getTime() !== attendanceDate.getTime();
         });
-        employee.attendance.push({ date: attendanceDate, status });
+        employee.attendance.push({
+          date: attendanceDate,
+          status,
+          updatedBy: req.user ? req.user.name : 'System',
+          updatedTime: new Date(),
+          remarks: remarks || ''
+        });
         await employee.save();
         updatedEmployees.push(employee);
       }
@@ -234,7 +240,7 @@ router.post('/attendance/bulk', async (req, res) => {
 // 4. Save daily attendance
 router.post('/:id/attendance', async (req, res) => {
   try {
-    const { date, status } = req.body;
+    const { date, status, remarks } = req.body;
     const employee = await Employee.findById(req.params.id);
     if (!employee) return res.status(404).send({ error: 'Employee not found.' });
 
@@ -248,7 +254,13 @@ router.post('/:id/attendance', async (req, res) => {
       return d.getTime() !== attendanceDate.getTime();
     });
 
-    employee.attendance.push({ date: attendanceDate, status });
+    employee.attendance.push({
+      date: attendanceDate,
+      status,
+      updatedBy: req.user ? req.user.name : 'System',
+      updatedTime: new Date(),
+      remarks: remarks || ''
+    });
     await employee.save();
     
     res.send(employee);
@@ -264,18 +276,54 @@ router.post('/:id/salary', async (req, res) => {
     const employee = await Employee.findById(req.params.id);
     if (!employee) return res.status(404).send({ error: 'Employee not found.' });
 
-    // Count leaves for the specified month-year (formatted YYYY-MM, supporting Half Days)
-    let leavesCount = 0;
+    // Count leaves for the specified month-year (formatted YYYY-MM) with default Sundays as Weekly Off
+    const [year, month] = monthYear.split('-').map(Number);
+    const endDate = new Date(year, month, 0); // last day of month
+    
+    let absentCount = 0;
+    let halfDayCount = 0;
+    let leaveCount = 0;
+    let presentCount = 0;
+    let weeklyOffCount = 0;
+    
+    const attendanceMap = {};
     employee.attendance.forEach(a => {
-      const dateStr = new Date(a.date).toISOString().substring(0, 7);
-      if (dateStr === monthYear) {
-        if (a.status === 'Absent' || a.status === 'Leave') {
-          leavesCount += 1;
-        } else if (a.status === 'Half Day') {
-          leavesCount += 0.5;
+      const d = new Date(a.date);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      attendanceMap[`${yyyy}-${mm}-${dd}`] = a.status;
+    });
+
+    for (let day = 1; day <= endDate.getDate(); day++) {
+      const currentDate = new Date(year, month - 1, day);
+      const yyyy = currentDate.getFullYear();
+      const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(currentDate.getDate()).padStart(2, '0');
+      const key = `${yyyy}-${mm}-${dd}`;
+      
+      const status = attendanceMap[key];
+      if (status) {
+        if (status === 'Absent') {
+          absentCount += 1;
+        } else if (status === 'Half Day') {
+          halfDayCount += 1;
+        } else if (status === 'Leave') {
+          leaveCount += 1;
+        } else if (status === 'Present' || status === 'Present (Worked on Weekly Off)') {
+          presentCount += 1;
+        } else if (status === 'Weekly Off') {
+          weeklyOffCount += 1;
+        }
+      } else {
+        if (currentDate.getDay() === 0) {
+          weeklyOffCount += 1; // Default Sunday to Weekly Off
         }
       }
-    });
+    }
+    
+    // Deduct salary only for actual Absent days and 0.5 * Half Days. Weekly Off (Holiday) does not reduce salary.
+    const leavesCount = absentCount + 0.5 * halfDayCount;
 
     const special = Number(specialAllowance) || 0;
     const other = Number(otherAllowance) || 0;
@@ -283,7 +331,7 @@ router.post('/:id/salary', async (req, res) => {
     const adv = Number(advances) || 0;
     const extraDeduct = Number(deductions) || 0;
 
-    // Deduct salary per day of leave (assumes 30 days month)
+    // Deduct salary per day of leavesCount (assumes 30 days month)
     const leaveDeduction = (basic / 30) * leavesCount;
     const netSalary = Math.round(Math.max(0, basic + special + other - adv - extraDeduct - leaveDeduction));
 

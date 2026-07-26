@@ -999,6 +999,7 @@ function PartsMasterBillingModal({
     quantity: initialData?.quantity !== undefined && initialData?.quantity !== null ? initialData.quantity.toString() : '1',
     discountPercent: initialData?.discountPercent !== undefined && initialData?.discountPercent !== null ? initialData.discountPercent.toString() : '0',
     discountAmount: initialData?.discountAmount !== undefined && initialData?.discountAmount !== null ? initialData.discountAmount.toString() : '0',
+    discountType: initialData?.discountType || 'Percent',
     gstPercent: initialData?.gstPercent !== undefined && initialData?.gstPercent !== null ? initialData.gstPercent.toString() : '18',
     chargeAmount: initialData?.chargeAmount !== undefined && initialData?.chargeAmount !== null ? initialData.chargeAmount.toString() : '',
     unit: initialData?.unit || 'Pcs',
@@ -1007,7 +1008,7 @@ function PartsMasterBillingModal({
     supplier: initialData?.supplier || '',
     barcode: initialData?.barcode || '',
     notes: initialData?.notes || '',
-    lastDiscountEdited: 'percent'
+    lastDiscountEdited: initialData?.discountType === 'Fixed' ? 'amount' : 'percent'
   }));
 
   const [manualFinalTotal, setManualFinalTotal] = useState(
@@ -1552,6 +1553,43 @@ function PartsMasterBillingModal({
                   placeholder="1"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Discount Type
+                </label>
+                <select
+                  value={form.discountType || 'Percent'}
+                  onChange={(e) => {
+                    const type = e.target.value;
+                    const qty = parseFloat(form.quantity) || 1;
+                    const sellPrice = parseFloat(form.sellingPrice) || 0;
+                    const gross = qty * sellPrice;
+                    
+                    let newPercent = form.discountPercent;
+                    let newAmount = form.discountAmount;
+                    
+                    if (type === 'Percent') {
+                      newAmount = (gross * (parseFloat(newPercent) || 0) / 100).toFixed(2);
+                    } else {
+                      newPercent = gross > 0 ? ((parseFloat(newAmount) || 0) / gross * 100).toFixed(2) : '0';
+                    }
+                    
+                    setForm(prev => ({
+                      ...prev,
+                      discountType: type,
+                      discountPercent: newPercent,
+                      discountAmount: newAmount,
+                      lastDiscountEdited: type === 'Percent' ? 'percent' : 'amount'
+                    }));
+                    setManualFinalTotal(null);
+                  }}
+                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500 h-10 text-xs"
+                >
+                  <option value="Percent">Percentage</option>
+                  <option value="Fixed">Fixed Amount</option>
+                </select>
               </div>
 
               <div>

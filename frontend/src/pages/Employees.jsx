@@ -183,6 +183,14 @@ export default function Employees({ token, user }) {
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().substring(0, 10));
   const [attendanceMap, setAttendanceMap] = useState({}); // { employeeId: status }
   const [checkedEmployees, setCheckedEmployees] = useState({}); // { employeeId: boolean }
+  const [attendanceRemarksMap, setAttendanceRemarksMap] = useState({}); // { employeeId: remarks }
+  const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState('');
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState(new Date().getMonth() + 1); // 1-12
+  const [selectedYearFilter, setSelectedYearFilter] = useState(new Date().getFullYear());
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState('');
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [activeHistoryEmployee, setActiveHistoryEmployee] = useState(null);
+  const [activeSubTab, setActiveSubTab] = useState('logger'); // 'logger' or 'analytics'
 
   // Salary states
   const [salaryForm, setSalaryForm] = useState({
@@ -309,17 +317,21 @@ export default function Employees({ token, user }) {
     }
   }, []);
 
-  // Sync attendance map when date changes
+  // Sync attendance map and remarks when date changes
   useEffect(() => {
     const map = {};
+    const remMap = {};
     employees.forEach(emp => {
       const record = emp.attendance?.find(a => {
         const d = new Date(a.date).toISOString().substring(0, 10);
         return d === attendanceDate;
       });
-      map[emp._id] = record ? record.status : 'Present'; // Default to Present
+      const defaultStatus = new Date(attendanceDate).getDay() === 0 ? 'Weekly Off' : 'Present';
+      map[emp._id] = record ? record.status : defaultStatus;
+      remMap[emp._id] = record ? (record.remarks || '') : '';
     });
     setAttendanceMap(map);
+    setAttendanceRemarksMap(remMap);
   }, [attendanceDate, employees]);
 
   // Recalculate leaves and net salary when salary inputs change
@@ -338,18 +350,40 @@ export default function Employees({ token, user }) {
     setSelectedSalaryEmployee(emp);
     if (!emp) return;
 
-    // Count leaves (Absent or Leave = 1, Half Day = 0.5) for specified monthYear
-    let leaves = 0;
+    // Count leaves (Absent = 1, Half Day = 0.5, Leave = 0) for specified monthYear with Sunday as default Present
+    const [year, month] = salaryForm.monthYear.split('-').map(Number);
+    const endDate = new Date(year, month, 0); // last day of month
+    
+    let absentCount = 0;
+    let halfDayCount = 0;
+    
+    const attendanceMap = {};
     emp.attendance?.forEach(a => {
-      const dateStr = new Date(a.date).toISOString().substring(0, 7);
-      if (dateStr === salaryForm.monthYear) {
-        if (a.status === 'Absent' || a.status === 'Leave') {
-          leaves += 1;
-        } else if (a.status === 'Half Day') {
-          leaves += 0.5;
+      const d = new Date(a.date);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      attendanceMap[`${yyyy}-${mm}-${dd}`] = a.status;
+    });
+
+    for (let day = 1; day <= endDate.getDate(); day++) {
+      const currentDate = new Date(year, month - 1, day);
+      const yyyy = currentDate.getFullYear();
+      const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(currentDate.getDate()).padStart(2, '0');
+      const key = `${yyyy}-${mm}-${dd}`;
+      
+      const status = attendanceMap[key];
+      if (status) {
+        if (status === 'Absent') {
+          absentCount += 1;
+        } else if (status === 'Half Day') {
+          halfDayCount += 1;
         }
       }
-    });
+    }
+    
+    const leaves = absentCount + 0.5 * halfDayCount;
 
     const basic = Number(salaryForm.basicSalary) || 0;
     const adv = Number(salaryForm.advances) || 0;
@@ -562,7 +596,8 @@ export default function Employees({ token, user }) {
   };
 
   const handleSaveAttendance = async (empId) => {
-    const status = attendanceMap[empId];
+    const status = attendanceMap[empId] || 'Present';
+    const remarks = attendanceRemarksMap[empId] || '';
     try {
       const res = await fetch(`${API_BASE_URL}/employees/${empId}/attendance`, {
         method: 'POST',
@@ -570,14 +605,18 @@ export default function Employees({ token, user }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ date: attendanceDate, status })
+        body: JSON.stringify({ date: attendanceDate, status, remarks })
       });
       if (res.ok) {
         fetchEmployees();
         alert('Attendance updated successfully for employee.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || 'Failed to save attendance'}`);
       }
     } catch (err) {
       console.error(err);
+      alert('Failed to save attendance.');
     }
   };
 
@@ -598,7 +637,8 @@ export default function Employees({ token, user }) {
 
     const records = selectedIds.map(id => ({
       employeeId: id,
-      status: attendanceMap[id] || 'Present'
+      status: attendanceMap[id] || 'Present',
+      remarks: attendanceRemarksMap[id] || ''
     }));
 
     try {
@@ -621,6 +661,44 @@ export default function Employees({ token, user }) {
     } catch (err) {
       console.error(err);
       alert('Error connecting to server.');
+    }
+  };
+
+  const handleOverrideDay = async (empId, dateStr, currentStatus) => {
+    const newStatus = window.prompt(`Override attendance for ${dateStr}.\nEnter status (Present, Absent, Half Day, Leave, Weekly Off):`, currentStatus);
+    if (!newStatus) return;
+    if (!['Present', 'Absent', 'Half Day', 'Leave', 'Weekly Off'].includes(newStatus)) {
+      alert('Invalid status. Enter: Present, Absent, Half Day, Leave, or Weekly Off.');
+      return;
+    }
+    const remarks = window.prompt(`Enter optional remarks for override:`, "");
+    if (remarks === null) return;
+    
+    let finalStatus = newStatus;
+    const dayOfWeek = new Date(dateStr).getDay();
+    if (dayOfWeek === 0 && newStatus === 'Present') {
+      finalStatus = 'Present (Worked on Weekly Off)';
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/employees/${empId}/attendance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ date: dateStr, status: finalStatus, remarks })
+      });
+      if (res.ok) {
+        fetchEmployees();
+        alert('Attendance overridden successfully.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || 'Failed to override'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to override attendance.');
     }
   };
 
@@ -949,6 +1027,113 @@ export default function Employees({ token, user }) {
     return matchesSearch && matchesStatus;
   });
 
+  const getMonthlyDetails = (emp) => {
+    if (!emp) return [];
+    const year = selectedYearFilter;
+    const month = selectedMonthFilter;
+    const endDate = new Date(year, month, 0); // last day of month
+    
+    const list = [];
+    const map = {};
+    emp.attendance?.forEach(a => {
+      const d = new Date(a.date);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      map[`${yyyy}-${mm}-${dd}`] = a;
+    });
+
+    for (let day = 1; day <= endDate.getDate(); day++) {
+      const currentDate = new Date(year, month - 1, day);
+      const yyyy = currentDate.getFullYear();
+      const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(currentDate.getDate()).padStart(2, '0');
+      const key = `${yyyy}-${mm}-${dd}`;
+      
+      const record = map[key];
+      if (record) {
+        list.push({
+          day,
+          dateStr: key,
+          status: record.status,
+          isDefault: false,
+          updatedBy: record.updatedBy || 'Admin',
+          updatedTime: record.updatedTime,
+          remarks: record.remarks || ''
+        });
+      } else {
+        if (currentDate.getDay() === 0) {
+          list.push({
+            day,
+            dateStr: key,
+            status: 'Weekly Off',
+            isDefault: true,
+            updatedBy: 'System',
+            updatedTime: null,
+            remarks: 'Weekly Off (Holiday)'
+          });
+        } else {
+          list.push({
+            day,
+            dateStr: key,
+            status: 'Not Recorded',
+            isDefault: true,
+            updatedBy: '',
+            updatedTime: null,
+            remarks: ''
+          });
+        }
+      }
+    }
+    return list;
+  };
+
+  const getEmpCurrentMonthSummary = (emp) => {
+    if (!emp) return { present: 0, absent: 0, halfDay: 0, leave: 0, weeklyOff: 0 };
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
+    const endDate = new Date(year, month, 0);
+    
+    let present = 0;
+    let absent = 0;
+    let halfDay = 0;
+    let leave = 0;
+    let weeklyOff = 0;
+
+    const map = {};
+    emp.attendance?.forEach(a => {
+      const d = new Date(a.date);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      map[`${yyyy}-${mm}-${dd}`] = a.status;
+    });
+
+    for (let day = 1; day <= endDate.getDate(); day++) {
+      const currentDate = new Date(year, month - 1, day);
+      const yyyy = currentDate.getFullYear();
+      const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(currentDate.getDate()).padStart(2, '0');
+      const key = `${yyyy}-${mm}-${dd}`;
+      
+      const status = map[key];
+      if (status) {
+        if (status === 'Present' || status === 'Present (Worked on Weekly Off)') present++;
+        else if (status === 'Absent') absent++;
+        else if (status === 'Half Day') halfDay++;
+        else if (status === 'Leave') leave++;
+        else if (status === 'Weekly Off') weeklyOff++;
+      } else {
+        if (currentDate.getDay() === 0) {
+          weeklyOff++; // Default Sunday to Weekly Off
+        }
+      }
+    }
+
+    return { present, absent, halfDay, leave, weeklyOff };
+  };
+
   return (
     <div className="space-y-4 animate-fade-in p-1 select-none">
       {/* Header */}
@@ -1158,148 +1343,446 @@ export default function Employees({ token, user }) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
             <div>
-              <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wide">Daily Attendance Sheet</h3>
-              <p className="text-[10px] text-slate-400 font-semibold">Select date to record or edit employee attendance records</p>
+              <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wide">Attendance Sheet & Analytics</h3>
+              <p className="text-[10px] text-slate-400 font-semibold">Record daily attendance, view summaries and track employee attendance histories</p>
             </div>
+            
             <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-slate-500" />
-              <input
-                type="date"
-                value={attendanceDate}
-                onChange={(e) => setAttendanceDate(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
-              />
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('logger')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeSubTab === 'logger' ? 'bg-indigo-655 text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}
+              >
+                📝 Logger
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('analytics')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeSubTab === 'analytics' ? 'bg-indigo-655 text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}
+              >
+                📊 Analytics & Calendar
+              </button>
             </div>
           </div>
 
-          {employees.length > 0 && (
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
-              <div className="flex items-center gap-2.5">
-                <input
-                  type="checkbox"
-                  id="select-all-attendance"
-                  checked={employees.length > 0 && employees.every(emp => !!checkedEmployees[emp._id])}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    const newChecked = {};
-                    const newMap = { ...attendanceMap };
-                    employees.forEach(emp => {
-                      newChecked[emp._id] = checked;
-                      if (checked) {
-                        newMap[emp._id] = 'Present';
-                      }
-                    });
-                    setCheckedEmployees(newChecked);
-                    if (checked) setAttendanceMap(newMap);
-                  }}
-                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-white dark:bg-slate-900"
-                />
-                <label htmlFor="select-all-attendance" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
-                  Select All Employees
-                </label>
+          {activeSubTab === 'logger' ? (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-955 p-4 rounded-xl border border-slate-150 dark:border-slate-800/30">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-350">Select Logger Date:</span>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-500" />
+                  <input
+                    type="date"
+                    value={attendanceDate}
+                    onChange={(e) => setAttendanceDate(e.target.value)}
+                    className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                  />
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleMarkAllStatus('Present')}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400 rounded-lg text-[11px] font-bold transition-all"
-                >
-                  ✓ Mark All Present
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMarkAllStatus('Absent')}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400 rounded-lg text-[11px] font-bold transition-all"
-                >
-                  ✗ Mark All Absent
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMarkAllStatus('Half Day')}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400 rounded-lg text-[11px] font-bold transition-all"
-                >
-                  ◐ Mark All Half Day
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMarkAllStatus('Leave')}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400 rounded-lg text-[11px] font-bold transition-all"
-                >
-                  🏖 Mark All Leave
-                </button>
-              </div>
-            </div>
-          )}
+              {employees.length > 0 && (
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      id="select-all-attendance"
+                      checked={employees.length > 0 && employees.every(emp => !!checkedEmployees[emp._id])}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const newChecked = {};
+                        const newMap = { ...attendanceMap };
+                        const isSunday = new Date(attendanceDate).getDay() === 0;
+                        const defaultStatus = isSunday ? 'Weekly Off' : 'Present';
+                        employees.forEach(emp => {
+                          newChecked[emp._id] = checked;
+                          if (checked) {
+                            newMap[emp._id] = defaultStatus;
+                          }
+                        });
+                        setCheckedEmployees(newChecked);
+                        if (checked) setAttendanceMap(newMap);
+                      }}
+                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-white dark:bg-slate-900"
+                    />
+                    <label htmlFor="select-all-attendance" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                      Select All Employees
+                    </label>
+                  </div>
 
-          <div className="space-y-3">
-            {employees.length > 0 ? (
-              employees.map(emp => {
-                const currentStatus = attendanceMap[emp._id] || 'Present';
-                return (
-                  <div key={emp._id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-900 gap-4">
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={!!checkedEmployees[emp._id]}
-                        onChange={(e) => {
-                          setCheckedEmployees({
-                            ...checkedEmployees,
-                            [emp._id]: e.target.checked
-                          });
-                        }}
-                        className="w-4 h-4 rounded border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-white dark:bg-slate-900 mt-1"
-                      />
-                      <div>
-                        <span className="font-bold text-slate-800 dark:text-white block">{emp.name}</span>
-                        <span className="text-[10px] text-slate-400 font-mono mt-0.5">{emp.email}</span>
-                        <div className="flex flex-wrap gap-2 text-[9px] font-extrabold uppercase tracking-wider text-slate-500 mt-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/80 w-fit px-2.5 py-1 rounded-lg">
-                          <span className="text-emerald-600 dark:text-emerald-400">Present: {emp.attendance?.filter(a => a.status === 'Present').length || 0}d</span>
-                          <span className="text-red-500">Absent: {emp.attendance?.filter(a => a.status === 'Absent').length || 0}d</span>
-                          <span className="text-amber-500">Half Day: {emp.attendance?.filter(a => a.status === 'Half Day').length || 0}d</span>
-                          <span className="text-blue-500">Leave: {emp.attendance?.filter(a => a.status === 'Leave').length || 0}d</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllStatus('Present')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-955/20 dark:text-emerald-400 rounded-lg text-[11px] font-bold transition-all"
+                    >
+                      ✓ Mark All Present
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllStatus('Absent')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-955/20 dark:text-red-400 rounded-lg text-[11px] font-bold transition-all"
+                    >
+                      ✗ Mark All Absent
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllStatus('Half Day')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-955/20 dark:text-amber-400 rounded-lg text-[11px] font-bold transition-all"
+                    >
+                      ◐ Mark All Half Day
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllStatus('Leave')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-955/20 dark:text-blue-400 rounded-lg text-[11px] font-bold transition-all"
+                    >
+                      🏖 Mark All Leave
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMarkAllStatus('Weekly Off')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-350 rounded-lg text-[11px] font-bold transition-all"
+                    >
+                      ⚪ Mark All Weekly Off
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {employees.length > 0 ? (
+                  employees.map(emp => {
+                    const currentStatus = attendanceMap[emp._id] || 'Present';
+                    const currentRemarks = attendanceRemarksMap[emp._id] || '';
+                    const summary = getEmpCurrentMonthSummary(emp);
+                    return (
+                      <div key={emp._id} className="flex flex-col lg:flex-row lg:items-center justify-between p-4 bg-slate-50 dark:bg-slate-955 rounded-xl border border-slate-150 dark:border-slate-800/30 gap-4">
+                        <div className="flex items-start gap-3 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={!!checkedEmployees[emp._id]}
+                            onChange={(e) => {
+                              setCheckedEmployees({
+                                ...checkedEmployees,
+                                [emp._id]: e.target.checked
+                              });
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-white dark:bg-slate-900 mt-1"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-800 dark:text-white block">{emp.name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">({emp.employeeId || 'N/A'})</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{emp.email}</span>
+                            <div className="flex flex-wrap gap-2 text-[9px] font-extrabold uppercase tracking-wider text-slate-500 mt-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/80 w-fit px-2.5 py-1 rounded-lg">
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">Present: {summary.present}d</span>
+                              <span className="text-red-500 font-bold">Absent: {summary.absent}d</span>
+                              <span className="text-amber-500 font-bold">Half Day: {summary.halfDay}d</span>
+                              <span className="text-blue-500 font-bold">Leave: {summary.leave}d</span>
+                              <span className="text-slate-500 font-bold">Weekly Off: {summary.weeklyOff}d</span>
+                            </div>
+                          </div>
                         </div>
+
+                        <div className="flex flex-wrap items-center gap-3 self-end lg:self-auto">
+                          <input
+                            type="text"
+                            placeholder="Add remarks..."
+                            value={currentRemarks}
+                            onChange={(e) => setAttendanceRemarksMap({ ...attendanceRemarksMap, [emp._id]: e.target.value })}
+                            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold focus:outline-none w-36 sm:w-48 text-slate-800 dark:text-slate-100"
+                          />
+                          
+                          <select
+                            value={currentStatus}
+                            onChange={(e) => setAttendanceMap({ ...attendanceMap, [emp._id]: e.target.value })}
+                            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
+                          >
+                            <option value="Present">Present</option>
+                            <option value="Absent">Absent</option>
+                            <option value="Half Day">Half Day</option>
+                            <option value="Leave">Leave</option>
+                            <option value="Weekly Off">Weekly Off</option>
+                            <option value="Present (Worked on Weekly Off)">Present (Worked on Weekly Off)</option>
+                          </select>
+
+                          <button
+                            onClick={() => handleSaveAttendance(emp._id)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100/50 rounded-lg text-xs font-bold transition-all border border-emerald-200/30"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            Save
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedEmployeeFilter(emp._id);
+                              setActiveSubTab('analytics');
+                            }}
+                            className="p-1.5 bg-indigo-50 dark:bg-indigo-955/20 text-indigo-650 dark:text-indigo-400 hover:bg-indigo-100/50 rounded-lg border border-indigo-200/30"
+                            title="View History Details"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-center text-slate-400 italic py-10">Add employees first to track attendance.</p>
+                )}
+              </div>
+
+              {employees.length > 0 && (
+                <div className="flex justify-end pt-4 border-t border-slate-150 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={handleSaveAllAttendance}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                  >
+                    <Save className="w-4 h-4" />
+                    Save Checked Attendance
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Analytics Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 bg-slate-50 dark:bg-slate-955 rounded-2xl border border-slate-150 dark:border-slate-800/30">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">Employee Filter</label>
+                  <select
+                    value={selectedEmployeeFilter}
+                    onChange={(e) => setSelectedEmployeeFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
+                  >
+                    <option value="">All Employees</option>
+                    {employees.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">Month</label>
+                  <select
+                    value={selectedMonthFilter}
+                    onChange={(e) => setSelectedMonthFilter(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {new Date(2026, i, 1).toLocaleString('en-US', { month: 'long' })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">Year</label>
+                  <select
+                    value={selectedYearFilter}
+                    onChange={(e) => setSelectedYearFilter(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
+                  >
+                    <option value={2026}>2026</option>
+                    <option value={2025}>2025</option>
+                    <option value={2024}>2024</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">Status Filter</label>
+                  <select
+                    value={selectedStatusFilter}
+                    onChange={(e) => setSelectedStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="Present">Present</option>
+                    <option value="Absent">Absent</option>
+                    <option value="Half Day">Half Day</option>
+                    <option value="Leave">Leave</option>
+                    <option value="Weekly Off">Weekly Off</option>
+                    <option value="Present (Worked on Weekly Off)">Present (Worked on Weekly Off)</option>
+                  </select>
+                </div>
+              </div>
+
+              {selectedEmployeeFilter ? (() => {
+                const emp = employees.find(e => e._id === selectedEmployeeFilter);
+                if (!emp) return <p className="text-center text-slate-400 italic">Select a valid employee.</p>;
+                
+                const list = getMonthlyDetails(emp);
+                const presentDays = list.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)').length;
+                const absentDays = list.filter(d => d.status === 'Absent').length;
+                const halfDays = list.filter(d => d.status === 'Half Day').length;
+                const leaveDays = list.filter(d => d.status === 'Leave').length;
+                const weeklyOffDays = list.filter(d => d.status === 'Weekly Off').length;
+
+                const startDayOfWeek = new Date(selectedYearFilter, selectedMonthFilter - 1, 1).getDay();
+
+                return (
+                  <div className="space-y-6">
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <div className="p-4 bg-emerald-50/40 dark:bg-emerald-955/20 border border-emerald-150/40 rounded-2xl flex flex-col justify-between">
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Present Days</span>
+                        <h4 className="text-2xl font-black text-emerald-700 dark:text-emerald-300 mt-2">{presentDays} Days</h4>
+                        <span className="text-[8px] text-slate-400 font-medium block mt-1">(Includes Sunday worked)</span>
+                      </div>
+                      <div className="p-4 bg-rose-50/40 dark:bg-rose-955/20 border border-rose-150/40 rounded-2xl flex flex-col justify-between">
+                        <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">Absent Days</span>
+                        <h4 className="text-2xl font-black text-rose-600 dark:text-rose-455 mt-2">{absentDays} Days</h4>
+                        <span className="text-[8px] text-slate-400 font-medium block mt-1">(Loss of pay deduction)</span>
+                      </div>
+                      <div className="p-4 bg-amber-50/40 dark:bg-amber-955/20 border border-amber-150/40 rounded-2xl flex flex-col justify-between">
+                        <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Half Days</span>
+                        <h4 className="text-2xl font-black text-amber-600 dark:text-amber-455 mt-2">{halfDays} Days</h4>
+                        <span className="text-[8px] text-slate-400 font-medium block mt-1">(0.5 salary deduction)</span>
+                      </div>
+                      <div className="p-4 bg-blue-50/40 dark:bg-blue-955/20 border border-blue-150/40 rounded-2xl flex flex-col justify-between">
+                        <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Leave Days</span>
+                        <h4 className="text-2xl font-black text-blue-600 dark:text-blue-455 mt-2">{leaveDays} Days</h4>
+                        <span className="text-[8px] text-slate-400 font-medium block mt-1">(Paid leave policy)</span>
+                      </div>
+                      <div className="p-4 bg-slate-50/40 dark:bg-slate-800/20 border border-slate-200/40 rounded-2xl flex flex-col justify-between">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Weekly Off</span>
+                        <h4 className="text-2xl font-black text-slate-605 dark:text-slate-300 mt-2">{weeklyOffDays} Days</h4>
+                        <span className="text-[8px] text-slate-400 font-medium block mt-1">(Sundays / weekly offs)</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 self-end sm:self-auto">
-                      <select
-                        value={currentStatus}
-                        onChange={(e) => setAttendanceMap({ ...attendanceMap, [emp._id]: e.target.value })}
-                        className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none"
-                      >
-                        <option value="Present">Present</option>
-                        <option value="Absent">Absent</option>
-                        <option value="Half Day">Half Day</option>
-                        <option value="Leave">Leave</option>
-                      </select>
-
+                    <div className="flex justify-between items-center">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">
+                        Calendar View - {new Date(selectedYearFilter, selectedMonthFilter - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                      </h4>
                       <button
-                        onClick={() => handleSaveAttendance(emp._id)}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100/50 rounded-lg text-xs font-bold transition-all"
+                        onClick={() => {
+                          setActiveHistoryEmployee(emp);
+                          setShowHistoryModal(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 dark:bg-indigo-955/20 dark:text-indigo-400 rounded-lg text-xs font-bold transition-all border border-indigo-200/30"
                       >
-                        <Save className="w-3.5 h-3.5" />
-                        Save
+                        📂 View History Lists
                       </button>
+                    </div>
+
+                    {/* Monthly Calendar View */}
+                    <div className="bg-slate-50 dark:bg-slate-955 p-6 rounded-2xl border border-slate-150 dark:border-slate-800/30">
+                      <div className="grid grid-cols-7 gap-2 mb-2 text-center text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                        <div>Sun</div>
+                        <div>Mon</div>
+                        <div>Tue</div>
+                        <div>Wed</div>
+                        <div>Thu</div>
+                        <div>Fri</div>
+                        <div>Sat</div>
+                      </div>
+                      <div className="grid grid-cols-7 gap-2">
+                        {Array.from({ length: startDayOfWeek }).map((_, i) => (
+                          <div key={`empty-${i}`} className="h-16 bg-slate-100/30 dark:bg-slate-900/10 rounded-xl" />
+                        ))}
+                        {list.map(day => {
+                          let colorClass = 'border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 text-slate-400';
+                          if (day.status === 'Present') colorClass = 'border-emerald-500 bg-emerald-50/25 text-emerald-800 dark:text-emerald-300';
+                          else if (day.status === 'Present (Worked on Weekly Off)') colorClass = 'border-emerald-555 bg-emerald-100/20 text-emerald-800 dark:text-emerald-300';
+                          else if (day.status === 'Absent') colorClass = 'border-rose-500 bg-rose-50/25 text-rose-800 dark:text-rose-300';
+                          else if (day.status === 'Half Day') colorClass = 'border-amber-500 bg-amber-50/25 text-amber-800 dark:text-amber-300';
+                          else if (day.status === 'Leave') colorClass = 'border-blue-500 bg-blue-50/25 text-blue-800 dark:text-blue-300';
+                          else if (day.status === 'Weekly Off') colorClass = 'border-slate-350 bg-slate-100/60 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400';
+
+                          const matchesStatusFilter = !selectedStatusFilter || 
+                            (selectedStatusFilter === 'Present' && (day.status === 'Present' || day.status === 'Present (Worked on Weekly Off)')) ||
+                            day.status === selectedStatusFilter;
+                          const opacityClass = matchesStatusFilter ? 'opacity-100' : 'opacity-30';
+
+                          return (
+                            <button
+                              key={day.dateStr}
+                              onClick={() => handleOverrideDay(emp._id, day.dateStr, day.status)}
+                              className={`h-16 border rounded-xl p-1.5 flex flex-col justify-between items-start text-left transition-all ${colorClass} ${opacityClass} hover:scale-105 active:scale-95`}
+                              title={`Status: ${day.status}\nBy: ${day.updatedBy || 'N/A'}\nRemarks: ${day.remarks || 'None'}`}
+                            >
+                              <span className="text-[10px] font-bold">{day.day}</span>
+                              <div className="w-full truncate text-[8px] font-extrabold uppercase mt-1">
+                                {day.status === 'Present' && '🟢 Present'}
+                                {day.status === 'Present (Worked on Weekly Off)' && '🟢 Worked Sunday'}
+                                {day.status === 'Absent' && '🔴 Absent'}
+                                {day.status === 'Half Day' && '🟡 Half Day'}
+                                {day.status === 'Leave' && '🔵 Leave'}
+                                {day.status === 'Weekly Off' && '⚪ Weekly Off'}
+                                {day.status === 'Not Recorded' && '⚪ Empty'}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 );
-              })
-            ) : (
-              <p className="text-center text-slate-400 italic py-10">Add employees first to track attendance.</p>
-            )}
-          </div>
+              })() : (
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">All Registered Employees Summaries</h4>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                    {employees.map(emp => {
+                      const details = getMonthlyDetails(emp);
+                      const presentDays = details.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)').length;
+                      const absentDays = details.filter(d => d.status === 'Absent').length;
+                      const halfDays = details.filter(d => d.status === 'Half Day').length;
+                      const leaveDays = details.filter(d => d.status === 'Leave').length;
+                      const weeklyOffDays = details.filter(d => d.status === 'Weekly Off').length;
 
-          {employees.length > 0 && (
-            <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={handleSaveAllAttendance}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
-              >
-                <Save className="w-4 h-4" />
-                Save Checked Attendance
-              </button>
+                      const matchesStatusFilter = !selectedStatusFilter || 
+                        (selectedStatusFilter === 'Present' && presentDays > 0) ||
+                        (selectedStatusFilter === 'Absent' && absentDays > 0) ||
+                        (selectedStatusFilter === 'Half Day' && halfDays > 0) ||
+                        (selectedStatusFilter === 'Leave' && leaveDays > 0) ||
+                        (selectedStatusFilter === 'Weekly Off' && weeklyOffDays > 0);
+
+                      if (!matchesStatusFilter) return null;
+
+                      return (
+                        <div key={emp._id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div>
+                            <span className="font-bold text-slate-800 dark:text-white block">{emp.name} ({emp.employeeId || 'N/A'})</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{emp.department} • {emp.role}</span>
+                          </div>
+                          
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex gap-2 text-[9px] font-extrabold uppercase bg-slate-50 dark:bg-slate-955 border border-slate-200/50 dark:border-slate-800/80 px-2.5 py-1.5 rounded-lg text-slate-550">
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">Present: {presentDays}d</span>
+                              <span className="text-red-500 font-bold">Absent: {absentDays}d</span>
+                              <span className="text-amber-500 font-bold">Half Day: {halfDays}d</span>
+                              <span className="text-blue-500 font-bold">Leave: {leaveDays}d</span>
+                              <span className="text-slate-500 font-bold">Weekly Off: {weeklyOffDays}d</span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEmployeeFilter(emp._id);
+                              }}
+                              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 dark:bg-indigo-955/20 dark:text-indigo-400 rounded-lg text-xs font-bold transition-all border border-indigo-200/30"
+                            >
+                              📅 Calendar View
+                            </button>
+                            
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveHistoryEmployee(emp);
+                                setShowHistoryModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-650 dark:bg-emerald-955/20 dark:text-emerald-400 rounded-lg text-xs font-bold transition-all border border-emerald-200/30"
+                            >
+                              📂 View History List
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2484,6 +2967,138 @@ export default function Employees({ token, user }) {
             </div>
           </div>
         </div>,
+        document.body
+      )}
+      {showHistoryModal && activeHistoryEmployee && createPortal(
+        (() => {
+          const details = getMonthlyDetails(activeHistoryEmployee);
+          const presentDates = details.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)');
+          const absentDates = details.filter(d => d.status === 'Absent');
+          const halfDayDates = details.filter(d => d.status === 'Half Day');
+          const leaveDates = details.filter(d => d.status === 'Leave');
+          const weeklyOffDates = details.filter(d => d.status === 'Weekly Off');
+
+          return (
+            <div className="fixed inset-0 bg-slate-905/75 backdrop-blur-xs flex items-center justify-center p-4 z-55">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-2xl shadow-xl max-h-[85vh] overflow-y-auto flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wide">
+                        Attendance History Details
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-semibold">{activeHistoryEmployee.name} - {new Date(selectedYearFilter, selectedMonthFilter - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</p>
+                    </div>
+                    <button
+                      onClick={() => { setShowHistoryModal(false); setActiveHistoryEmployee(null); }}
+                      className="p-1 text-slate-400 hover:text-slate-650 bg-slate-50 dark:bg-slate-850 rounded-lg"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Present Dates */}
+                    <div>
+                      <span className="text-[10px] font-black text-emerald-650 dark:text-emerald-400 uppercase tracking-wider block mb-1">🟢 Present ({presentDays.length} Days)</span>
+                      {presentDays.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          {presentDates.map(d => (
+                            <div key={d.dateStr} className="p-2 bg-emerald-50/30 dark:bg-emerald-955/10 rounded-lg border border-emerald-150/40" title={`By: ${d.updatedBy || 'N/A'}\nTime: ${d.updatedTime ? new Date(d.updatedTime).toLocaleString('en-IN') : 'N/A'}\nRemarks: ${d.remarks || 'None'}`}>
+                              {new Date(d.dateStr).toLocaleDateString('en-IN')}
+                              <span className="block text-[8px] text-slate-500 font-bold">{d.status}</span>
+                              {d.remarks && <span className="block text-[8px] text-slate-455 truncate">{d.remarks}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic block pl-2">No present days recorded.</span>
+                      )}
+                    </div>
+
+                    {/* Absent Dates */}
+                    <div>
+                      <span className="text-[10px] font-black text-rose-500 uppercase tracking-wider block mb-1">🔴 Absent ({absentDates.length} Days)</span>
+                      {absentDates.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-semibold text-slate-655 dark:text-slate-400">
+                          {absentDates.map(d => (
+                            <div key={d.dateStr} className="p-2 bg-rose-50/30 dark:bg-rose-955/10 rounded-lg border border-rose-150/40" title={`By: ${d.updatedBy || 'N/A'}\nTime: ${d.updatedTime ? new Date(d.updatedTime).toLocaleString('en-IN') : 'N/A'}\nRemarks: ${d.remarks || 'None'}`}>
+                              {new Date(d.dateStr).toLocaleDateString('en-IN')}
+                              {d.remarks && <span className="block text-[8px] text-slate-455 truncate">{d.remarks}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic block pl-2">No absent days recorded.</span>
+                      )}
+                    </div>
+
+                    {/* Half Day Dates */}
+                    <div>
+                      <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider block mb-1">🟡 Half Day ({halfDayDates.length} Days)</span>
+                      {halfDayDates.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-semibold text-slate-655 dark:text-slate-400">
+                          {halfDayDates.map(d => (
+                            <div key={d.dateStr} className="p-2 bg-amber-50/30 dark:bg-amber-955/10 rounded-lg border border-amber-150/40" title={`By: ${d.updatedBy || 'N/A'}\nTime: ${d.updatedTime ? new Date(d.updatedTime).toLocaleString('en-IN') : 'N/A'}\nRemarks: ${d.remarks || 'None'}`}>
+                              {new Date(d.dateStr).toLocaleDateString('en-IN')}
+                              {d.remarks && <span className="block text-[8px] text-slate-455 truncate">{d.remarks}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic block pl-2">No half days recorded.</span>
+                      )}
+                    </div>
+
+                    {/* Leave Dates */}
+                    <div>
+                      <span className="text-[10px] font-black text-blue-500 uppercase tracking-wider block mb-1">🔵 Leave ({leaveDates.length} Days)</span>
+                      {leaveDates.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-semibold text-slate-655 dark:text-slate-400">
+                          {leaveDates.map(d => (
+                            <div key={d.dateStr} className="p-2 bg-blue-50/30 dark:bg-blue-955/10 rounded-lg border border-blue-150/40" title={`By: ${d.updatedBy || 'N/A'}\nTime: ${d.updatedTime ? new Date(d.updatedTime).toLocaleString('en-IN') : 'N/A'}\nRemarks: ${d.remarks || 'None'}`}>
+                              {new Date(d.dateStr).toLocaleDateString('en-IN')}
+                              {d.remarks && <span className="block text-[8px] text-slate-455 truncate">{d.remarks}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic block pl-2">No leave days recorded.</span>
+                      )}
+                    </div>
+
+                    {/* Weekly Off Dates */}
+                    <div>
+                      <span className="text-[10px] font-black text-slate-550 dark:text-slate-400 uppercase tracking-wider block mb-1">⚪ Weekly Off ({weeklyOffDates.length} Days)</span>
+                      {weeklyOffDates.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-semibold text-slate-655 dark:text-slate-400">
+                          {weeklyOffDates.map(d => (
+                            <div key={d.dateStr} className="p-2 bg-slate-50/30 dark:bg-slate-800/10 rounded-lg border border-slate-200/40" title={`By: ${d.updatedBy || 'N/A'}\nRemarks: ${d.remarks || 'None'}`}>
+                              {new Date(d.dateStr).toLocaleDateString('en-IN')}
+                              <span className="block text-[8px] text-slate-500 font-bold">Weekly Off</span>
+                              {d.remarks && <span className="block text-[8px] text-slate-455 truncate">{d.remarks}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic block pl-2">No weekly off days recorded.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 mt-6 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => { setShowHistoryModal(false); setActiveHistoryEmployee(null); }}
+                    className="px-6 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-750 dark:text-slate-300 font-bold rounded-xl text-xs"
+                  >
+                    Close History
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })(),
         document.body
       )}
     </div>

@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 
 const attendanceSchema = new mongoose.Schema({
   date: { type: Date, required: true },
-  status: { type: String, enum: ['Present', 'Absent', 'Half Day', 'Leave'], required: true }
+  status: { type: String, enum: ['Present', 'Absent', 'Half Day', 'Leave', 'Weekly Off', 'Present (Worked on Weekly Off)'], required: true },
+  updatedBy: { type: String, default: '' },
+  updatedTime: { type: Date, default: Date.now },
+  remarks: { type: String, default: '' }
 });
 
 const salarySchema = new mongoose.Schema({
