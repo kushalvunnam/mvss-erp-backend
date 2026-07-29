@@ -372,6 +372,13 @@ export default function PurchaseReport({ token, user }) {
     }));
   };
 
+  const handleIgstPercentChange = (rowId, value) => {
+    setPurchaseItems(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+      return { ...row, igstPercent: value };
+    }));
+  };
+
   // Helper row totals calculation
   const calculateRowTotals = (row) => {
     const qty = Number(row.qty) || 0;
@@ -384,17 +391,30 @@ export default function PurchaseReport({ token, user }) {
     let discountAmount = Number(row.discountAmount) || 0;
 
     const taxable = Math.max(0, gross - discountAmount);
-    const gstAmt = taxable * (gstP / 100);
-    const total = taxable + gstAmt;
 
     const selectedVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
-    const isInterstate = selectedVendor && selectedVendor.gstNumber 
-      ? !selectedVendor.gstNumber.trim().startsWith('36') 
-      : false;
+    const isInterstate = purchaseHeader.billingType 
+      ? purchaseHeader.billingType === 'Inter-State'
+      : (selectedVendor && selectedVendor.gstNumber 
+          ? !selectedVendor.gstNumber.trim().startsWith('36') 
+          : false);
 
-    const cgst = isInterstate ? 0 : gstAmt / 2;
-    const sgst = isInterstate ? 0 : gstAmt / 2;
-    const igst = isInterstate ? gstAmt : 0;
+    let cgst = 0;
+    let sgst = 0;
+    let igst = 0;
+    let gstAmt = 0;
+
+    if (isInterstate) {
+      const igstP = row.igstPercent !== undefined && row.igstPercent !== '' ? Number(row.igstPercent) : gstP;
+      igst = taxable * (igstP / 100);
+      gstAmt = igst;
+    } else {
+      cgst = taxable * (gstP / 200);
+      sgst = taxable * (gstP / 200);
+      gstAmt = cgst + sgst;
+    }
+
+    const total = taxable + gstAmt;
 
     return {
       gross: round2(gross),
@@ -412,9 +432,11 @@ export default function PurchaseReport({ token, user }) {
   // Overall Purchase Summary Calculation (Live Footer)
   const getSummaryTotals = () => {
     const selectedVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
-    const isInterstate = selectedVendor && selectedVendor.gstNumber 
-      ? !selectedVendor.gstNumber.trim().startsWith('36') 
-      : false;
+    const isInterstate = purchaseHeader.billingType 
+      ? purchaseHeader.billingType === 'Inter-State'
+      : (selectedVendor && selectedVendor.gstNumber 
+          ? !selectedVendor.gstNumber.trim().startsWith('36') 
+          : false);
 
     return purchaseItems.reduce((acc, row) => {
       const qty = Number(row.qty) || 0;
@@ -472,6 +494,7 @@ export default function PurchaseReport({ token, user }) {
 
     // 2. Prefill form state
     setEditPurchaseId(p._id);
+    const hasIgst = p.totals?.igstTotal > 0 || p.items.some(item => (item.igst || 0) > 0);
     setPurchaseHeader({
       vendorId: p.vendorId?._id || p.vendorId || '',
       invoiceNo: p.invoiceNo || '',
@@ -480,28 +503,38 @@ export default function PurchaseReport({ token, user }) {
       amountPaid: p.amountPaid !== undefined ? p.amountPaid.toString() : '',
       notes: p.notes || '',
       updatePurchasePrice: true,
-      updateMRP: true
+      updateMRP: true,
+      billingType: hasIgst ? 'Inter-State' : 'Intra-State'
     });
 
-    const prefilledItems = p.items.map(item => ({
-      id: `row_${Date.now()}_${Math.random().toString(36).substr(2, 4)}_${item._id || Math.random()}`,
-      selectedPartId: item.partId || '',
-      partName: item.partName || '',
-      partNumber: item.partNumber || '',
-      hsnCode: item.hsnCode || '8708',
-      qty: item.qty || 1,
-      purchasePrice: item.purchasePrice !== undefined ? item.purchasePrice.toString() : '',
-      sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice.toString() : '',
-      mrp: item.mrp !== undefined ? item.mrp.toString() : '',
-      discountType: item.discountType || 'Percent',
-      discountValue: item.discountValue !== undefined ? item.discountValue : (item.discountPercent !== undefined ? item.discountPercent : 0),
-      discountPercent: item.discountPercent !== undefined ? item.discountPercent : 0,
-      discountAmount: item.discountAmount !== undefined ? item.discountAmount : 0,
-      taxable: item.taxableAmount !== undefined ? item.taxableAmount.toString() : '',
-      gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
-      warehouse: item.warehouse || 'Main Store',
-      rackLocation: item.rackLocation || ''
-    }));
+    const prefilledItems = p.items.map(item => {
+      let itemIgstPercent = '';
+      if (item.igst > 0) {
+        itemIgstPercent = item.taxableAmount > 0 
+          ? Math.round((item.igst / item.taxableAmount) * 100).toString() 
+          : (item.gstPercent || 18).toString();
+      }
+      return {
+        id: `row_${Date.now()}_${Math.random().toString(36).substr(2, 4)}_${item._id || Math.random()}`,
+        selectedPartId: item.partId || '',
+        partName: item.partName || '',
+        partNumber: item.partNumber || '',
+        hsnCode: item.hsnCode || '8708',
+        qty: item.qty || 1,
+        purchasePrice: item.purchasePrice !== undefined ? item.purchasePrice.toString() : '',
+        sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice.toString() : '',
+        mrp: item.mrp !== undefined ? item.mrp.toString() : '',
+        discountType: item.discountType || 'Percent',
+        discountValue: item.discountValue !== undefined ? item.discountValue : (item.discountPercent !== undefined ? item.discountPercent : 0),
+        discountPercent: item.discountPercent !== undefined ? item.discountPercent : 0,
+        discountAmount: item.discountAmount !== undefined ? item.discountAmount : 0,
+        taxable: item.taxableAmount !== undefined ? item.taxableAmount.toString() : '',
+        gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
+        igstPercent: itemIgstPercent,
+        warehouse: item.warehouse || 'Main Store',
+        rackLocation: item.rackLocation || ''
+      };
+    });
 
     setPurchaseItems(prefilledItems);
     setActiveTab('entry');
@@ -517,7 +550,8 @@ export default function PurchaseReport({ token, user }) {
       amountPaid: '',
       notes: '',
       updatePurchasePrice: true,
-      updateMRP: true
+      updateMRP: true,
+      billingType: 'Intra-State'
     });
     setPurchaseItems([createEmptyRow()]);
     setPurchaseFormError('');
@@ -589,6 +623,7 @@ export default function PurchaseReport({ token, user }) {
         discountPercent: Number(row.discountPercent) || 0,
         discountAmount: Number(row.discountAmount) || 0,
         gstPercent: Number(row.gstPercent) !== undefined ? Number(row.gstPercent) : 18,
+        igstPercent: row.igstPercent !== undefined && row.igstPercent !== '' ? Number(row.igstPercent) : undefined,
         warehouse: row.warehouse || 'Main Store',
         rackLocation: row.rackLocation || '',
         taxableAmount: rowCalc.taxable,
@@ -616,6 +651,7 @@ export default function PurchaseReport({ token, user }) {
       items: payloadItems,
       updatePurchasePrice: purchaseHeader.updatePurchasePrice,
       updateMRP: purchaseHeader.updateMRP,
+      billingType: purchaseHeader.billingType || 'Intra-State',
       reason
     };
 
@@ -646,7 +682,8 @@ export default function PurchaseReport({ token, user }) {
             amountPaid: '',
             notes: '',
             updatePurchasePrice: true,
-            updateMRP: true
+            updateMRP: true,
+            billingType: 'Intra-State'
           });
           setPurchaseItems([createEmptyRow()]);
           fetchPurchases();
@@ -932,7 +969,17 @@ export default function PurchaseReport({ token, user }) {
                 </label>
                 <select
                   value={purchaseHeader.vendorId}
-                  onChange={(e) => setPurchaseHeader({ ...purchaseHeader, vendorId: e.target.value })}
+                  onChange={(e) => {
+                    const selectedV = vendorsList.find(v => v._id === e.target.value);
+                    const isInter = selectedV && selectedV.gstNumber 
+                      ? !selectedV.gstNumber.trim().startsWith('36') 
+                      : false;
+                    setPurchaseHeader({
+                      ...purchaseHeader,
+                      vendorId: e.target.value,
+                      billingType: isInter ? 'Inter-State' : 'Intra-State'
+                    });
+                  }}
                   required
                   className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
@@ -989,7 +1036,23 @@ export default function PurchaseReport({ token, user }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+              {/* Billing Type Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Billing Type <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={purchaseHeader.billingType || 'Intra-State'}
+                  onChange={(e) => setPurchaseHeader({ ...purchaseHeader, billingType: e.target.value })}
+                  required
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="Intra-State">Intra-State (CGST + SGST)</option>
+                  <option value="Inter-State">Inter-State (IGST)</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Amount Paid (₹)
@@ -1086,7 +1149,7 @@ export default function PurchaseReport({ token, user }) {
                     <th className="py-2.5 px-3" style={{ width: '140px', minWidth: '140px', verticalAlign: 'middle', textAlign: 'left' }}>Taxable (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>CGST (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>SGST (₹)</th>
-                    <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>IGST (₹)</th>
+                    <th className="py-2.5 px-3" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>IGST % / (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '160px', minWidth: '160px', verticalAlign: 'middle', textAlign: 'left' }}>Total (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '180px', minWidth: '180px', verticalAlign: 'middle', textAlign: 'left' }}>Warehouse</th>
                     <th className="py-2.5 px-3" style={{ width: '140px', minWidth: '140px', verticalAlign: 'middle', textAlign: 'left' }}>Rack Location</th>
@@ -1289,17 +1352,32 @@ export default function PurchaseReport({ token, user }) {
 
                         {/* CGST Amount (Calculated) */}
                         <td className="py-2.5 px-3 font-semibold text-slate-600 dark:text-slate-400" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>
-                          ₹{rowCalc.cgst.toFixed(2)}
+                          {purchaseHeader.billingType === 'Inter-State' ? '₹0.00' : `₹${rowCalc.cgst.toFixed(2)}`}
                         </td>
 
                         {/* SGST Amount (Calculated) */}
                         <td className="py-2.5 px-3 font-semibold text-slate-600 dark:text-slate-400" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>
-                          ₹{rowCalc.sgst.toFixed(2)}
+                          {purchaseHeader.billingType === 'Inter-State' ? '₹0.00' : `₹${rowCalc.sgst.toFixed(2)}`}
                         </td>
 
-                        {/* IGST Amount (Calculated) */}
+                        {/* IGST Amount (Calculated / Editable) */}
                         <td className="py-2.5 px-3 font-semibold text-slate-600 dark:text-slate-400" style={{ width: '110px', minWidth: '110px', verticalAlign: 'middle', textAlign: 'left' }}>
-                          ₹{rowCalc.igst.toFixed(2)}
+                          <div className="flex flex-col gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              placeholder="0.00"
+                              disabled={purchaseHeader.billingType === 'Intra-State'}
+                              value={purchaseHeader.billingType === 'Intra-State' ? '0' : (row.igstPercent !== undefined ? row.igstPercent : row.gstPercent)}
+                              onChange={(e) => handleIgstPercentChange(row.id, e.target.value)}
+                              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-9 px-2 py-1 font-mono font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:bg-slate-100 dark:disabled:bg-slate-900/60 disabled:text-slate-400 cursor-not-allowed"
+                            />
+                            <div className="text-[10px] text-slate-500 dark:text-slate-450 text-center font-bold">
+                              ₹{purchaseHeader.billingType === 'Intra-State' ? '0.00' : rowCalc.igst.toFixed(2)}
+                            </div>
+                          </div>
                         </td>
 
                         {/* Total Amount (Calculated) */}

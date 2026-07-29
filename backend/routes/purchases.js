@@ -108,13 +108,21 @@ router.post('/', async (req, res) => {
       
       const discountPercent = discountType === 'Percent' ? discountValue : (grossItemValue > 0 ? roundToTwo((discountAmount / grossItemValue) * 100) : 0);
 
-      const isInterstate = vendor.gstNumber 
-        ? !vendor.gstNumber.trim().startsWith('36') 
-        : false;
+      const isInterstate = req.body.billingType 
+        ? req.body.billingType === 'Inter-State'
+        : (vendor.gstNumber 
+            ? !vendor.gstNumber.trim().startsWith('36') 
+            : false);
 
       const itemTaxable = Math.max(0, roundToTwo(grossItemValue - discountAmount));
       const gstPercent = Number(item.gstPercent) !== undefined ? Number(item.gstPercent) : 18;
-      const itemGst = roundToTwo(itemTaxable * (gstPercent / 100));
+      const igstPercent = (isInterstate && item.igstPercent !== undefined && item.igstPercent !== null)
+        ? Number(item.igstPercent) 
+        : gstPercent;
+
+      const itemGst = isInterstate 
+        ? roundToTwo(itemTaxable * (igstPercent / 100))
+        : roundToTwo(itemTaxable * (gstPercent / 100));
       const itemTotal = roundToTwo(itemTaxable + itemGst);
 
       const cgst = isInterstate ? 0 : roundToTwo(itemGst / 2);
@@ -425,13 +433,21 @@ router.put('/:id', async (req, res) => {
       
       const discountPercent = discountType === 'Percent' ? discountValue : (grossItemValue > 0 ? roundToTwo((discountAmount / grossItemValue) * 100) : 0);
 
-      const isInterstate = newVendor.gstNumber 
-        ? !newVendor.gstNumber.trim().startsWith('36') 
-        : false;
+      const isInterstate = req.body.billingType 
+        ? req.body.billingType === 'Inter-State'
+        : (newVendor.gstNumber 
+            ? !newVendor.gstNumber.trim().startsWith('36') 
+            : false);
 
       const itemTaxable = Math.max(0, roundToTwo(grossItemValue - discountAmount));
       const gstPercent = Number(item.gstPercent) !== undefined ? Number(item.gstPercent) : 18;
-      const itemGst = roundToTwo(itemTaxable * (gstPercent / 100));
+      const igstPercent = (isInterstate && item.igstPercent !== undefined && item.igstPercent !== null)
+        ? Number(item.igstPercent) 
+        : gstPercent;
+
+      const itemGst = isInterstate 
+        ? roundToTwo(itemTaxable * (igstPercent / 100))
+        : roundToTwo(itemTaxable * (gstPercent / 100));
       const itemTotal = roundToTwo(itemTaxable + itemGst);
 
       const cgst = isInterstate ? 0 : roundToTwo(itemGst / 2);
