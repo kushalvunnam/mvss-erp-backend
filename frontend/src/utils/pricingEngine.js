@@ -69,42 +69,61 @@ export function calculatePricing({
 
   // 2. Forward/Reverse calculations based on changedField
   let unitBasic;
-  if (changedField === 'rate') {
-    unitBasic = Math.max(0, parseFloat(sellingPrice) || 0);
-    mrpVal = unitBasic * (1 + gstP / 100);
-  } else {
-    unitBasic = mrpVal / (1 + gstP / 100);
-  }
-  let totalBasic = unitBasic * qty;
-
+  let totalBasic;
   let discPercent = parseFloat(discountPercent) || 0;
   let discAmt = parseFloat(discountAmount) || 0;
   let taxVal = taxableAmount !== null ? parseFloat(taxableAmount) : null;
 
   if (changedField === 'taxableAmount' && taxVal !== null) {
-    // Taxable Value edited manually -> Reverse calculate
-    taxVal = Math.max(0, Math.min(totalBasic, taxVal));
-    discAmt = totalBasic - taxVal;
-    discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
-  } else if (changedField === 'discountPercent') {
-    discPercent = Math.max(0, Math.min(100, discPercent));
-    discAmt = totalBasic * (discPercent / 100);
-    taxVal = totalBasic - discAmt;
-  } else if (changedField === 'discountAmount') {
-    discAmt = Math.max(0, Math.min(totalBasic, discAmt));
-    discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
-    taxVal = totalBasic - discAmt;
-  } else {
-    // qty, mrp, gstPercent, or first load
+    // Taxable Value edited manually -> Reverse calculate Basic Value, MRP, GST and Total
+    if (discountType === 'Fixed') {
+      // Keep discountAmount (discAmt) fixed
+      totalBasic = taxVal + discAmt;
+      discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+    } else {
+      // Percentage discount: Keep discountPercent (discPercent) fixed
+      const factor = 1 - (Math.min(99.99, discPercent) / 100);
+      totalBasic = taxVal / factor;
+      discAmt = totalBasic - taxVal;
+    }
+    unitBasic = qty > 0 ? totalBasic / qty : 0;
+    mrpVal = unitBasic * (1 + gstP / 100);
+  } else if (changedField === 'rate') {
+    unitBasic = Math.max(0, parseFloat(sellingPrice) || 0);
+    mrpVal = unitBasic * (1 + gstP / 100);
+    totalBasic = unitBasic * qty;
     if (discountType === 'Fixed') {
       discAmt = Math.max(0, Math.min(totalBasic, discAmt));
       discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
     } else {
-      // Default to Percent
       discPercent = Math.max(0, Math.min(100, discPercent));
       discAmt = totalBasic * (discPercent / 100);
     }
     taxVal = totalBasic - discAmt;
+  } else {
+    // Forward calculations for mrp changes, quantity changes, gstPercent changes, or discount edits
+    unitBasic = mrpVal / (1 + gstP / 100);
+    totalBasic = unitBasic * qty;
+
+    if (changedField === 'discountPercent') {
+      discPercent = Math.max(0, Math.min(100, discPercent));
+      discAmt = totalBasic * (discPercent / 100);
+      taxVal = totalBasic - discAmt;
+    } else if (changedField === 'discountAmount') {
+      discAmt = Math.max(0, Math.min(totalBasic, discAmt));
+      discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+      taxVal = totalBasic - discAmt;
+    } else {
+      // qty, mrp, or gstPercent change
+      if (discountType === 'Fixed') {
+        discAmt = Math.max(0, Math.min(totalBasic, discAmt));
+        discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+      } else {
+        discPercent = Math.max(0, Math.min(100, discPercent));
+        discAmt = totalBasic * (discPercent / 100);
+      }
+      taxVal = totalBasic - discAmt;
+    }
   }
 
   // Clamp values to valid ranges
