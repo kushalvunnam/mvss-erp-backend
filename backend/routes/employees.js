@@ -322,8 +322,16 @@ router.post('/:id/salary', async (req, res) => {
       }
     }
     
-    // Deduct salary only for actual Absent days and 0.5 * Half Days. Weekly Off (Holiday) does not reduce salary.
-    const leavesCount = absentCount + 0.5 * halfDayCount;
+    // Calculate service duration in months from employee's dateOfJoining to target monthYear
+    const doj = new Date(employee.dateOfJoining || Date.now());
+    const targetDate = new Date(year, month - 1, 1);
+    const diffYears = targetDate.getFullYear() - doj.getFullYear();
+    const diffMonths = targetDate.getMonth() - doj.getMonth() + (diffYears * 12);
+    const exemptedLeavesAllowed = diffMonths >= 6 ? 2 : 1;
+
+    // Deduct salary only for actual Absent days, Leave days, and 0.5 * Half Days, minus exempted leaves.
+    const leavesCount = absentCount + leaveCount + 0.5 * halfDayCount;
+    const excessLeaves = Math.max(0, leavesCount - exemptedLeavesAllowed);
 
     const special = Number(specialAllowance) || 0;
     const other = Number(otherAllowance) || 0;
@@ -331,8 +339,8 @@ router.post('/:id/salary', async (req, res) => {
     const adv = Number(advances) || 0;
     const extraDeduct = Number(deductions) || 0;
 
-    // Deduct salary per day of leavesCount (assumes 30 days month)
-    const leaveDeduction = (basic / 30) * leavesCount;
+    // Deduct salary per day of excessLeaves (assumes 30 days month)
+    const leaveDeduction = (basic / 30) * excessLeaves;
     const netSalary = Math.round(Math.max(0, basic + special + other - adv - extraDeduct - leaveDeduction));
 
     // Remove existing slip for the month if exists

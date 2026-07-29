@@ -205,6 +205,7 @@ export default function Employees({ token, user }) {
     otherAllowance: '',
     otherAllowanceDescription: '',
     leavesCount: 0,
+    exemptedLeaves: 1,
     calculatedNetSalary: 0,
   });
   const [selectedSalaryEmployee, setSelectedSalaryEmployee] = useState(null);
@@ -341,6 +342,7 @@ export default function Employees({ token, user }) {
       setSalaryForm(prev => ({
         ...prev,
         leavesCount: 0,
+        exemptedLeaves: 1,
         calculatedNetSalary: 0
       }));
       return;
@@ -350,12 +352,13 @@ export default function Employees({ token, user }) {
     setSelectedSalaryEmployee(emp);
     if (!emp) return;
 
-    // Count leaves (Absent = 1, Half Day = 0.5, Leave = 0) for specified monthYear with Sunday as default Present
+    // Count leaves (Absent = 1, Half Day = 0.5, Leave = 1) for specified monthYear with Sunday as default Weekly Off
     const [year, month] = salaryForm.monthYear.split('-').map(Number);
     const endDate = new Date(year, month, 0); // last day of month
     
     let absentCount = 0;
     let halfDayCount = 0;
+    let leaveCount = 0;
     
     const attendanceMap = {};
     emp.attendance?.forEach(a => {
@@ -379,11 +382,22 @@ export default function Employees({ token, user }) {
           absentCount += 1;
         } else if (status === 'Half Day') {
           halfDayCount += 1;
+        } else if (status === 'Leave') {
+          leaveCount += 1;
         }
       }
     }
     
-    const leaves = absentCount + 0.5 * halfDayCount;
+    const leaves = absentCount + leaveCount + 0.5 * halfDayCount;
+
+    // Calculate service duration in months from dateOfJoining
+    const doj = new Date(emp.dateOfJoining || Date.now());
+    const targetDate = new Date(year, month - 1, 1);
+    const diffYears = targetDate.getFullYear() - doj.getFullYear();
+    const diffMonths = targetDate.getMonth() - doj.getMonth() + (diffYears * 12);
+    const exempted = diffMonths >= 6 ? 2 : 1;
+
+    const excessLeaves = Math.max(0, leaves - exempted);
 
     const basic = Number(salaryForm.basicSalary) || 0;
     const adv = Number(salaryForm.advances) || 0;
@@ -392,12 +406,13 @@ export default function Employees({ token, user }) {
     const other = Number(salaryForm.otherAllowance) || 0;
     
     // Per day leave deduction (assumes 30 days)
-    const leaveDeduction = leaves > 0 ? (basic / 30) * leaves : 0;
+    const leaveDeduction = excessLeaves > 0 ? (basic / 30) * excessLeaves : 0;
     const net = Math.round(Math.max(0, basic + special + other - adv - extraDeduct - leaveDeduction));
 
     setSalaryForm(prev => ({
       ...prev,
       leavesCount: leaves,
+      exemptedLeaves: exempted,
       calculatedNetSalary: net
     }));
   }, [salaryForm.employeeId, salaryForm.monthYear, salaryForm.basicSalary, salaryForm.advances, salaryForm.deductions, salaryForm.specialAllowance, salaryForm.otherAllowance, employees]);
@@ -664,6 +679,35 @@ export default function Employees({ token, user }) {
     }
   };
 
+  const handleDropdownStatusChange = async (empId, dateStr, newStatus) => {
+    if (!newStatus) return;
+    let finalStatus = newStatus;
+    const dayOfWeek = new Date(dateStr).getDay();
+    if (dayOfWeek === 0 && newStatus === 'Present') {
+      finalStatus = 'Present (Worked on Weekly Off)';
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/employees/${empId}/attendance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ date: dateStr, status: finalStatus, remarks: 'Status updated via calendar dropdown' })
+      });
+      if (res.ok) {
+        fetchEmployees();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || 'Failed to update attendance'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update attendance.');
+    }
+  };
+
   const handleOverrideDay = async (empId, dateStr, currentStatus) => {
     const newStatus = window.prompt(`Override attendance for ${dateStr}.\nEnter status (Present, Absent, Half Day, Leave, Weekly Off):`, currentStatus);
     if (!newStatus) return;
@@ -741,7 +785,8 @@ export default function Employees({ token, user }) {
     const [year, month] = salaryForm.monthYear.split('-');
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
 
-    const leaveDeduct = (salaryForm.basicSalary / 30) * salaryForm.leavesCount;
+    const excessLeaves = Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves);
+    const leaveDeduct = (salaryForm.basicSalary / 30) * excessLeaves;
     const special = Number(salaryForm.specialAllowance) || 0;
     const other = Number(salaryForm.otherAllowance) || 0;
     const otherDesc = salaryForm.otherAllowanceDescription || '';
@@ -816,7 +861,7 @@ export default function Employees({ token, user }) {
               </tr>
               ` : ''}
               <tr>
-                <td>Leaves Taken (${salaryForm.leavesCount} days absent)</td>
+                <td>Leaves Taken (${salaryForm.leavesCount} days absent, ${salaryForm.exemptedLeaves} days exempted)</td>
                 <td class="right">- ₹${leaveDeduct.toFixed(2)}</td>
               </tr>
               <tr>
@@ -1696,23 +1741,25 @@ export default function Employees({ token, user }) {
                           const opacityClass = matchesStatusFilter ? 'opacity-100' : 'opacity-30';
 
                           return (
-                            <button
+                            <div
                               key={day.dateStr}
-                              onClick={() => handleOverrideDay(emp._id, day.dateStr, day.status)}
-                              className={`h-16 border rounded-xl p-1.5 flex flex-col justify-between items-start text-left transition-all ${colorClass} ${opacityClass} hover:scale-105 active:scale-95`}
+                              className={`h-16 border rounded-xl p-1.5 flex flex-col justify-between items-start text-left transition-all ${colorClass} ${opacityClass} relative hover:shadow-xs`}
                               title={`Status: ${day.status}\nBy: ${day.updatedBy || 'N/A'}\nRemarks: ${day.remarks || 'None'}`}
                             >
                               <span className="text-[10px] font-bold">{day.day}</span>
-                              <div className="w-full truncate text-[8px] font-extrabold uppercase mt-1">
-                                {day.status === 'Present' && '🟢 Present'}
-                                {day.status === 'Present (Worked on Weekly Off)' && '🟢 Worked Sunday'}
-                                {day.status === 'Absent' && '🔴 Absent'}
-                                {day.status === 'Half Day' && '🟡 Half Day'}
-                                {day.status === 'Leave' && '🔵 Leave'}
-                                {day.status === 'Weekly Off' && '⚪ Weekly Off'}
-                                {day.status === 'Not Recorded' && '⚪ Empty'}
-                              </div>
-                            </button>
+                              <select
+                                value={day.status === 'Present (Worked on Weekly Off)' ? 'Present' : (day.status === 'Not Recorded' ? '' : day.status)}
+                                onChange={(e) => handleDropdownStatusChange(emp._id, day.dateStr, e.target.value)}
+                                className="w-full bg-transparent border-none text-[9px] font-extrabold uppercase focus:outline-none cursor-pointer mt-1 text-slate-800 dark:text-slate-200"
+                              >
+                                <option value="" className="bg-white dark:bg-slate-900 text-slate-500 font-bold">Empty</option>
+                                <option value="Present" className="bg-white dark:bg-slate-900 text-emerald-600 font-bold">🟢 Present</option>
+                                <option value="Absent" className="bg-white dark:bg-slate-900 text-rose-600 font-bold">🔴 Absent</option>
+                                <option value="Half Day" className="bg-white dark:bg-slate-900 text-amber-600 font-bold">🟡 Half Day</option>
+                                <option value="Leave" className="bg-white dark:bg-slate-900 text-blue-600 font-bold">🔵 Leave</option>
+                                <option value="Weekly Off" className="bg-white dark:bg-slate-900 text-slate-500 font-bold">⚪ Weekly Off</option>
+                              </select>
+                            </div>
                           );
                         })}
                       </div>
@@ -1935,15 +1982,19 @@ export default function Employees({ token, user }) {
                 </div>
               </div>
 
-              <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-900 flex justify-between items-center text-xs">
+              <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-900 grid grid-cols-3 gap-4 text-xs">
                 <div>
                   <span className="font-semibold text-slate-500 block">Leaves/Absents Count:</span>
                   <span className="font-bold text-slate-800 dark:text-white block mt-1">{salaryForm.leavesCount} days</span>
                 </div>
+                <div>
+                  <span className="font-semibold text-slate-500 block">Exempted Leaves:</span>
+                  <span className="font-bold text-indigo-650 dark:text-indigo-400 block mt-1">{salaryForm.exemptedLeaves} days</span>
+                </div>
                 <div className="text-right">
-                  <span className="font-semibold text-slate-500 block">Auto Leave Deduction (per-day split):</span>
+                  <span className="font-semibold text-slate-500 block">Auto Leave Deduction:</span>
                   <span className="font-bold text-red-500 block mt-1">
-                    - ₹{Math.round((salaryForm.basicSalary / 30) * salaryForm.leavesCount).toLocaleString()}
+                    - ₹{Math.round((salaryForm.basicSalary / 30) * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -2017,9 +2068,21 @@ export default function Employees({ token, user }) {
                     <span className="text-[10px] text-slate-400 block font-extrabold uppercase tracking-wider">Deductions & Offsets</span>
 
                     {Number(salaryForm.leavesCount) > 0 && (
+                      <div className="flex justify-between text-xs font-medium text-slate-400">
+                        <span>Total Leaves / Absents:</span>
+                        <span className="font-mono">{salaryForm.leavesCount} days</span>
+                      </div>
+                    )}
+                    {Number(salaryForm.exemptedLeaves) > 0 && Number(salaryForm.leavesCount) > 0 && (
+                      <div className="flex justify-between text-xs font-medium text-indigo-400">
+                        <span>Exempted Leaves:</span>
+                        <span className="font-mono">- {Math.min(salaryForm.leavesCount, salaryForm.exemptedLeaves)} days</span>
+                      </div>
+                    )}
+                    {Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves) > 0 && (
                       <div className="flex justify-between text-xs font-medium text-rose-400">
-                        <span>Absent Deductions ({salaryForm.leavesCount}d):</span>
-                        <span className="font-mono">- ₹{Math.round((salaryForm.basicSalary / 30) * salaryForm.leavesCount).toLocaleString()}</span>
+                        <span>Absent Deductions ({Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)}d excess):</span>
+                        <span className="font-mono">- ₹{Math.round((salaryForm.basicSalary / 30) * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}</span>
                       </div>
                     )}
 
