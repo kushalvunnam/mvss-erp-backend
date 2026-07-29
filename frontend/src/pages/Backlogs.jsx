@@ -28,6 +28,8 @@ export default function Backlogs({ token, user }) {
   const [backlogs, setBacklogs] = useState([]);
   const [jobCards, setJobCards] = useState([]);
   const [inventoryList, setInventoryList] = useState([]);
+  const [vendorList, setVendorList] = useState([]);
+  const [estimateParts, setEstimateParts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -84,7 +86,39 @@ export default function Backlogs({ token, user }) {
     fetchBacklogs();
     fetchJobCards();
     fetchInventoryList();
+    fetchVendors();
   }, [token, statusFilter, priorityFilter, orderedFromDate, orderedToDate, expectedFromDate, expectedToDate]);
+
+  // Handle URL query parameters to auto-fill backlog request
+  useEffect(() => {
+    if (jobCards.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const jcNo = params.get('jobCardNo');
+    const pNo = params.get('partNumber');
+    const pName = params.get('partName');
+    const q = params.get('qty');
+    const vNo = params.get('vehicleNo');
+    const vModel = params.get('vehicleModel');
+    const cName = params.get('customerName');
+
+    if (jcNo || pNo || pName || q) {
+      setFormData(prev => ({
+        ...prev,
+        jobCardNo: jcNo || '',
+        partNumber: pNo || '',
+        partName: pName || '',
+        qty: parseInt(q) || 1,
+        vehicleNo: vNo || '',
+        vehicleModel: vModel || '',
+        customerName: cName || ''
+      }));
+      setShowAddModal(true);
+      
+      if (jcNo) {
+        handleJobCardSelectChange(jcNo);
+      }
+    }
+  }, [jobCards]);
 
   // Close modals on Esc keypress
   useEffect(() => {
@@ -176,8 +210,22 @@ export default function Backlogs({ token, user }) {
     }
   };
 
+  const fetchVendors = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/vendors`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVendorList(Array.isArray(data.vendors) ? data.vendors : []);
+      }
+    } catch (err) {
+      console.error('Failed to load vendors:', err);
+    }
+  };
+
   // Auto-fill form when selection of Job Card changes
-  const handleJobCardSelectChange = (jcNo) => {
+  const handleJobCardSelectChange = async (jcNo) => {
     setFormData(prev => {
       const updated = { ...prev, jobCardNo: jcNo };
       if (!jcNo) return updated;
@@ -190,6 +238,40 @@ export default function Backlogs({ token, user }) {
       }
       return updated;
     });
+
+    setEstimateParts([]);
+    if (!jcNo) return;
+
+    const matched = jobCards.find(j => j.jobCardNo === jcNo);
+    if (matched && matched._id) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/estimates?jobCardId=${matched._id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const estimatesList = await res.json();
+          const latestEstimate = estimatesList[0];
+          if (latestEstimate && latestEstimate.parts) {
+            setEstimateParts(latestEstimate.parts);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch estimate parts:', err);
+      }
+    }
+  };
+
+  const handleEstimatePartSelectChange = (indexVal) => {
+    if (indexVal === "") return;
+    const part = estimateParts[parseInt(indexVal)];
+    if (part) {
+      setFormData(prev => ({
+        ...prev,
+        partNumber: part.partNo || '',
+        partName: part.name || '',
+        qty: part.qty || 1
+      }));
+    }
   };
 
   // Auto-fill form when selection of inventory part changes
@@ -919,7 +1001,10 @@ export default function Backlogs({ token, user }) {
           className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex justify-center items-center p-3 sm:p-6 z-[99999] select-none overflow-hidden animate-fade-in"
           onClick={(e) => { if (e.target === e.currentTarget) setShowAddModal(false); }}
         >
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-[90vw] max-w-[1200px] h-[85vh] max-h-[85vh] shadow-2xl flex flex-col relative overflow-hidden my-auto animate-scale-in">
+          <form 
+            onSubmit={handleAddSubmit}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-[90vw] max-w-[1200px] h-[85vh] max-h-[85vh] shadow-2xl flex flex-col relative overflow-hidden my-auto animate-scale-in"
+          >
             
             {/* Modal Header */}
             <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800">
@@ -927,13 +1012,13 @@ export default function Backlogs({ token, user }) {
                 <ClipboardList className="w-5 h-5 text-indigo-500" />
                 Create Procurement Backlog Request
               </h2>
-              <button onClick={() => setShowAddModal(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-650 transition-colors">
+              <button type="button" onClick={() => setShowAddModal(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-650 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Modal Form */}
-            <form onSubmit={handleAddSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* Modal Form Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
               
               {/* Job Card Selection autocomplete */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800">
@@ -971,9 +1056,26 @@ export default function Backlogs({ token, user }) {
                     ))}
                   </select>
                 </div>
-              </div>
 
-              {/* Vehicle Info */}
+                {estimateParts.length > 0 && (
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-indigo-700 dark:text-indigo-300 mb-1.5">
+                      Select Part from Estimate (Auto-fills Part Details & Qty)
+                    </label>
+                    <select
+                      onChange={(e) => handleEstimatePartSelectChange(e.target.value)}
+                      className="w-full text-xs bg-indigo-50 dark:bg-slate-800 border border-indigo-200 dark:border-slate-700 rounded-lg p-2 font-semibold text-indigo-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">-- Select a Part --</option>
+                      {estimateParts.map((p, idx) => (
+                        <option key={idx} value={idx}>
+                          {p.name} ({p.partNo || 'No Part No'}) - Qty: {p.qty}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>              {/* Vehicle Info */}
               <div>
                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Vehicle Details</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1057,14 +1159,27 @@ export default function Backlogs({ token, user }) {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Name *</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      placeholder="e.g. Lakshmi Auto Spares"
                       value={formData.vendorName}
-                      onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500"
-                    />
+                      onChange={(e) => {
+                        const vName = e.target.value;
+                        const matchedVendor = vendorList.find(v => v.name === vName);
+                        setFormData({
+                          ...formData,
+                          vendorName: vName,
+                          vendorContact: matchedVendor?.mobile || formData.vendorContact || ''
+                        });
+                      }}
+                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    >
+                      <option value="">-- Select Vendor --</option>
+                      {vendorList.map(v => (
+                        <option key={v._id} value={v.name}>
+                          {v.name} {v.city ? `(${v.city})` : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Contact (Optional)</label>
@@ -1151,7 +1266,7 @@ export default function Backlogs({ token, user }) {
                 />
               </div>
 
-            </form>
+            </div>
 
             {/* Modal Footer */}
             <div className="flex justify-end gap-3 p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-b-2xl">
@@ -1164,7 +1279,6 @@ export default function Backlogs({ token, user }) {
               </button>
               <button
                 type="submit"
-                onClick={handleAddSubmit}
                 disabled={actionLoading}
                 className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-md hover:bg-indigo-750 disabled:bg-indigo-400 transition-all flex items-center gap-1.5"
               >
@@ -1172,7 +1286,7 @@ export default function Backlogs({ token, user }) {
                 Save Backlog Request
               </button>
             </div>
-          </div>
+          </form>
         </div>,
         document.body
       )}
@@ -1185,7 +1299,10 @@ export default function Backlogs({ token, user }) {
           className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex justify-center items-center p-3 sm:p-6 z-[99999] select-none overflow-hidden animate-fade-in"
           onClick={(e) => { if (e.target === e.currentTarget) setShowEditModal(false); }}
         >
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-[90vw] max-w-[1200px] h-[85vh] max-h-[85vh] shadow-2xl flex flex-col relative overflow-hidden my-auto animate-scale-in">
+          <form 
+            onSubmit={handleEditSubmit}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-[90vw] max-w-[1200px] h-[85vh] max-h-[85vh] shadow-2xl flex flex-col relative overflow-hidden my-auto animate-scale-in"
+          >
             
             {/* Modal Header */}
             <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800">
@@ -1193,13 +1310,13 @@ export default function Backlogs({ token, user }) {
                 <Edit3 className="w-5 h-5 text-indigo-500" />
                 Edit Backlog Request Details ({formData.status})
               </h2>
-              <button onClick={() => setShowEditModal(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-650 transition-colors">
+              <button type="button" onClick={() => setShowEditModal(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-650 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Modal Form */}
-            <form onSubmit={handleEditSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* Modal Form Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
               
               {/* Status and Priority Block */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800">
@@ -1321,14 +1438,27 @@ export default function Backlogs({ token, user }) {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Name *</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      placeholder="e.g. Lakshmi Auto Spares"
                       value={formData.vendorName}
-                      onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500"
-                    />
+                      onChange={(e) => {
+                        const vName = e.target.value;
+                        const matchedVendor = vendorList.find(v => v.name === vName);
+                        setFormData({
+                          ...formData,
+                          vendorName: vName,
+                          vendorContact: matchedVendor?.mobile || formData.vendorContact || ''
+                        });
+                      }}
+                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                    >
+                      <option value="">-- Select Vendor --</option>
+                      {vendorList.map(v => (
+                        <option key={v._id} value={v.name}>
+                          {v.name} {v.city ? `(${v.city})` : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Contact (Optional)</label>
@@ -1411,7 +1541,7 @@ export default function Backlogs({ token, user }) {
                 />
               </div>
 
-            </form>
+            </div>
 
             {/* Modal Footer */}
             <div className="flex justify-end gap-3 p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 rounded-b-2xl">
@@ -1424,7 +1554,6 @@ export default function Backlogs({ token, user }) {
               </button>
               <button
                 type="submit"
-                onClick={handleEditSubmit}
                 disabled={actionLoading}
                 className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-md hover:bg-indigo-750 disabled:bg-indigo-400 transition-all flex items-center gap-1.5"
               >
@@ -1432,7 +1561,7 @@ export default function Backlogs({ token, user }) {
                 Save Changes
               </button>
             </div>
-          </div>
+          </form>
         </div>,
         document.body
       )}
