@@ -233,7 +233,7 @@ router.get('/:id', auth, async (req, res) => {
 // Create Invoice (can link to estimate)
 router.post('/', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
   try {
-    const { jobCardId, estimateId, parts, labour, gstDetails, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy } = req.body;
+    const { jobCardId, estimateId, parts, labour, gstDetails, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     
     // Find customer & vehicle
     const jobCard = await JobCard.findById(jobCardId);
@@ -270,6 +270,7 @@ router.post('/', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
       poNumber: poNumber || '',
       roNumber: finalRoNumber,
       preparedBy: finalPreparedBy,
+      manualInvoiceRef: manualInvoiceRef || '',
       gstDetails: {
         companyGSTIN: '36AAJCM4778P1ZI',
         customerGSTIN: gstDetails?.customerGSTIN || customer.gstNumber || '',
@@ -335,7 +336,7 @@ router.post('/', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
 // Update / Finalize Invoice (Triggers Inventory stock deduction)
 router.put('/:id', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
   try {
-    const { parts, labour, status, paymentStatus, paymentMethod, amountPaid, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy } = req.body;
+    const { parts, labour, status, paymentStatus, paymentMethod, amountPaid, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
 
@@ -422,6 +423,10 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
 
     if (preparedBy !== undefined) {
       invoice.preparedBy = preparedBy;
+    }
+
+    if (manualInvoiceRef !== undefined) {
+      invoice.manualInvoiceRef = manualInvoiceRef;
     }
 
     invoice.balanceDue = Math.max(0, (invoice.totals.roundedGrandTotal || invoice.totals.grandTotal || 0) - (invoice.advanceReceived || 0));

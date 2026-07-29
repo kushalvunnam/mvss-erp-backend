@@ -31,6 +31,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
   const [poNumber, setPoNumber] = useState('');
   const [roNumber, setRoNumber] = useState('');
   const [preparedBy, setPreparedBy] = useState('');
+  const [manualInvoiceRef, setManualInvoiceRef] = useState('');
   const [insuranceDetails, setInsuranceDetails] = useState({
     claimNo: '',
     insuranceCompany: '',
@@ -336,6 +337,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
             setPoNumber(inv.poNumber || '');
             setRoNumber(inv.roNumber || '');
             setPreparedBy(inv.preparedBy || '');
+            setManualInvoiceRef(inv.manualInvoiceRef || '');
             setGstDetails({
               customerGSTIN: inv.gstDetails?.customerGSTIN || '',
               isInterstate: inv.gstDetails?.isInterstate || false
@@ -989,6 +991,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
       poNumber,
       roNumber,
       preparedBy,
+      manualInvoiceRef,
       advanceReceived: Number(advanceReceived) || 0,
       balanceDue: Math.max(0, totals.roundedGrandTotal - Number(advanceReceived)),
       status: isFinalize ? 'Finalized' : 'Draft'
@@ -1112,7 +1115,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
         </div>
 
         {/* Additional Invoice Metadata */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-205/30">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-205/30">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
               PO Number
@@ -1122,7 +1125,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               value={poNumber}
               onChange={(e) => setPoNumber(e.target.value)}
               placeholder="e.g. PO-98765"
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
             />
           </div>
 
@@ -1135,7 +1138,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               value={roNumber}
               onChange={(e) => setRoNumber(e.target.value)}
               placeholder="e.g. RO-12345 (Defaults to JC No)"
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
             />
           </div>
 
@@ -1148,7 +1151,33 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               value={preparedBy}
               onChange={(e) => setPreparedBy(e.target.value)}
               placeholder="e.g. Kumar (Accounts)"
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+              Manual Invoice Ref
+            </label>
+            <input
+              type="text"
+              value={manualInvoiceRef}
+              onChange={(e) => setManualInvoiceRef(e.target.value)}
+              placeholder="e.g. MVSS/26-27/001"
+              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+              Claim No
+            </label>
+            <input
+              type="text"
+              value={insuranceDetails.claimNo}
+              onChange={(e) => setInsuranceDetails({ ...insuranceDetails, claimNo: e.target.value })}
+              placeholder="e.g. CLM-83749"
+              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
             />
           </div>
         </div>

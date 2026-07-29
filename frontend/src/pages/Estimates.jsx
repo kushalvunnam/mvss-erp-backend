@@ -470,7 +470,7 @@ export default function Estimates({ token, user, setActiveTab }) {
                 <div style="height: 40px;"></div>
               </div>
               <div>
-                <div style="font-weight: bold; text-align: center;">For MVSS AUTOMOBILES PVT. LTD.</div>
+                <div style="font-weight: bold; text-align: center;">For MVSS AUTOMOBILES PRIVATE LIMITED</div>
                 <div class="signature-box">Service Advisor</div>
               </div>
             </div>

@@ -413,6 +413,12 @@ function drawMetadataGrid(doc, y, customer, vehicle, docNo, docDate, isInvoice, 
   doc.font('Helvetica').text(docNo, rightXValue, rightY);
   rightY += 12;
   
+  if (isInvoice && invoice && invoice.manualInvoiceRef) {
+    doc.font('Helvetica-Bold').text('Manual Ref No:', rightXLabel, rightY);
+    doc.font('Helvetica').text(invoice.manualInvoiceRef, rightXValue, rightY);
+    rightY += 12;
+  }
+  
   doc.font('Helvetica-Bold').text('Date:', rightXLabel, rightY);
   doc.font('Helvetica').text(new Date(docDate).toLocaleDateString('en-IN'), rightXValue, rightY);
   rightY += 12;

@@ -710,17 +710,6 @@ export default function Invoices({ token, user, setActiveTab }) {
             <table class="meta-table">
               <tr>
                 <td>
-                  <div class="section-title">Invoice Details</div>
-                  <table style="width:100%; border:none;">
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">${inv.invoiceType === 'Proforma invoice' ? 'Proforma No:' : 'Invoice No:'}</td><td style="border:none; padding:2px; font-family: monospace; font-size:12px; font-weight:bold;">${inv.invoiceNo}</td></tr>
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Date:</td><td style="border:none; padding:2px;">${dateStr}</td></tr>
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Status:</td><td style="border:none; padding:2px; text-transform:uppercase; font-weight:bold; color: ${inv.status === 'Finalized' ? 'green' : 'orange'}">${inv.status}</td></tr>
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Billing Type:</td><td style="border:none; padding:2px;">${isInterstate ? 'IGST Interstate' : 'CGST/SGST Intra-state'}</td></tr>
-                    ${inv.poNumber ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">PO Number:</td><td style="border:none; padding:2px; font-family: monospace;">${inv.poNumber}</td></tr>` : ''}
-                    ${(inv.roNumber || inv.jobCardId?.jobCardNo) ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">RO Number:</td><td style="border:none; padding:2px; font-family: monospace;">${inv.roNumber || inv.jobCardId?.jobCardNo}</td></tr>` : ''}
-                  </table>
-                </td>
-                <td>
                   <div class="section-title">Customer & Vehicle Details</div>
                   <table style="width:100%; border:none;">
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">Customer Name:</td><td style="border:none; padding:2px;">${inv.customerId?.name || 'N/A'}</td></tr>
@@ -729,7 +718,19 @@ export default function Invoices({ token, user, setActiveTab }) {
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Vehicle Reg No:</td><td style="border:none; padding:2px; font-family: monospace; font-weight:bold; font-size:11px;">${inv.vehicleId?.vehicleNumber || 'N/A'}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Make/Model:</td><td style="border:none; padding:2px;">${inv.vehicleId?.make || ''} ${inv.vehicleId?.model || ''}</td></tr>
                     ${inv.customerId?.gstNumber ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Customer GSTIN:</td><td style="border:none; padding:2px; font-family: monospace;">${inv.customerId.gstNumber}</td></tr>` : ''}
-                    ${claimNo ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Claim Number:</td><td style="border:none; padding:2px; font-family: monospace;">${claimNo}</td></tr>` : ''}
+                    ${claimNo ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Claim No:</td><td style="border:none; padding:2px; font-family: monospace;">${claimNo}</td></tr>` : ''}
+                  </table>
+                </td>
+                <td>
+                  <div class="section-title">Invoice Details</div>
+                  <table style="width:100%; border:none;">
+                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">${inv.invoiceType === 'Proforma invoice' ? 'Proforma No:' : 'Invoice No:'}</td><td style="border:none; padding:2px; font-family: monospace; font-size:12px; font-weight:bold;">${inv.invoiceNo}</td></tr>
+                    ${inv.manualInvoiceRef ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Manual Ref No:</td><td style="border:none; padding:2px; font-family: monospace; font-size:12px; font-weight:bold;">${inv.manualInvoiceRef}</td></tr>` : ''}
+                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Date:</td><td style="border:none; padding:2px;">${dateStr}</td></tr>
+                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Status:</td><td style="border:none; padding:2px; text-transform:uppercase; font-weight:bold; color: ${inv.status === 'Finalized' ? 'green' : 'orange'}">${inv.status}</td></tr>
+                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Billing Type:</td><td style="border:none; padding:2px;">${isInterstate ? 'IGST Interstate' : 'CGST/SGST Intra-state'}</td></tr>
+                    ${inv.poNumber ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">PO Number:</td><td style="border:none; padding:2px; font-family: monospace;">${inv.poNumber}</td></tr>` : ''}
+                    ${(inv.roNumber || inv.jobCardId?.jobCardNo) ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">RO Number:</td><td style="border:none; padding:2px; font-family: monospace;">${inv.roNumber || inv.jobCardId?.jobCardNo}</td></tr>` : ''}
                   </table>
                 </td>
               </tr>
@@ -853,7 +854,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                 <div style="font-family: monospace; font-size: 11px; font-weight: bold; color: #111;">${inv.preparedBy || 'Staff Incharge'}</div>
               </div>
               <div>
-                <div style="font-weight: bold; text-align: center;">For MVSS AUTOMOBILES PVT. LTD.</div>
+                <div style="font-weight: bold; text-align: center;">For MVSS AUTOMOBILES PRIVATE LIMITED</div>
                 <div class="signature-box">Authorized Signatory</div>
               </div>
             </div>
@@ -967,7 +968,14 @@ export default function Invoices({ token, user, setActiveTab }) {
                             selectedInvoice?._id === inv._id ? 'bg-indigo-50/20 dark:bg-indigo-950/20' : ''
                           }`}
                         >
-                          <td className="p-4 font-bold text-slate-855 dark:text-slate-200 font-mono">{inv.invoiceNo}</td>
+                          <td className="p-4 font-bold text-slate-855 dark:text-slate-200 font-mono">
+                            {inv.invoiceNo}
+                            {inv.manualInvoiceRef && (
+                              <span className="block text-[10px] font-medium text-slate-400 dark:text-slate-500 mt-0.5">
+                                Ref: {inv.manualInvoiceRef}
+                              </span>
+                            )}
+                          </td>
                           <td className="p-4 font-semibold text-slate-650 dark:text-slate-400">{inv.invoiceType || 'Tax Invoice'}</td>
                           <td className="p-4 font-semibold text-slate-550 dark:text-slate-400">
                             {new Date(inv.date).toLocaleDateString('en-IN')}
@@ -1078,6 +1086,18 @@ export default function Invoices({ token, user, setActiveTab }) {
                     <span className="text-slate-400 font-bold">Registration Number:</span>
                     <span className="text-slate-800 dark:text-slate-200 font-mono font-black">{selectedInvoice.vehicleId?.vehicleNumber || 'N/A'}</span>
                   </div>
+                  {selectedInvoice.manualInvoiceRef && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400 font-bold">Manual Invoice Ref:</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-black">{selectedInvoice.manualInvoiceRef}</span>
+                    </div>
+                  )}
+                  {(selectedInvoice.insuranceClaimDetails?.claimNo || selectedInvoice.insuranceDetails?.claimNo) && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400 font-bold">Claim No:</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-mono font-black">{selectedInvoice.insuranceClaimDetails?.claimNo || selectedInvoice.insuranceDetails?.claimNo}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-bold">Billing Date:</span>
                     <span className="text-slate-800 dark:text-slate-200 font-black">{new Date(selectedInvoice.date).toLocaleDateString('en-IN')}</span>

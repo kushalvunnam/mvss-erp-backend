@@ -67,7 +67,13 @@ export function calculatePricing({
   }
 
   // 2. Forward/Reverse calculations based on changedField
-  let unitBasic = mrpVal / (1 + gstP / 100);
+  let unitBasic;
+  if (changedField === 'rate') {
+    unitBasic = Math.max(0, parseFloat(sellingPrice) || 0);
+    mrpVal = unitBasic * (1 + gstP / 100);
+  } else {
+    unitBasic = mrpVal / (1 + gstP / 100);
+  }
   let totalBasic = unitBasic * qty;
 
   let discPercent = parseFloat(discountPercent) || 0;

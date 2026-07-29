@@ -177,6 +177,10 @@ const invoiceSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  manualInvoiceRef: {
+    type: String,
+    default: '',
+  },
   gstDetails: {
     companyGSTIN: { type: String, default: '' },
     customerGSTIN: { type: String, default: '' },
