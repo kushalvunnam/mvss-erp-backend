@@ -1165,7 +1165,7 @@ function generateGatePassPDF(docData, customer, vehicle, stream) {
 }
 
 function drawCustomerVerticalLines(doc, yStart, yEnd) {
-  const xCoords = [30, 60, 295, 340, 415, 485, 565];
+  const xCoords = [30, 60, 370, 410, 490, 565];
   doc.strokeColor('#cccccc').lineWidth(0.7);
   xCoords.forEach(x => {
     doc.moveTo(x, yStart).lineTo(x, yEnd).stroke();
@@ -1176,10 +1176,9 @@ function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, discount, tot
   doc.fillColor('#000000').font('Helvetica').fontSize(8);
   
   doc.text(index, 30, y + 4, { width: 30, align: 'center' });
-  doc.text(desc, 65, y + 4, { width: 225, height: 10, ellipsis: true });
-  doc.text(qty, 300, y + 4, { width: 40, align: 'center' });
-  doc.text(unitPrice, 345, y + 4, { width: 65, align: 'right' });
-  doc.text(discount, 420, y + 4, { width: 60, align: 'right' });
+  doc.text(desc, 65, y + 4, { width: 300, height: 10, ellipsis: true });
+  doc.text(qty, 370, y + 4, { width: 40, align: 'center' });
+  doc.text(unitPrice, 410, y + 4, { width: 75, align: 'right' });
   doc.text(total, 490, y + 4, { width: 70, align: 'right' });
   
   doc.strokeColor('#cccccc').lineWidth(0.7)
@@ -1209,16 +1208,15 @@ function drawCustomerTableHeader(doc, y) {
   doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
   
   doc.text('S.No', 30, y + 9, { width: 30, align: 'center' });
-  doc.text('Description', 65, y + 9, { width: 230, align: 'left' });
-  doc.text('Qty', 300, y + 9, { width: 40, align: 'center' });
-  doc.text('Unit Price (Rs.)', 345, y + 9, { width: 70, align: 'right' });
-  doc.text('Discount (Rs.)', 420, y + 9, { width: 65, align: 'right' });
+  doc.text('Description', 65, y + 9, { width: 300, align: 'left' });
+  doc.text('Qty', 370, y + 9, { width: 40, align: 'center' });
+  doc.text('Unit Price (Rs.)', 410, y + 9, { width: 75, align: 'right' });
   doc.text('Line Total (Rs.)', 490, y + 9, { width: 70, align: 'right' });
   
   doc.strokeColor('#000000').lineWidth(1)
      .moveTo(30, y).lineTo(565, y).stroke()
      .moveTo(30, y + 25).lineTo(565, y + 25).stroke();
-      
+       
   drawCustomerVerticalLines(doc, y, y + 25);
 }
 
