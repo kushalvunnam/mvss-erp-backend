@@ -50,6 +50,7 @@ export function calculatePricing({
       cost: costVal,
       marginPercent: marginP,
       sellingPrice: unitBasic,
+      unitBasic,
       quantity: qty,
       subtotal: totalBasic,
       discountPercent: discPercent,
@@ -128,6 +129,7 @@ export function calculatePricing({
     cost: costVal,
     marginPercent: marginP,
     sellingPrice: unitBasic, // Basic Value (Rate)
+    unitBasic,
     quantity: qty,
     subtotal: totalBasic,
     discountPercent: discPercent,
