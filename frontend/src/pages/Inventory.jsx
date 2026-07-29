@@ -1307,6 +1307,72 @@ function PartsMasterBillingModal({
     }));
   };
 
+  const switchToLabour = () => {
+    const taxAmt = parseFloat(form.taxableAmount) || parseFloat(form.sellingPrice) || 0;
+    const gstP = parseFloat(form.gstPercent) || 18;
+    const calculatedMrp = taxAmt * (1 + gstP / 100);
+    setForm(prev => ({
+      ...prev,
+      type: 'Labour',
+      hsnCode: prev.hsnCode === '8708' ? '9987' : prev.hsnCode,
+      category: 'Labour Service',
+      unit: 'Hours',
+      purchasePrice: '0',
+      marginPercent: '0',
+      quantity: '1',
+      discountPercent: '0',
+      discountAmount: '0',
+      discountType: 'Percent',
+      taxableAmount: taxAmt.toString(),
+      sellingPrice: taxAmt.toString(),
+      mrp: calculatedMrp.toFixed(2),
+      gstPercent: gstP.toString()
+    }));
+  };
+
+  const switchToPart = () => {
+    setForm(prev => ({
+      ...prev,
+      type: 'Part',
+      hsnCode: prev.hsnCode === '9987' ? '8708' : prev.hsnCode,
+      category: 'General Spares',
+      unit: 'Pcs'
+    }));
+  };
+
+  const handleLabourTaxableChange = (val) => {
+    const numVal = parseFloat(val) || 0;
+    const gstP = parseFloat(form.gstPercent) || 0;
+    const calculatedMrp = numVal * (1 + gstP / 100);
+    setForm(prev => ({
+      ...prev,
+      taxableAmount: val,
+      sellingPrice: numVal.toString(),
+      mrp: calculatedMrp.toFixed(2),
+      quantity: '1',
+      discountPercent: '0',
+      discountAmount: '0',
+      purchasePrice: '0',
+      marginPercent: '0'
+    }));
+  };
+
+  const handleLabourGstChange = (val) => {
+    const gstP = parseFloat(val) || 0;
+    const taxAmt = parseFloat(form.taxableAmount) || 0;
+    const calculatedMrp = taxAmt * (1 + gstP / 100);
+    setForm(prev => ({
+      ...prev,
+      gstPercent: val,
+      mrp: calculatedMrp.toFixed(2),
+      quantity: '1',
+      discountPercent: '0',
+      discountAmount: '0',
+      purchasePrice: '0',
+      marginPercent: '0'
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.partName || !form.partNumber) {
@@ -1421,46 +1487,48 @@ function PartsMasterBillingModal({
         </div>
 
         {/* Real-Time Billing Live Summary Bar */}
-        <div className="bg-slate-900 text-white px-5 py-3 border-b border-slate-800 shrink-0">
-          <div className="flex flex-wrap items-center justify-between gap-4 text-center sm:text-left text-xs">
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cost Price</span>
-              <span className="text-xs font-black font-mono text-slate-200">₹{cost.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">MRP</span>
-              <span className="text-xs font-black font-mono text-slate-250">₹{mrpVal.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Profit Margin</span>
-              <span className="text-xs font-black font-mono text-emerald-400">{marginP}%</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Selling Price</span>
-              <span className="text-xs font-black font-mono text-blue-400">₹{sell.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Discount</span>
-              <span className="text-xs font-black font-mono text-amber-400">-₹{discAmount.toFixed(2)} ({discPercent.toFixed(1)}%)</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">GST ({gstP}%)</span>
-              <span className="text-xs font-black font-mono text-purple-400">+₹{gstAmount.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Customer Saving</span>
-              <span className="text-xs font-black font-mono text-emerald-350">₹{customerSaving.toFixed(2)} ({customerSavingPercent.toFixed(0)}%)</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Net Charge</span>
-              <span className="text-xs font-black font-mono text-cyan-400">₹{unitChargeRate.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Final Total</span>
-              <span className="text-sm font-black font-mono text-emerald-300">₹{finalTotalAmount.toFixed(2)}</span>
+        {form.type !== 'Labour' && (
+          <div className="bg-slate-900 text-white px-5 py-3 border-b border-slate-800 shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-4 text-center sm:text-left text-xs">
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cost Price</span>
+                <span className="text-xs font-black font-mono text-slate-200">₹{cost.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">MRP</span>
+                <span className="text-xs font-black font-mono text-slate-250">₹{mrpVal.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Profit Margin</span>
+                <span className="text-xs font-black font-mono text-emerald-400">{marginP}%</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Selling Price</span>
+                <span className="text-xs font-black font-mono text-blue-400">₹{sell.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Discount</span>
+                <span className="text-xs font-black font-mono text-amber-400">-₹{discAmount.toFixed(2)} ({discPercent.toFixed(1)}%)</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">GST ({gstP}%)</span>
+                <span className="text-xs font-black font-mono text-purple-400">+₹{gstAmount.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Customer Saving</span>
+                <span className="text-xs font-black font-mono text-emerald-350">₹{customerSaving.toFixed(2)} ({customerSavingPercent.toFixed(0)}%)</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Net Charge</span>
+                <span className="text-xs font-black font-mono text-cyan-400">₹{unitChargeRate.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Final Total</span>
+                <span className="text-sm font-black font-mono text-emerald-300">₹{finalTotalAmount.toFixed(2)}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 text-xs font-semibold">
@@ -1479,7 +1547,7 @@ function PartsMasterBillingModal({
               <div className="flex bg-slate-200 dark:bg-slate-800 p-0.5 rounded-xl">
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, type: 'Part', hsnCode: form.hsnCode === '9987' ? '8708' : form.hsnCode })}
+                  onClick={switchToPart}
                   className={`px-3 py-1 text-[10px] font-extrabold rounded-lg transition-all ${
                     form.type === 'Part'
                       ? 'bg-indigo-600 text-white shadow-sm'
@@ -1490,7 +1558,7 @@ function PartsMasterBillingModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, type: 'Labour', hsnCode: form.hsnCode === '8708' ? '9987' : form.hsnCode })}
+                  onClick={switchToLabour}
                   className={`px-3 py-1 text-[10px] font-extrabold rounded-lg transition-all ${
                     form.type === 'Labour'
                       ? 'bg-amber-600 text-white shadow-sm'
@@ -1627,242 +1695,315 @@ function PartsMasterBillingModal({
               </h4>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Purchase Price (Cost)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.purchasePrice}
-                  onChange={(e) => handlePurchasePriceChange(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Profit Margin %
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.marginPercent}
-                    onChange={(e) => handleMarginChange(e.target.value)}
-                    placeholder="20"
-                    className="w-full px-3.5 py-2 pr-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-emerald-600 dark:text-emerald-400 font-bold focus:outline-none focus:border-indigo-500"
-                  />
-                  <Percent className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Selling Price (Excl. Tax) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={form.sellingPrice}
-                  onChange={(e) => handleSellingPriceChange(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-blue-600 dark:text-blue-400 font-black focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Quantity *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                  value={form.quantity}
-                  onChange={(e) => handleQuantityChange(e.target.value)}
-                  placeholder="1"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Discount Type
-                </label>
-                <select
-                  value={form.discountType || 'Percent'}
-                  onChange={(e) => {
-                    const type = e.target.value;
-                    const qty = parseFloat(form.quantity) || 1;
-                    const sellPrice = parseFloat(form.sellingPrice) || 0;
-                    const gross = qty * sellPrice;
-                    
-                    let newPercent = form.discountPercent;
-                    let newAmount = form.discountAmount;
-                    
-                    if (type === 'Percent') {
-                      newAmount = (gross * (parseFloat(newPercent) || 0) / 100).toFixed(2);
-                    } else {
-                      newPercent = gross > 0 ? ((parseFloat(newAmount) || 0) / gross * 100).toFixed(2) : '0';
-                    }
-                    
-                    setForm(prev => ({
-                      ...prev,
-                      discountType: type,
-                      discountPercent: newPercent,
-                      discountAmount: newAmount,
-                      lastDiscountEdited: type === 'Percent' ? 'percent' : 'amount'
-                    }));
-                    setManualFinalTotal(null);
-                  }}
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500 h-10 text-xs"
-                >
-                  <option value="Percent">Percentage</option>
-                  <option value="Fixed">Fixed Amount</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Discount %
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.discountPercent}
-                    onChange={(e) => handleDiscountPercentChange(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3.5 py-2 pr-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-amber-600 dark:text-amber-400 font-bold focus:outline-none focus:border-indigo-500"
-                  />
-                  <Percent className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Discount Amount (₹)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.discountAmount}
-                  onChange={(e) => handleDiscountAmountChange(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-amber-600 dark:text-amber-400 font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Taxable Value (₹)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.taxableAmount !== undefined && form.taxableAmount !== '' ? form.taxableAmount : (taxableAmount || 0)}
-                  onChange={(e) => handleTaxableAmountChange(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  GST Rate (%)
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    value={['0', '3', '5', '12', '18', '28'].includes(form.gstPercent) ? form.gstPercent : 'custom'}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === 'custom') {
-                        setForm({ ...form, gstPercent: 'custom' });
-                      } else {
-                        handleGstPercentChange(val);
-                      }
-                    }}
-                    disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
-                    className="flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="0">0% (Exempted)</option>
-                    <option value="3">3% (GST)</option>
-                    <option value="5">5% (GST)</option>
-                    <option value="12">12% (GST)</option>
-                    <option value="18">18% (Standard GST)</option>
-                    <option value="28">28% (Luxury / Spares)</option>
-                    <option value="custom">Custom...</option>
-                  </select>
-                  {!['0', '3', '5', '12', '18', '28'].includes(form.gstPercent) && (
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={form.gstPercent === 'custom' ? '' : form.gstPercent}
-                      onChange={(e) => handleGstPercentChange(e.target.value)}
-                      disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
-                      className="w-24 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  GST Amount (Auto)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`₹ ${gstAmount.toFixed(2)}`}
-                  className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl font-mono text-purple-600 dark:text-purple-400 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Net Charge Rate (Per Unit)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`₹ ${unitChargeRate.toFixed(2)}`}
-                  className="w-full px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl font-mono text-emerald-700 dark:text-emerald-300 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Final Total Amount (₹)
-                </label>
-                <div className="relative">
+            {form.type === 'Labour' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Taxable Value (₹) *
+                  </label>
                   <input
                     type="number"
                     step="0.01"
-                    value={manualFinalTotal !== null ? manualFinalTotal : finalTotalAmount.toFixed(2)}
-                    onChange={(e) => handleManualFinalTotalChange(e.target.value)}
-                    className="w-full px-3.5 py-2 pr-16 bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 rounded-xl font-mono text-emerald-800 dark:text-emerald-200 font-black text-sm focus:outline-none"
+                    required
+                    value={form.taxableAmount !== undefined && form.taxableAmount !== '' ? form.taxableAmount : (taxableAmount || 0)}
+                    onChange={(e) => handleLabourTaxableChange(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:border-indigo-500"
                   />
-                  {manualFinalTotal !== null && (
-                    <div className="absolute right-2 top-2 flex items-center gap-1">
-                      <span className="text-[8px] bg-red-500 text-white font-extrabold px-1.5 py-0.5 rounded uppercase">Override</span>
-                      <button
-                        type="button"
-                        onClick={() => setManualFinalTotal(null)}
-                        className="text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded font-extrabold hover:bg-slate-300"
-                      >
-                        Reset
-                      </button>
-                    </div>
-                  )}
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    GST Rate (%)
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={['0', '3', '5', '12', '18', '28'].includes(form.gstPercent) ? form.gstPercent : 'custom'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'custom') {
+                          setForm({ ...form, gstPercent: 'custom' });
+                        } else {
+                          handleLabourGstChange(val);
+                        }
+                      }}
+                      disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
+                      className="flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="0">0% (Exempted)</option>
+                      <option value="3">3% (GST)</option>
+                      <option value="5">5% (GST)</option>
+                      <option value="12">12% (GST)</option>
+                      <option value="18">18% (Standard GST)</option>
+                      <option value="28">28% (Luxury / Spares)</option>
+                      <option value="custom">Custom...</option>
+                    </select>
+                    {!['0', '3', '5', '12', '18', '28'].includes(form.gstPercent) && (
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={form.gstPercent === 'custom' ? '' : form.gstPercent}
+                        onChange={(e) => handleLabourGstChange(e.target.value)}
+                        disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
+                        className="w-24 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Final Amount (Auto Calculated) (₹)
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`₹ ${finalTotalAmount.toFixed(2)}`}
+                    className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl font-mono text-emerald-600 dark:text-emerald-450 font-bold"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Purchase Price (Cost)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={form.purchasePrice}
+                    onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Profit Margin %
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={form.marginPercent}
+                      onChange={(e) => handleMarginChange(e.target.value)}
+                      placeholder="20"
+                      className="w-full px-3.5 py-2 pr-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-emerald-600 dark:text-emerald-400 font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                    <Percent className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Selling Price (Excl. Tax) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={form.sellingPrice}
+                    onChange={(e) => handleSellingPriceChange(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-blue-650 dark:text-blue-400 font-black focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Quantity *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    value={form.quantity}
+                    onChange={(e) => handleQuantityChange(e.target.value)}
+                    placeholder="1"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Discount Type
+                  </label>
+                  <select
+                    value={form.discountType || 'Percent'}
+                    onChange={(e) => {
+                      const type = e.target.value;
+                      const qty = parseFloat(form.quantity) || 1;
+                      const sellPrice = parseFloat(form.sellingPrice) || 0;
+                      const gross = qty * sellPrice;
+                      
+                      let newPercent = form.discountPercent;
+                      let newAmount = form.discountAmount;
+                      
+                      if (type === 'Percent') {
+                        newAmount = (gross * (parseFloat(newPercent) || 0) / 100).toFixed(2);
+                      } else {
+                        newPercent = gross > 0 ? ((parseFloat(newAmount) || 0) / gross * 100).toFixed(2) : '0';
+                      }
+                      
+                      setForm(prev => ({
+                        ...prev,
+                        discountType: type,
+                        discountPercent: newPercent,
+                        discountAmount: newAmount,
+                        lastDiscountEdited: type === 'Percent' ? 'percent' : 'amount'
+                      }));
+                      setManualFinalTotal(null);
+                    }}
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500 h-10 text-xs"
+                  >
+                    <option value="Percent">Percentage</option>
+                    <option value="Fixed">Fixed Amount</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Discount %
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={form.discountPercent}
+                      onChange={(e) => handleDiscountPercentChange(e.target.value)}
+                      placeholder="0"
+                      className="w-full px-3.5 py-2 pr-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-amber-600 dark:text-amber-400 font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                    <Percent className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Discount Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={form.discountAmount}
+                    onChange={(e) => handleDiscountAmountChange(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-amber-600 dark:text-amber-400 font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Taxable Value (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={form.taxableAmount !== undefined && form.taxableAmount !== '' ? form.taxableAmount : (taxableAmount || 0)}
+                    onChange={(e) => handleTaxableAmountChange(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    GST Rate (%)
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={['0', '3', '5', '12', '18', '28'].includes(form.gstPercent) ? form.gstPercent : 'custom'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'custom') {
+                          setForm({ ...form, gstPercent: 'custom' });
+                        } else {
+                          handleGstPercentChange(val);
+                        }
+                      }}
+                      disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
+                      className="flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="0">0% (Exempted)</option>
+                      <option value="3">3% (GST)</option>
+                      <option value="5">5% (GST)</option>
+                      <option value="12">12% (GST)</option>
+                      <option value="18">18% (Standard GST)</option>
+                      <option value="28">28% (Luxury / Spares)</option>
+                      <option value="custom">Custom...</option>
+                    </select>
+                    {!['0', '3', '5', '12', '18', '28'].includes(form.gstPercent) && (
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={form.gstPercent === 'custom' ? '' : form.gstPercent}
+                        onChange={(e) => handleGstPercentChange(e.target.value)}
+                        disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
+                        className="w-24 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    GST Amount (Auto)
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`₹ ${gstAmount.toFixed(2)}`}
+                    className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl font-mono text-purple-600 dark:text-purple-400 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Net Charge Rate (Per Unit)
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`₹ ${unitChargeRate.toFixed(2)}`}
+                    className="w-full px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl font-mono text-emerald-700 dark:text-emerald-300 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Final Total Amount (₹)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={manualFinalTotal !== null ? manualFinalTotal : finalTotalAmount.toFixed(2)}
+                      onChange={(e) => handleManualFinalTotalChange(e.target.value)}
+                      className="w-full px-3.5 py-2 pr-16 bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 rounded-xl font-mono text-emerald-800 dark:text-emerald-200 font-black text-sm focus:outline-none"
+                    />
+                    {manualFinalTotal !== null && (
+                      <div className="absolute right-2 top-2 flex items-center gap-1">
+                        <span className="text-[8px] bg-red-500 text-white font-extrabold px-1.5 py-0.5 rounded uppercase">Override</span>
+                        <button
+                          type="button"
+                          onClick={() => setManualFinalTotal(null)}
+                          className="text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded font-extrabold hover:bg-slate-300"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                 {manualFinalTotal !== null && (
                   <span className="text-[10px] font-bold text-red-500 mt-1 block">Manual Override Enabled</span>
                 )}
@@ -1906,174 +2047,179 @@ function PartsMasterBillingModal({
                 )}
               </div>
             </div>
-          </div>
+          )}
+        </div>
 
           {/* Section 3: Inventory & Warehouse Control */}
-          <div className="bg-slate-50/70 dark:bg-slate-950/40 p-4.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-200/60 dark:border-slate-800 pb-2.5">
-              <Boxes className="w-4 h-4 text-blue-500" />
-              <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                3. Stock Quantity & Warehouse Control
-              </h4>
+          {form.type !== 'Labour' && (
+            <div className="bg-slate-50/70 dark:bg-slate-950/40 p-4.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+              <div className="flex items-center gap-2 border-b border-slate-200/60 dark:border-slate-800 pb-2.5">
+                <Boxes className="w-4 h-4 text-blue-500" />
+                <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  3. Stock Quantity & Warehouse Control
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Unit of Measure
+                  </label>
+                  <select
+                    value={form.unit}
+                    onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Pcs">Pcs (Pieces)</option>
+                    <option value="Ltr">Ltr (Liters)</option>
+                    <option value="Kg">Kg (Kilograms)</option>
+                    <option value="Set">Set</option>
+                    <option value="Meter">Meter</option>
+                    <option value="Box">Box</option>
+                    <option value="Pairs">Pairs</option>
+                    <option value="Hours">Hours (Labour)</option>
+                    <option value="Job">Job Service</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Warehouse Location
+                  </label>
+                  <select
+                    value={form.warehouse}
+                    onChange={(e) => setForm({ ...form, warehouse: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Main Store">Main Store</option>
+                    <option value="Spares Warehouse">Spares Warehouse</option>
+                    <option value="Body Shop Store">Body Shop Store</option>
+                    <option value="Accessories Store">Accessories Store</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Rack / Shelf Position
+                  </label>
+                  <input
+                    type="text"
+                    value={form.locationRack}
+                    onChange={(e) => setForm({ ...form, locationRack: e.target.value })}
+                    placeholder="e.g. Rack A-4, Shelf 2"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Opening Stock
+                  </label>
+                  <input
+                    type="number"
+                    value={form.openingStock}
+                    onChange={(e) => setForm({ ...form, openingStock: e.target.value })}
+                    placeholder="0"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Current Stock *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={form.stockQuantity}
+                    onChange={(e) => setForm({ ...form, stockQuantity: e.target.value })}
+                    placeholder="0"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Minimum Stock Threshold *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={form.lowStockThreshold}
+                    onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
+                    placeholder="5"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Unit of Measure
-                </label>
-                <select
-                  value={form.unit}
-                  onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Pcs">Pcs (Pieces)</option>
-                  <option value="Ltr">Ltr (Liters)</option>
-                  <option value="Kg">Kg (Kilograms)</option>
-                  <option value="Set">Set</option>
-                  <option value="Meter">Meter</option>
-                  <option value="Box">Box</option>
-                  <option value="Pairs">Pairs</option>
-                  <option value="Hours">Hours (Labour)</option>
-                  <option value="Job">Job Service</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Warehouse Location
-                </label>
-                <select
-                  value={form.warehouse}
-                  onChange={(e) => setForm({ ...form, warehouse: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Main Store">Main Store</option>
-                  <option value="Spares Warehouse">Spares Warehouse</option>
-                  <option value="Body Shop Store">Body Shop Store</option>
-                  <option value="Accessories Store">Accessories Store</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Rack / Shelf Position
-                </label>
-                <input
-                  type="text"
-                  value={form.locationRack}
-                  onChange={(e) => setForm({ ...form, locationRack: e.target.value })}
-                  placeholder="e.g. Rack A-4, Shelf 2"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Opening Stock
-                </label>
-                <input
-                  type="number"
-                  value={form.openingStock}
-                  onChange={(e) => setForm({ ...form, openingStock: e.target.value })}
-                  placeholder="0"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Current Stock *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={form.stockQuantity}
-                  onChange={(e) => setForm({ ...form, stockQuantity: e.target.value })}
-                  placeholder="0"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Minimum Stock Threshold *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={form.lowStockThreshold}
-                  onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
-                  placeholder="5"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Section 4: Brand, Supplier & Barcode */}
-          <div className="bg-slate-50/70 dark:bg-slate-950/40 p-4.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-200/60 dark:border-slate-800 pb-2.5">
-              <Building2 className="w-4 h-4 text-purple-500" />
-              <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                4. Brand, Supplier & Barcode Identification
-              </h4>
+          {form.type !== 'Labour' && (
+            <div className="bg-slate-50/70 dark:bg-slate-950/40 p-4.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+              <div className="flex items-center gap-2 border-b border-slate-200/60 dark:border-slate-800 pb-2.5">
+                <Building2 className="w-4 h-4 text-purple-500" />
+                <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  4. Brand, Supplier & Barcode Identification
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Brand Name / OEM
+                  </label>
+                  <input
+                    type="text"
+                    value={form.brand}
+                    onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                    placeholder="e.g. Bosch, MGP, Castrol"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Supplier / Vendor Name
+                  </label>
+                  <input
+                    type="text"
+                    value={form.supplier}
+                    onChange={(e) => setForm({ ...form, supplier: e.target.value })}
+                    placeholder="e.g. Bosch India Distributors"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Barcode Number
+                  </label>
+                  <input
+                    type="text"
+                    value={form.barcode}
+                    onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                    placeholder="e.g. 8901234567890"
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Additional Item Notes / Remarks
+                  </label>
+                  <textarea
+                    rows="2"
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    placeholder="Additional specs, warranty info, or fitting instructions..."
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Brand Name / OEM
-                </label>
-                <input
-                  type="text"
-                  value={form.brand}
-                  onChange={(e) => setForm({ ...form, brand: e.target.value })}
-                  placeholder="e.g. Bosch, MGP, Castrol"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Supplier / Vendor Name
-                </label>
-                <input
-                  type="text"
-                  value={form.supplier}
-                  onChange={(e) => setForm({ ...form, supplier: e.target.value })}
-                  placeholder="e.g. Bosch India Distributors"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Barcode Number
-                </label>
-                <input
-                  type="text"
-                  value={form.barcode}
-                  onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-                  placeholder="e.g. 8901234567890"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Additional Item Notes / Remarks
-                </label>
-                <textarea
-                  rows="2"
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  placeholder="Additional specs, warranty info, or fitting instructions..."
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-          </div>
+          )}
         </form>
 
         {/* Sticky Footer Bar */}
