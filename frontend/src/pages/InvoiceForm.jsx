@@ -81,101 +81,43 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     return cleaned;
   };
 
-  const handleDiscountPercentChange = (list, setter, idx, val) => {
+  const handleRowFieldChange = (list, setter, idx, field, value) => {
     setManualOverride(false);
     const updated = [...list];
-    const item = { ...updated[idx] };
-    const qty = Math.max(1, parseFloat(item.qty) || 1);
-    const rate = parseFloat(item.rate) || 0;
-    const gross = qty * rate;
-    
-    const cleanPct = cleanNumberInput(val, true);
-    const pctNum = Math.max(0, Math.min(100, parseFloat(cleanPct) || 0));
-    const calculatedAmt = (gross * (pctNum / 100)).toFixed(2);
-    
-    item.discountPercent = cleanPct;
-    item.discountAmount = calculatedAmt;
-    updated[idx] = item;
-    setter(updated);
-  };
+    let row = { ...updated[idx] };
 
-  const handleDiscountAmountChange = (list, setter, idx, val) => {
-    setManualOverride(false);
-    const updated = [...list];
-    const item = { ...updated[idx] };
-    const qty = Math.max(1, parseFloat(item.qty) || 1);
-    const rate = parseFloat(item.rate) || 0;
-    const gross = qty * rate;
-    
-    const cleanAmt = cleanNumberInput(val, true);
-    const amtNum = Math.max(0, Math.min(gross, parseFloat(cleanAmt) || 0));
-    const calculatedPercent = gross > 0 ? ((amtNum / gross) * 100).toFixed(2) : '0';
-    
-    item.discountAmount = cleanAmt;
-    item.discountPercent = calculatedPercent;
-    updated[idx] = item;
-    setter(updated);
-  };
+    // Set the field directly first so the input value shows the typed text
+    row[field] = value;
 
-  const handleDiscountTypeChange = (list, setter, idx, type) => {
-    setManualOverride(false);
-    const updated = [...list];
-    const item = { ...updated[idx] };
-    item.discountType = type;
+    const qty = Math.max(1, parseFloat(row.qty) || 1);
+    const gstP = parseFloat(row.gstPercent) || 0;
     
-    const qty = Math.max(1, parseFloat(item.qty) || 1);
-    const rate = parseFloat(item.rate) || 0;
-    const gross = qty * rate;
-    
-    if (type === 'Percent') {
-      const pct = parseFloat(item.discountPercent) || 0;
-      item.discountAmount = (gross * (pct / 100)).toFixed(2);
-    } else {
-      const amt = parseFloat(item.discountAmount) || 0;
-      item.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-    }
-    updated[idx] = item;
-    setter(updated);
-  };
-
-  const handleRowNumericChange = (e, list, setter, idx, field, allowDecimal = true, maxVal = null) => {
-    setManualOverride(false);
-    const input = e.target;
-    const originalValue = input.value;
-    const processedValue = cleanNumberInput(originalValue, allowDecimal, maxVal);
-    
-    const selectionStart = input.selectionStart;
-    
-    const updatedList = [...list];
-    delete updatedList[idx].totalCustom;
-    let item = { ...updatedList[idx], [field]: processedValue };
-
-    if (field === 'qty' || field === 'rate') {
-      const qty = Math.max(1, parseFloat(item.qty) || 1);
-      const rate = parseFloat(item.rate) || 0;
-      const gross = qty * rate;
-      const type = item.discountType || 'Percent';
-      
-      if (type === 'Percent') {
-        const pct = parseFloat(item.discountPercent) || 0;
-        item.discountAmount = (gross * (pct / 100)).toFixed(2);
-      } else {
-        const amt = parseFloat(item.discountAmount) || 0;
-        item.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-      }
-    }
-
-    updatedList[idx] = item;
-    setter(updatedList);
-
-    requestAnimationFrame(() => {
-      if (input && input.setSelectionRange) {
-        const beforeCursor = originalValue.slice(0, selectionStart);
-        const cleanBeforeCursor = cleanNumberInput(beforeCursor, allowDecimal, maxVal);
-        const newCursorPos = cleanBeforeCursor.length;
-        input.setSelectionRange(newCursorPos, newCursorPos);
-      }
+    // Call pricing engine
+    const pricing = calculatePricing({
+      sellingPrice: parseFloat(row.rate) || 0,
+      quantity: qty,
+      discountPercent: parseFloat(row.discountPercent) || 0,
+      discountAmount: parseFloat(row.discountAmount) || 0,
+      discountType: row.discountType || 'Percent',
+      gstPercent: gstP,
+      mrp: parseFloat(row.mrp) || 0,
+      taxableAmount: field === 'taxableAmount' && value !== '' ? parseFloat(value) : null,
+      changedField: field
     });
+
+    // Update row fields with calculated values
+    row.mrp = pricing.mrp.toFixed(2);
+    row.rate = pricing.unitBasic.toFixed(2);
+    row.discountPercent = pricing.discountPercent.toFixed(2);
+    row.discountAmount = pricing.discountAmount.toFixed(2);
+    row.discount = pricing.discountAmount.toFixed(2);
+    row.taxableAmount = pricing.taxableAmount.toFixed(2);
+
+    // Preserve the typed value to prevent cursor jumping
+    row[field] = value;
+
+    updated[idx] = row;
+    setter(updated);
   };
 
   const handleTotalChange = (e, list, setter, idx) => {
@@ -183,48 +125,40 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     const input = e.target;
     const originalValue = input.value;
     const processedValue = cleanNumberInput(originalValue, true);
-    const selectionStart = input.selectionStart;
 
     const updatedList = [...list];
-    const item = { ...updatedList[idx], totalCustom: processedValue };
+    let row = { ...updatedList[idx] };
 
     if (processedValue !== '') {
       const totalNum = parseFloat(processedValue);
       if (!isNaN(totalNum)) {
-        const qty = Math.max(1, Number(item.qty) || 1);
-        const gstPercent = Number(item.gstPercent) || 0;
-        const discountPercent = Number(item.discountPercent) || 0;
-        const discountAmount = Number(item.discountAmount) || 0;
+        const qty = Math.max(1, parseFloat(row.qty) || 1);
+        const gstP = parseFloat(row.gstPercent) || 0;
+        
+        const pricing = calculatePricing({
+          sellingPrice: parseFloat(row.rate) || 0,
+          quantity: qty,
+          discountPercent: parseFloat(row.discountPercent) || 0,
+          discountAmount: parseFloat(row.discountAmount) || 0,
+          discountType: row.discountType || 'Percent',
+          gstPercent: gstP,
+          mrp: parseFloat(row.mrp) || 0,
+          manualFinalTotal: totalNum
+        });
 
-        const taxableVal = totalNum / (1 + (gstPercent / 100));
-        let calcRate = 0;
-        if (item.discountType === 'Fixed') {
-          const gross = taxableVal + discountAmount;
-          calcRate = gross / qty;
-        } else {
-          const multiplier = 1 - (discountPercent / 100);
-          if (multiplier > 0) {
-            const gross = taxableVal / multiplier;
-            calcRate = gross / qty;
-          }
-        }
-        if (calcRate >= 0) {
-          item.rate = (Math.round((calcRate + Number.EPSILON) * 100) / 100).toString();
-        }
+        row.mrp = pricing.mrp.toFixed(2);
+        row.rate = pricing.unitBasic.toFixed(2);
+        row.discountPercent = pricing.discountPercent.toFixed(2);
+        row.discountAmount = pricing.discountAmount.toFixed(2);
+        row.discount = pricing.discountAmount.toFixed(2);
+        row.taxableAmount = pricing.taxableAmount.toFixed(2);
       }
+    } else {
+      row.totalCustom = '';
     }
 
-    updatedList[idx] = item;
+    updatedList[idx] = row;
     setter(updatedList);
-
-    requestAnimationFrame(() => {
-      if (input && input.setSelectionRange) {
-        const beforeCursor = originalValue.slice(0, selectionStart);
-        const cleanBeforeCursor = cleanNumberInput(beforeCursor, true);
-        const newCursorPos = cleanBeforeCursor.length;
-        input.setSelectionRange(newCursorPos, newCursorPos);
-      }
-    });
   };
 
   const handleInsuranceNumericChange = (e, field, allowDecimal = true, maxVal = null) => {
@@ -316,27 +250,61 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
             const est = await estDetailsRes.json();
             
             // Auto fill parts, labour and customer details
-            setPartsList(est.parts.map(p => ({
-              partId: p.partId?._id || p.partId || '',
-              name: p.name,
-              partNo: p.partNo,
-              hsnCode: p.hsnCode,
-              qty: p.qty !== undefined && p.qty !== null ? p.qty.toString() : '',
-              rate: p.rate !== undefined && p.rate !== null ? p.rate.toString() : '',
-              gstPercent: p.gstPercent !== undefined && p.gstPercent !== null ? p.gstPercent.toString() : '',
-              discountPercent: '0',
-              discountAmount: '0',
-              discountType: 'Percent'
-            })));
-            setLabourList(est.labour.map(l => ({
-              description: l.description,
-              qty: '1',
-              rate: l.rate !== undefined && l.rate !== null ? l.rate.toString() : '',
-              gstPercent: l.gstPercent !== undefined && l.gstPercent !== null ? l.gstPercent.toString() : '',
-              discountPercent: '0',
-              discountAmount: '0',
-              discountType: 'Percent'
-            })));
+            setPartsList(est.parts.map(p => {
+              const qty = p.qty || 1;
+              const rate = p.rate || 0;
+              const gst = p.gstPercent || 0;
+              const mrp = p.mrp || (rate * (1 + gst / 100));
+              const discAmt = p.discount || 0;
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountAmount: discAmt,
+                discountType: 'Fixed',
+                gstPercent: gst,
+                mrp: mrp,
+                changedField: 'discountAmount'
+              });
+              return {
+                partId: p.partId?._id || p.partId || '',
+                name: p.name,
+                partNo: p.partNo,
+                hsnCode: p.hsnCode,
+                qty: qty.toString(),
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountType: 'Fixed',
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
+              };
+            }));
+            setLabourList(est.labour.map(l => {
+              const qty = 1;
+              const rate = l.rate || 0;
+              const gst = l.gstPercent || 0;
+              const discAmt = l.discount || 0;
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountAmount: discAmt,
+                discountType: 'Fixed',
+                gstPercent: gst,
+                changedField: 'discountAmount'
+              });
+              return {
+                description: l.description,
+                qty: '1',
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountType: 'Fixed',
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
+              };
+            }));
 
             const jc = est.jobCardId || {};
             const cust = jc.customerId || {};
@@ -372,27 +340,61 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               customerGSTIN: inv.gstDetails?.customerGSTIN || '',
               isInterstate: inv.gstDetails?.isInterstate || false
             });
-            setPartsList(inv.parts.map(p => ({
-              partId: p.partId?._id || p.partId || '',
-              name: p.name,
-              partNo: p.partNo,
-              hsnCode: p.hsnCode,
-              qty: p.qty !== undefined && p.qty !== null ? p.qty.toString() : '',
-              rate: p.rate !== undefined && p.rate !== null ? p.rate.toString() : '',
-              gstPercent: p.gstPercent !== undefined && p.gstPercent !== null ? p.gstPercent.toString() : '',
-              discountPercent: p.discountPercent !== undefined && p.discountPercent !== null ? p.discountPercent.toString() : '0',
-              discountAmount: p.discountAmount !== undefined && p.discountAmount !== null ? p.discountAmount.toString() : '0',
-              discountType: p.discountType || 'Percent'
-            })));
-            setLabourList(inv.labour.map(l => ({
-              description: l.description,
-              qty: l.qty !== undefined && l.qty !== null ? l.qty.toString() : '1',
-              rate: l.rate !== undefined && l.rate !== null ? l.rate.toString() : '',
-              gstPercent: l.gstPercent !== undefined && l.gstPercent !== null ? l.gstPercent.toString() : '',
-              discountPercent: l.discountPercent !== undefined && l.discountPercent !== null ? l.discountPercent.toString() : '0',
-              discountAmount: l.discountAmount !== undefined && l.discountAmount !== null ? l.discountAmount.toString() : '0',
-              discountType: l.discountType || 'Percent'
-            })));
+            setPartsList(inv.parts.map(p => {
+              const qty = p.qty || 1;
+              const rate = p.rate || 0;
+              const gst = p.gstPercent || 0;
+              const mrp = p.mrp || (rate * (1 + gst / 100));
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountPercent: p.discountPercent || 0,
+                discountAmount: p.discountAmount || 0,
+                discountType: p.discountType || 'Percent',
+                gstPercent: gst,
+                mrp: mrp,
+                changedField: p.discountType === 'Fixed' ? 'discountAmount' : 'discountPercent'
+              });
+              return {
+                partId: p.partId?._id || p.partId || '',
+                name: p.name,
+                partNo: p.partNo,
+                hsnCode: p.hsnCode,
+                qty: qty.toString(),
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountType: p.discountType || 'Percent',
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
+              };
+            }));
+            setLabourList(inv.labour.map(l => {
+              const qty = l.qty || 1;
+              const rate = l.rate || 0;
+              const gst = l.gstPercent || 0;
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountPercent: l.discountPercent || 0,
+                discountAmount: l.discountAmount || 0,
+                discountType: l.discountType || 'Percent',
+                gstPercent: gst,
+                changedField: l.discountType === 'Fixed' ? 'discountAmount' : 'discountPercent'
+              });
+              return {
+                description: l.description,
+                qty: qty.toString(),
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountType: l.discountType || 'Percent',
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
+              };
+            }));
             setInsuranceDetails({
               claimNo: inv.insuranceClaimDetails?.claimNo || '',
               insuranceCompany: inv.insuranceClaimDetails?.insuranceCompany || '',
@@ -426,20 +428,12 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     let discountTotal = 0;
 
     partsList.forEach(part => {
-      const pricing = calculatePricing({
-        sellingPrice: part.rate,
-        quantity: part.qty,
-        discountPercent: part.discountPercent,
-        discountAmount: part.discountAmount,
-        lastDiscountEdited: part.discountType === 'Fixed' ? 'amount' : 'percent',
-        gstPercent: part.gstPercent
-      });
-
-      const amount = roundToTwo(pricing.taxableAmount);
-      const gstAmount = roundToTwo(pricing.gstAmount);
+      const amount = roundToTwo(parseFloat(part.taxableAmount) || 0);
+      const gstP = parseFloat(part.gstPercent) || 0;
+      const gstAmount = roundToTwo(amount * (gstP / 100));
 
       partsTotal += amount;
-      discountTotal += pricing.discountAmount;
+      discountTotal += parseFloat(part.discountAmount) || 0;
       gstTotal += gstAmount;
 
       if (gstDetails.isInterstate) {
@@ -453,20 +447,12 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     });
 
     labourList.forEach(lab => {
-      const pricing = calculatePricing({
-        sellingPrice: lab.rate,
-        quantity: lab.qty || 1,
-        discountPercent: lab.discountPercent,
-        discountAmount: lab.discountAmount,
-        lastDiscountEdited: lab.discountType === 'Fixed' ? 'amount' : 'percent',
-        gstPercent: lab.gstPercent
-      });
-
-      const amount = roundToTwo(pricing.taxableAmount);
-      const gstAmount = roundToTwo(pricing.gstAmount);
+      const amount = roundToTwo(parseFloat(lab.taxableAmount) || 0);
+      const gstP = parseFloat(lab.gstPercent) || 0;
+      const gstAmount = roundToTwo(amount * (gstP / 100));
 
       labourTotal += amount;
-      discountTotal += pricing.discountAmount;
+      discountTotal += parseFloat(lab.discountAmount) || 0;
       gstTotal += gstAmount;
 
       if (gstDetails.isInterstate) {
@@ -662,23 +648,61 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
           const approvedEst = estimatesList.find(e => e.status === 'Approved') || estimatesList[0];
           if (approvedEst) {
             setSelectedEstimateId(approvedEst._id);
-            setPartsList(approvedEst.parts.map(p => ({
-              partId: p.partId?._id || p.partId || '',
-              name: p.name,
-              partNo: p.partNo,
-              hsnCode: p.hsnCode,
-              qty: p.qty !== undefined && p.qty !== null ? p.qty.toString() : '',
-              rate: p.rate !== undefined && p.rate !== null ? p.rate.toString() : '',
-              discountPercent: p.discountPercent !== undefined && p.discountPercent !== null ? p.discountPercent.toString() : '0',
-              gstPercent: p.gstPercent !== undefined && p.gstPercent !== null ? p.gstPercent.toString() : ''
-            })));
-            setLabourList(approvedEst.labour.map(l => ({
-              description: l.description,
-              qty: l.qty !== undefined && l.qty !== null ? l.qty.toString() : '1',
-              rate: l.rate !== undefined && l.rate !== null ? l.rate.toString() : '',
-              discountPercent: l.discountPercent !== undefined && l.discountPercent !== null ? l.discountPercent.toString() : '0',
-              gstPercent: l.gstPercent !== undefined && l.gstPercent !== null ? l.gstPercent.toString() : ''
-            })));
+             setPartsList(approvedEst.parts.map(p => {
+              const qty = p.qty || 1;
+              const rate = p.rate || 0;
+              const gst = p.gstPercent || 0;
+              const mrp = p.mrp || (rate * (1 + gst / 100));
+              const discAmt = p.discount || 0;
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountAmount: discAmt,
+                discountType: 'Fixed',
+                gstPercent: gst,
+                mrp: mrp,
+                changedField: 'discountAmount'
+              });
+              return {
+                partId: p.partId?._id || p.partId || '',
+                name: p.name,
+                partNo: p.partNo,
+                hsnCode: p.hsnCode,
+                qty: qty.toString(),
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountType: 'Fixed',
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
+              };
+            }));
+            setLabourList(approvedEst.labour.map(l => {
+              const qty = l.qty || 1;
+              const rate = l.rate || 0;
+              const gst = l.gstPercent || 0;
+              const discAmt = l.discount || 0;
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountAmount: discAmt,
+                discountType: 'Fixed',
+                gstPercent: gst,
+                changedField: 'discountAmount'
+              });
+              return {
+                description: l.description,
+                qty: qty.toString(),
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountType: 'Fixed',
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
+              };
+            }));
           } else {
             setSelectedEstimateId('');
             setPartsList([]);
@@ -694,7 +718,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
   // Parts rows operations
   const handleAddPartRow = () => {
     setManualOverride(false);
-    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', qty: '1', rate: '', gstPercent: '', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
+    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', qty: '1', mrp: '', rate: '', gstPercent: '', discountPercent: '0', discountAmount: '0', discountType: 'Percent', taxableAmount: '' }]);
   };
 
   const handleRemovePartRow = (idx) => {
@@ -710,18 +734,40 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     if (!part) return;
 
     const list = [...partsList];
-    list[idx] = {
+    const rawRow = {
       ...list[idx],
       partId: part._id,
       name: part.partName,
       partNo: part.partNumber,
       hsnCode: part.hsnCode,
+      qty: '1',
       rate: part.sellingPrice !== undefined && part.sellingPrice !== null ? part.sellingPrice.toString() : '',
-      gstPercent: part.gstPercent !== undefined && part.gstPercent !== null ? part.gstPercent.toString() : '',
+      mrp: part.mrp !== undefined && part.mrp !== null ? part.mrp.toString() : '',
+      gstPercent: part.gstPercent !== undefined && part.gstPercent !== null ? part.gstPercent.toString() : '18',
       discountPercent: '0',
       discountAmount: '0',
       discountType: 'Percent'
     };
+
+    const pricing = calculatePricing({
+      sellingPrice: parseFloat(rawRow.rate) || 0,
+      quantity: parseFloat(rawRow.qty) || 1,
+      discountPercent: parseFloat(rawRow.discountPercent) || 0,
+      discountAmount: parseFloat(rawRow.discountAmount) || 0,
+      discountType: rawRow.discountType || 'Percent',
+      gstPercent: parseFloat(rawRow.gstPercent) || 18,
+      mrp: parseFloat(rawRow.mrp) || 0,
+      changedField: 'mrp'
+    });
+
+    rawRow.mrp = pricing.mrp.toFixed(2);
+    rawRow.rate = pricing.unitBasic.toFixed(2);
+    rawRow.discountPercent = pricing.discountPercent.toFixed(2);
+    rawRow.discountAmount = pricing.discountAmount.toFixed(2);
+    rawRow.discount = pricing.discountAmount.toFixed(2);
+    rawRow.taxableAmount = pricing.taxableAmount.toFixed(2);
+
+    list[idx] = rawRow;
     setPartsList(list);
   };
 
@@ -735,7 +781,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
   // Labour rows operations
   const handleAddLabourRow = () => {
     setManualOverride(false);
-    setLabourList([...labourList, { description: '', qty: '1', rate: '', gstPercent: '', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
+    setLabourList([...labourList, { description: '', qty: '1', rate: '', gstPercent: '', discountPercent: '0', discountAmount: '0', discountType: 'Percent', taxableAmount: '' }]);
   };
 
   const handleRemoveLabourRow = (idx) => {
@@ -749,6 +795,28 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     setManualOverride(false);
     const list = [...labourList];
     list[idx] = { ...list[idx], [field]: value };
+
+    // Auto-calculate labour row when rate or gstPercent is updated by preset
+    if (field === 'rate' || field === 'gstPercent') {
+      const row = { ...list[idx] };
+      const pricing = calculatePricing({
+        sellingPrice: parseFloat(row.rate) || 0,
+        quantity: parseFloat(row.qty) || 1,
+        discountPercent: parseFloat(row.discountPercent) || 0,
+        discountAmount: parseFloat(row.discountAmount) || 0,
+        discountType: row.discountType || 'Percent',
+        gstPercent: parseFloat(row.gstPercent) || 0,
+        mrp: parseFloat(row.mrp) || 0,
+        changedField: 'rate'
+      });
+      row.mrp = pricing.mrp.toFixed(2);
+      row.rate = pricing.unitBasic.toFixed(2);
+      row.discountPercent = pricing.discountPercent.toFixed(2);
+      row.discountAmount = pricing.discountAmount.toFixed(2);
+      row.discount = pricing.discountAmount.toFixed(2);
+      row.taxableAmount = pricing.taxableAmount.toFixed(2);
+      list[idx] = row;
+    }
     setLabourList(list);
   };
 
@@ -1151,6 +1219,16 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     placeholder="e.g. 27101980"
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   />
+                </div>                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">MRP (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={part.mrp || ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'mrp', e.target.value)}
+                    placeholder="MRP"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
                 </div>
 
                 <div className="w-20">
@@ -1158,8 +1236,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={part.rate}
-                    onChange={(e) => handleRowNumericChange(e, partsList, setPartsList, idx, 'rate', true)}
+                    value={part.rate || ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'rate', e.target.value)}
                     placeholder="Rate"
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1170,8 +1248,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={part.qty}
-                    onChange={(e) => handleRowNumericChange(e, partsList, setPartsList, idx, 'qty', false)}
+                    value={part.qty || ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'qty', e.target.value)}
                     placeholder="Qty"
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1181,7 +1259,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
                   <select
                     value={part.discountType || 'Percent'}
-                    onChange={(e) => handleDiscountTypeChange(partsList, setPartsList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountType', e.target.value)}
                     className="w-full h-[28px] px-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   >
                     <option value="Percent">Percent (%)</option>
@@ -1195,9 +1273,9 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="decimal"
                     value={part.discountPercent !== undefined ? part.discountPercent : ''}
-                    onChange={(e) => handleDiscountPercentChange(partsList, setPartsList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountPercent', e.target.value)}
                     placeholder="0"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
 
@@ -1207,9 +1285,21 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="decimal"
                     value={part.discountAmount !== undefined ? part.discountAmount : ''}
-                    onChange={(e) => handleDiscountAmountChange(partsList, setPartsList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountAmount', e.target.value)}
                     placeholder="0.00"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
+                </div>
+
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={part.taxableAmount !== undefined ? part.taxableAmount : ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'taxableAmount', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
                   />
                 </div>
 
@@ -1220,16 +1310,14 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                       value={[0, 3, 5, 12, 18, 28].includes(Number(part.gstPercent)) ? Number(part.gstPercent) : 'custom'}
                       onChange={(e) => {
                         const val = e.target.value;
-                        const list = [...partsList];
                         if (val === 'custom') {
-                          list[idx].gstPercent = 'custom';
+                          handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', 'custom');
                         } else {
-                          list[idx].gstPercent = val;
+                          handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', val);
                         }
-                        setPartsList(list);
                       }}
                       disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                      className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
+                      className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
                     >
                       <option value={0}>0%</option>
                       <option value={3}>3%</option>
@@ -1247,13 +1335,9 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                         step="0.01"
                         placeholder="0.00"
                         value={part.gstPercent === 'custom' ? '' : part.gstPercent}
-                        onChange={(e) => {
-                          const list = [...partsList];
-                          list[idx].gstPercent = e.target.value;
-                          setPartsList(list);
-                        }}
+                        onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', e.target.value)}
                         disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                        className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                        className="w-14 px-1.5 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                       />
                     )}
                   </div>
@@ -1265,27 +1349,14 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="decimal"
                     value={(() => {
-                      if (part.totalCustom !== undefined) return part.totalCustom;
-                      const qty = Math.max(1, Number(part.qty) || 1);
-                      const rate = Number(part.rate) || 0;
-                      const gstPercent = Number(part.gstPercent) || 0;
-                      const gross = Math.round((qty * rate + Number.EPSILON) * 100) / 100;
-                      let discAmt = 0;
-                      if (part.discountType === 'Fixed') {
-                        discAmt = Math.round((Number(part.discountAmount) || 0 + Number.EPSILON) * 100) / 100;
-                      } else {
-                        discAmt = Math.round((gross * ((Number(part.discountPercent) || 0) / 100) + Number.EPSILON) * 100) / 100;
-                      }
-                      if (discAmt > gross) discAmt = gross;
-                      if (discAmt < 0) discAmt = 0;
-                      const amount = Math.round((gross - discAmt + Number.EPSILON) * 100) / 100;
-                      const gstAmt = Math.round((amount * (gstPercent / 100) + Number.EPSILON) * 100) / 100;
-                      const rowTotal = Math.round((amount + gstAmt + Number.EPSILON) * 100) / 100;
+                      const taxable = parseFloat(part.taxableAmount) || 0;
+                      const gstPercent = parseFloat(part.gstPercent) || 0;
+                      const rowTotal = Math.round((taxable * (1 + gstPercent / 100)) * 100) / 100;
                       return rowTotal ? rowTotal.toString() : '';
                     })()}
                     onChange={(e) => handleTotalChange(e, partsList, setPartsList, idx)}
                     placeholder="Total"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-600 focus:border-indigo-500"
+                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"
                   />
                 </div>
 
@@ -1356,16 +1427,15 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   />
                 </div>
-
-                <div className="w-24">
+                          <div className="w-24">
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Labour Cost (₹)</label>
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={lab.rate}
-                    onChange={(e) => handleRowNumericChange(e, labourList, setLabourList, idx, 'rate', true)}
+                    value={lab.rate || ''}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'rate', e.target.value)}
                     placeholder="Cost"
-                    className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
 
@@ -1375,16 +1445,17 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="numeric"
                     value={lab.qty !== undefined && lab.qty !== null ? lab.qty : '1'}
-                    onChange={(e) => handleRowNumericChange(e, labourList, setLabourList, idx, 'qty', false)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'qty', e.target.value)}
                     placeholder="Qty"
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
+
                 <div className="w-16">
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
                   <select
                     value={lab.discountType || 'Percent'}
-                    onChange={(e) => handleDiscountTypeChange(labourList, setLabourList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountType', e.target.value)}
                     className="w-full h-[28px] px-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   >
                     <option value="Percent">Percent (%)</option>
@@ -1398,7 +1469,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="decimal"
                     value={lab.discountPercent !== undefined ? lab.discountPercent : ''}
-                    onChange={(e) => handleDiscountPercentChange(labourList, setLabourList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountPercent', e.target.value)}
                     placeholder="0"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1410,10 +1481,24 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="decimal"
                     value={lab.discountAmount !== undefined ? lab.discountAmount : ''}
-                    onChange={(e) => handleDiscountAmountChange(labourList, setLabourList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountAmount', e.target.value)}
+                    placeholder="0.00"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
+
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={lab.taxableAmount !== undefined ? lab.taxableAmount : ''}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'taxableAmount', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
+                  />
+                </div>
+
                 <div className="w-36">
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">GST %</label>
                   <div className="flex gap-1 items-center">
@@ -1421,16 +1506,14 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                       value={[0, 3, 5, 12, 18, 28].includes(Number(lab.gstPercent)) ? Number(lab.gstPercent) : 'custom'}
                       onChange={(e) => {
                         const val = e.target.value;
-                        const list = [...labourList];
                         if (val === 'custom') {
-                          list[idx].gstPercent = 'custom';
+                          handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', 'custom');
                         } else {
-                          list[idx].gstPercent = val;
+                          handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', val);
                         }
-                        setLabourList(list);
                       }}
                       disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                      className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
+                      className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
                     >
                       <option value={0}>0%</option>
                       <option value={3}>3%</option>
@@ -1448,11 +1531,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                         step="0.01"
                         placeholder="0.00"
                         value={lab.gstPercent === 'custom' ? '' : lab.gstPercent}
-                        onChange={(e) => {
-                          const list = [...labourList];
-                          list[idx].gstPercent = e.target.value;
-                          setLabourList(list);
-                        }}
+                        onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', e.target.value)}
                         disabled={!['Admin', 'Accounts'].includes(user?.role)}
                         className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                       />
@@ -1466,27 +1545,14 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                     type="text"
                     inputMode="decimal"
                     value={(() => {
-                      if (lab.totalCustom !== undefined) return lab.totalCustom;
-                      const qty = Math.max(1, Number(lab.qty) || 1);
-                      const rate = Number(lab.rate) || 0;
-                      const gstPercent = Number(lab.gstPercent) || 0;
-                      const gross = Math.round((qty * rate + Number.EPSILON) * 100) / 100;
-                      let discAmt = 0;
-                      if (lab.discountType === 'Fixed') {
-                        discAmt = Math.round((Number(lab.discountAmount) || 0 + Number.EPSILON) * 100) / 100;
-                      } else {
-                        discAmt = Math.round((gross * ((Number(lab.discountPercent) || 0) / 100) + Number.EPSILON) * 100) / 100;
-                      }
-                      if (discAmt > gross) discAmt = gross;
-                      if (discAmt < 0) discAmt = 0;
-                      const amount = Math.round((gross - discAmt + Number.EPSILON) * 100) / 100;
-                      const gstAmt = Math.round((amount * (gstPercent / 100) + Number.EPSILON) * 100) / 100;
-                      const rowTotal = Math.round((amount + gstAmt + Number.EPSILON) * 100) / 100;
+                      const taxable = parseFloat(lab.taxableAmount) || 0;
+                      const gstPercent = parseFloat(lab.gstPercent) || 0;
+                      const rowTotal = Math.round((taxable * (1 + gstPercent / 100)) * 100) / 100;
                       return rowTotal ? rowTotal.toString() : '';
                     })()}
                     onChange={(e) => handleTotalChange(e, labourList, setLabourList, idx)}
                     placeholder="Total"
-                    className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-600 focus:border-indigo-500"
+                    className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"
                   />
                 </div>
 

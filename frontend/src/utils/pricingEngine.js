@@ -1,127 +1,134 @@
 /**
  * Shared Workshop ERP Pricing Engine
  * Performs standard parts and labour master billing calculations
+ * Basic Value = MRP / (1 + GST%)
+ * Taxable Value = Basic Value - Discount
+ * CGST = Taxable * CGST%
+ * SGST = Taxable * SGST%
+ * Grand Total = Taxable + GST
  */
 export function calculatePricing({
   purchasePrice = 0,
   marginPercent = 0,
-  sellingPrice = 0,
+  sellingPrice = 0, // basic selling price (Rate)
   quantity = 1,
   discountPercent = 0,
   discountAmount = 0,
-  lastDiscountEdited = 'percent',
+  discountType = 'Percent',
   gstPercent = 18,
   mrp = 0,
+  taxableAmount = null,
+  changedField = null,
   manualFinalTotal = null
 }) {
   const costVal = Math.max(0, parseFloat(purchasePrice) || 0);
   const qty = Math.max(1, parseFloat(quantity) || 1);
-  const gstP = Math.min(100, Math.max(0, parseFloat(gstPercent) || 0));
-  const mrpVal = Math.max(0, parseFloat(mrp) || 0);
+  const gstP = Math.max(0, parseFloat(gstPercent) || 0);
+  let mrpVal = Math.max(0, parseFloat(mrp) || 0);
 
+  // If MRP is 0 but we have a basic rate/sellingPrice, initialize MRP
+  if (mrpVal === 0 && parseFloat(sellingPrice) > 0) {
+    mrpVal = parseFloat(sellingPrice) * (1 + gstP / 100);
+  }
+
+  // 1. Check if we have manual override of grand total
   if (manualFinalTotal !== null) {
     const finalTotalAmount = Math.max(0, parseFloat(manualFinalTotal) || 0);
-    
-    // 1. Recalculate Net Charge (Taxable Amount)
-    const taxableAmount = finalTotalAmount / (1 + gstP / 100);
-    
-    // 2. GST Amount
-    const gstAmount = finalTotalAmount - taxableAmount;
+    const taxVal = finalTotalAmount / (1 + gstP / 100);
+    const gstAmt = finalTotalAmount - taxVal;
 
-    // 3. Selling Price & Discount
     let discAmt = parseFloat(discountAmount) || 0;
-    let subtotal = taxableAmount + discAmt;
-    let sell = subtotal / qty;
+    let totalBasic = taxVal + discAmt;
+    let unitBasic = totalBasic / qty;
+    let calculatedMrp = unitBasic * (1 + gstP / 100);
 
-    // Ensure selling price does not cause discount to exceed subtotal
-    if (discAmt > subtotal) {
-      discAmt = 0;
-      subtotal = taxableAmount;
-      sell = subtotal / qty;
-    }
-
-    let discPercent = sell > 0 ? (discAmt / (sell * qty)) * 100 : 0;
-
-    // 4. Profit Margin
-    let marginPercentValue = costVal > 0 ? ((sell - costVal) / costVal) * 100 : 0;
-
-    // Customer saving
-    const customerSaving = mrpVal > sell ? mrpVal - sell : 0;
-    const customerSavingPercent = mrpVal > 0 && mrpVal > sell ? (customerSaving / mrpVal) * 100 : 0;
-    const sellingExceedsMrp = mrpVal > 0 && sell > mrpVal;
+    let discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+    discPercent = Math.max(0, Math.min(100, discPercent));
+    let marginP = costVal > 0 ? ((unitBasic - costVal) / costVal) * 100 : 0;
 
     return {
       cost: costVal,
-      marginPercent: marginPercentValue,
-      sellingPrice: sell,
+      marginPercent: marginP,
+      sellingPrice: unitBasic,
       quantity: qty,
-      subtotal,
+      subtotal: totalBasic,
       discountPercent: discPercent,
       discountAmount: discAmt,
-      taxableAmount,
+      taxableAmount: taxVal,
       gstPercent: gstP,
-      gstAmount,
-      finalTotalAmount,
+      gstAmount: gstAmt,
+      finalTotalAmount: finalTotalAmount,
       unitChargeRate: qty > 0 ? finalTotalAmount / qty : 0,
-      mrp: mrpVal,
-      customerSaving,
-      customerSavingPercent,
-      sellingExceedsMrp
+      mrp: calculatedMrp,
+      customerSaving: calculatedMrp > unitBasic ? calculatedMrp - unitBasic : 0,
+      customerSavingPercent: calculatedMrp > 0 && calculatedMrp > unitBasic ? ((calculatedMrp - unitBasic) / calculatedMrp) * 100 : 0,
+      sellingExceedsMrp: false
     };
   }
 
-  // Forward calculation (original logic)
-  let sell = parseFloat(sellingPrice) || 0;
-  let marginP = parseFloat(marginPercent) || 0;
-  
-  if (sell === 0 && costVal > 0 && marginP > 0) {
-    sell = costVal + (costVal * marginP) / 100;
-  } else if (sell > 0 && costVal > 0) {
-    marginP = ((sell - costVal) / costVal) * 100;
-  }
-
-  const grossAmount = qty * sell; // subtotal
+  // 2. Forward/Reverse calculations based on changedField
+  let unitBasic = mrpVal / (1 + gstP / 100);
+  let totalBasic = unitBasic * qty;
 
   let discPercent = parseFloat(discountPercent) || 0;
   let discAmt = parseFloat(discountAmount) || 0;
+  let taxVal = taxableAmount !== null ? parseFloat(taxableAmount) : null;
 
-  if (lastDiscountEdited === 'percent') {
-    discAmt = grossAmount * (discPercent / 100);
+  if (changedField === 'taxableAmount' && taxVal !== null) {
+    // Taxable Value edited manually -> Reverse calculate
+    taxVal = Math.max(0, Math.min(totalBasic, taxVal));
+    discAmt = totalBasic - taxVal;
+    discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+  } else if (changedField === 'discountPercent') {
+    discPercent = Math.max(0, Math.min(100, discPercent));
+    discAmt = totalBasic * (discPercent / 100);
+    taxVal = totalBasic - discAmt;
+  } else if (changedField === 'discountAmount') {
+    discAmt = Math.max(0, Math.min(totalBasic, discAmt));
+    discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+    taxVal = totalBasic - discAmt;
   } else {
-    discPercent = grossAmount > 0 ? (discAmt / grossAmount) * 100 : 0;
+    // qty, mrp, gstPercent, or first load
+    if (discountType === 'Fixed') {
+      discAmt = Math.max(0, Math.min(totalBasic, discAmt));
+      discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
+    } else {
+      // Default to Percent
+      discPercent = Math.max(0, Math.min(100, discPercent));
+      discAmt = totalBasic * (discPercent / 100);
+    }
+    taxVal = totalBasic - discAmt;
   }
 
-  if (discAmt > grossAmount) {
-    discAmt = grossAmount;
-    discPercent = 100;
-  }
-  if (discAmt < 0) {
-    discAmt = 0;
-    discPercent = 0;
-  }
+  // Clamp values to valid ranges
+  discAmt = Math.max(0, Math.min(totalBasic, discAmt));
+  discPercent = Math.max(0, Math.min(100, discPercent));
+  taxVal = Math.max(0, totalBasic - discAmt);
 
-  const taxableAmount = Math.max(0, grossAmount - discAmt);
-  const gstAmount = taxableAmount * (gstP / 100);
-  const calculatedFinalTotal = Math.max(0, taxableAmount + gstAmount);
-
-  const finalTotalAmount = calculatedFinalTotal;
+  const gstAmt = taxVal * (gstP / 100);
+  const finalTotalAmount = taxVal + gstAmt;
   const unitChargeRate = qty > 0 ? finalTotalAmount / qty : 0;
 
-  const customerSaving = mrpVal > sell ? mrpVal - sell : 0;
-  const customerSavingPercent = mrpVal > 0 && mrpVal > sell ? (customerSaving / mrpVal) * 100 : 0;
-  const sellingExceedsMrp = mrpVal > 0 && sell > mrpVal;
+  let marginP = parseFloat(marginPercent) || 0;
+  if (unitBasic > 0 && costVal > 0) {
+    marginP = ((unitBasic - costVal) / costVal) * 100;
+  }
+
+  const customerSaving = mrpVal > unitBasic ? mrpVal - unitBasic : 0;
+  const customerSavingPercent = mrpVal > 0 && mrpVal > unitBasic ? (customerSaving / mrpVal) * 100 : 0;
+  const sellingExceedsMrp = mrpVal > 0 && unitBasic > mrpVal;
 
   return {
     cost: costVal,
     marginPercent: marginP,
-    sellingPrice: sell,
+    sellingPrice: unitBasic, // Basic Value (Rate)
     quantity: qty,
-    subtotal: grossAmount,
+    subtotal: totalBasic,
     discountPercent: discPercent,
     discountAmount: discAmt,
-    taxableAmount,
+    taxableAmount: taxVal,
     gstPercent: gstP,
-    gstAmount,
+    gstAmount: gstAmt,
     finalTotalAmount,
     unitChargeRate,
     mrp: mrpVal,

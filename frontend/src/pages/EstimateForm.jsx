@@ -223,106 +223,43 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     }
     return cleaned;
   };
-  const handleDiscountPercentChange = (list, setter, idx, val) => {
+  const handleRowFieldChange = (list, setter, idx, field, value) => {
     setManualOverride(false);
     const updated = [...list];
-    const item = { ...updated[idx] };
-    const qty = Math.max(1, parseFloat(item.qty) || 1);
-    const rate = parseFloat(item.rate) || 0;
-    const gross = qty * rate;
-    
-    const cleanPct = cleanNumberInput(val, true);
-    const pctNum = Math.max(0, Math.min(100, parseFloat(cleanPct) || 0));
-    const calculatedAmt = (gross * (pctNum / 100)).toFixed(2);
-    
-    item.discountPercent = cleanPct;
-    item.discountAmount = calculatedAmt;
-    item.discount = calculatedAmt;
-    updated[idx] = item;
-    setter(updated);
-  };
+    let row = { ...updated[idx] };
 
-  const handleDiscountAmountChange = (list, setter, idx, val) => {
-    setManualOverride(false);
-    const updated = [...list];
-    const item = { ...updated[idx] };
-    const qty = Math.max(1, parseFloat(item.qty) || 1);
-    const rate = parseFloat(item.rate) || 0;
-    const gross = qty * rate;
-    
-    const cleanAmt = cleanNumberInput(val, true);
-    const amtNum = Math.max(0, Math.min(gross, parseFloat(cleanAmt) || 0));
-    const calculatedPercent = gross > 0 ? ((amtNum / gross) * 100).toFixed(2) : '0';
-    
-    item.discountAmount = cleanAmt;
-    item.discountPercent = calculatedPercent;
-    item.discount = cleanAmt;
-    updated[idx] = item;
-    setter(updated);
-  };
+    // Set the field directly first so the input value shows the typed text
+    row[field] = value;
 
-  const handleDiscountTypeChange = (list, setter, idx, type) => {
-    setManualOverride(false);
-    const updated = [...list];
-    const item = { ...updated[idx] };
-    item.discountType = type;
+    const qty = Math.max(1, parseFloat(row.qty) || 1);
+    const gstP = parseFloat(row.gstPercent) || 0;
     
-    const qty = Math.max(1, parseFloat(item.qty) || 1);
-    const rate = parseFloat(item.rate) || 0;
-    const gross = qty * rate;
-    
-    if (type === 'Percent') {
-      const pct = parseFloat(item.discountPercent) || 0;
-      item.discountAmount = (gross * (pct / 100)).toFixed(2);
-      item.discount = item.discountAmount;
-    } else {
-      const amt = parseFloat(item.discountAmount) || 0;
-      item.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-      item.discount = amt.toString();
-    }
-    updated[idx] = item;
-    setter(updated);
-  };
-
-  const handleRowNumericChange = (e, list, setter, idx, field, allowDecimal = true, maxVal = null) => {
-    setManualOverride(false);
-    const input = e.target;
-    const originalValue = input.value;
-    const processedValue = cleanNumberInput(originalValue, allowDecimal, maxVal);
-    
-    const selectionStart = input.selectionStart;
-    
-    const updatedList = [...list];
-    let item = { ...updatedList[idx], [field]: processedValue };
-
-    if (field === 'qty' || field === 'rate') {
-      const qty = Math.max(1, parseFloat(item.qty) || 1);
-      const rate = parseFloat(item.rate) || 0;
-      const gross = qty * rate;
-      const type = item.discountType || 'Percent';
-      
-      if (type === 'Percent') {
-        const pct = parseFloat(item.discountPercent) || 0;
-        item.discountAmount = (gross * (pct / 100)).toFixed(2);
-        item.discount = item.discountAmount;
-      } else {
-        const amt = parseFloat(item.discountAmount) || 0;
-        item.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-        item.discount = amt.toString();
-      }
-    }
-
-    updatedList[idx] = item;
-    setter(updatedList);
-
-    requestAnimationFrame(() => {
-      if (input && input.setSelectionRange) {
-        const beforeCursor = originalValue.slice(0, selectionStart);
-        const cleanBeforeCursor = cleanNumberInput(beforeCursor, allowDecimal, maxVal);
-        const newCursorPos = cleanBeforeCursor.length;
-        input.setSelectionRange(newCursorPos, newCursorPos);
-      }
+    // Call pricing engine
+    const pricing = calculatePricing({
+      sellingPrice: parseFloat(row.rate) || 0,
+      quantity: qty,
+      discountPercent: parseFloat(row.discountPercent) || 0,
+      discountAmount: parseFloat(row.discountAmount) || 0,
+      discountType: row.discountType || 'Percent',
+      gstPercent: gstP,
+      mrp: parseFloat(row.mrp) || 0,
+      taxableAmount: field === 'taxableAmount' && value !== '' ? parseFloat(value) : null,
+      changedField: field
     });
+
+    // Update row fields with calculated values
+    row.mrp = pricing.mrp.toFixed(2);
+    row.rate = pricing.unitBasic.toFixed(2);
+    row.discountPercent = pricing.discountPercent.toFixed(2);
+    row.discountAmount = pricing.discountAmount.toFixed(2);
+    row.discount = pricing.discountAmount.toFixed(2);
+    row.taxableAmount = pricing.taxableAmount.toFixed(2);
+
+    // Preserve the typed value to prevent cursor jumping
+    row[field] = value;
+
+    updated[idx] = row;
+    setter(updated);
   };
 
   useEffect(() => {
@@ -356,9 +293,18 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             setPartsList(est.parts.map(p => {
               const qty = p.qty || 1;
               const rate = p.rate || 0;
-              const gross = qty * rate;
+              const gst = p.gstPercent || 0;
+              const mrp = p.mrp || (rate * (1 + gst / 100));
               const discAmt = p.discount || 0;
-              const pct = gross > 0 ? ((discAmt / gross) * 100).toFixed(2) : '0';
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountAmount: discAmt,
+                discountType: 'Fixed',
+                gstPercent: gst,
+                mrp: mrp,
+                changedField: 'discountAmount'
+              });
               return {
                 partId: p.partId?._id || p.partId || '',
                 name: p.name,
@@ -366,29 +312,40 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 hsnCode: p.hsnCode,
                 unit: p.unit || 'Pcs',
                 qty: qty.toString(),
-                rate: rate.toString(),
-                discount: discAmt.toString(),
-                discountAmount: discAmt.toString(),
-                discountPercent: pct,
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discount: pricing.discountAmount.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
                 discountType: 'Fixed',
-                gstPercent: p.gstPercent !== undefined && p.gstPercent !== null ? p.gstPercent.toString() : ''
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
               };
             }));
             setLabourList(est.labour.map(l => {
               const qty = 1;
               const rate = l.rate || 0;
-              const gross = qty * rate;
+              const gst = l.gstPercent || 0;
               const discAmt = l.discount || 0;
-              const pct = gross > 0 ? ((discAmt / gross) * 100).toFixed(2) : '0';
+              const pricing = calculatePricing({
+                sellingPrice: rate,
+                quantity: qty,
+                discountAmount: discAmt,
+                discountType: 'Fixed',
+                gstPercent: gst,
+                changedField: 'discountAmount'
+              });
               return {
                 description: l.description,
                 qty: '1',
-                rate: rate.toString(),
-                discount: discAmt.toString(),
-                discountAmount: discAmt.toString(),
-                discountPercent: pct,
+                mrp: pricing.mrp.toFixed(2),
+                rate: pricing.unitBasic.toFixed(2),
+                discount: pricing.discountAmount.toFixed(2),
+                discountAmount: pricing.discountAmount.toFixed(2),
+                discountPercent: pricing.discountPercent.toFixed(2),
                 discountType: 'Fixed',
-                gstPercent: l.gstPercent !== undefined && l.gstPercent !== null ? l.gstPercent.toString() : ''
+                gstPercent: gst.toString(),
+                taxableAmount: pricing.taxableAmount.toFixed(2)
               };
             }));
           }
@@ -582,27 +539,19 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     let gstTotal = 0;
 
     partsList.forEach(part => {
-      const pricing = calculatePricing({
-        sellingPrice: part.rate,
-        quantity: part.qty,
-        discountAmount: part.discount,
-        lastDiscountEdited: 'amount',
-        gstPercent: part.gstPercent
-      });
-      partsTotal += pricing.taxableAmount;
-      gstTotal += pricing.gstAmount;
+      const taxable = parseFloat(part.taxableAmount) || 0;
+      const gstP = parseFloat(part.gstPercent) || 0;
+      const gstAmt = taxable * (gstP / 100);
+      partsTotal += taxable;
+      gstTotal += gstAmt;
     });
 
     labourList.forEach(lab => {
-      const pricing = calculatePricing({
-        sellingPrice: lab.rate,
-        quantity: lab.qty || 1,
-        discountAmount: lab.discount,
-        lastDiscountEdited: 'amount',
-        gstPercent: lab.gstPercent
-      });
-      labourTotal += pricing.taxableAmount;
-      gstTotal += pricing.gstAmount;
+      const taxable = parseFloat(lab.taxableAmount) || 0;
+      const gstP = parseFloat(lab.gstPercent) || 0;
+      const gstAmt = taxable * (gstP / 100);
+      labourTotal += taxable;
+      gstTotal += gstAmt;
     });
 
     const calculatedGrandTotal = Math.round((partsTotal + labourTotal + gstTotal) * 100) / 100;
@@ -693,7 +642,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Parts rows operations
   const handleAddPartRow = () => {
     setManualOverride(false);
-    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '' }]);
+    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '', taxableAmount: '' }]);
   };
 
   const handleRemovePartRow = (idx) => {
@@ -709,7 +658,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     if (!part) return;
 
     const list = [...partsList];
-    list[idx] = {
+    const rawRow = {
       ...list[idx],
       partId: part._id,
       name: part.partName,
@@ -717,8 +666,29 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       hsnCode: part.hsnCode,
       unit: part.unit || 'Pcs',
       rate: part.sellingPrice !== undefined && part.sellingPrice !== null ? part.sellingPrice.toString() : '',
-      gstPercent: part.gstPercent !== undefined && part.gstPercent !== null ? part.gstPercent.toString() : ''
+      mrp: part.mrp !== undefined && part.mrp !== null ? part.mrp.toString() : '',
+      gstPercent: part.gstPercent !== undefined && part.gstPercent !== null ? part.gstPercent.toString() : '18'
     };
+
+    const pricing = calculatePricing({
+      sellingPrice: parseFloat(rawRow.rate) || 0,
+      quantity: parseFloat(rawRow.qty) || 1,
+      discountPercent: parseFloat(rawRow.discountPercent) || 0,
+      discountAmount: parseFloat(rawRow.discountAmount) || 0,
+      discountType: rawRow.discountType || 'Percent',
+      gstPercent: parseFloat(rawRow.gstPercent) || 18,
+      mrp: parseFloat(rawRow.mrp) || 0,
+      changedField: 'mrp'
+    });
+
+    rawRow.mrp = pricing.mrp.toFixed(2);
+    rawRow.rate = pricing.unitBasic.toFixed(2);
+    rawRow.discountPercent = pricing.discountPercent.toFixed(2);
+    rawRow.discountAmount = pricing.discountAmount.toFixed(2);
+    rawRow.discount = pricing.discountAmount.toFixed(2);
+    rawRow.taxableAmount = pricing.taxableAmount.toFixed(2);
+
+    list[idx] = rawRow;
     setPartsList(list);
   };
 
@@ -732,7 +702,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Labour rows operations
   const handleAddLabourRow = () => {
     setManualOverride(false);
-    setLabourList([...labourList, { description: '', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '' }]);
+    setLabourList([...labourList, { description: '', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '', taxableAmount: '' }]);
   };
 
   const handleRemoveLabourRow = (idx) => {
@@ -746,6 +716,28 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     setManualOverride(false);
     const list = [...labourList];
     list[idx] = { ...list[idx], [field]: value };
+    
+    // Auto-calculate labour row when rate or gstPercent is updated by preset
+    if (field === 'rate' || field === 'gstPercent') {
+      const row = { ...list[idx] };
+      const pricing = calculatePricing({
+        sellingPrice: parseFloat(row.rate) || 0,
+        quantity: 1,
+        discountPercent: parseFloat(row.discountPercent) || 0,
+        discountAmount: parseFloat(row.discountAmount) || 0,
+        discountType: row.discountType || 'Percent',
+        gstPercent: parseFloat(row.gstPercent) || 0,
+        mrp: parseFloat(row.mrp) || 0,
+        changedField: 'rate'
+      });
+      row.mrp = pricing.mrp.toFixed(2);
+      row.rate = pricing.unitBasic.toFixed(2);
+      row.discountPercent = pricing.discountPercent.toFixed(2);
+      row.discountAmount = pricing.discountAmount.toFixed(2);
+      row.discount = pricing.discountAmount.toFixed(2);
+      row.taxableAmount = pricing.taxableAmount.toFixed(2);
+      list[idx] = row;
+    }
     setLabourList(list);
   };
 
@@ -1041,16 +1033,27 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   />
                 </div>
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">MRP (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={part.mrp || ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'mrp', e.target.value)}
+                    placeholder="MRP"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                  />
+                </div>
 
                 <div className="w-20">
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Rate (₹)</label>
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={part.rate}
-                    onChange={(e) => handleRowNumericChange(e, partsList, setPartsList, idx, 'rate', true)}
+                    value={part.rate || ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'rate', e.target.value)}
                     placeholder="Rate"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
 
@@ -1059,8 +1062,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={part.qty}
-                    onChange={(e) => handleRowNumericChange(e, partsList, setPartsList, idx, 'qty', false)}
+                    value={part.qty || ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'qty', e.target.value)}
                     placeholder="Qty"
                     className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1070,7 +1073,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
                   <select
                     value={part.discountType || 'Percent'}
-                    onChange={(e) => handleDiscountTypeChange(partsList, setPartsList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountType', e.target.value)}
                     className="w-full h-[28px] px-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   >
                     <option value="Percent">Percent (%)</option>
@@ -1084,7 +1087,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     type="text"
                     inputMode="decimal"
                     value={part.discountPercent !== undefined ? part.discountPercent : ''}
-                    onChange={(e) => handleDiscountPercentChange(partsList, setPartsList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountPercent', e.target.value)}
                     placeholder="0"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1096,17 +1099,22 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     type="text"
                     inputMode="decimal"
                     value={part.discountAmount !== undefined ? part.discountAmount : ''}
-                    onChange={(e) => handleDiscountAmountChange(partsList, setPartsList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountAmount', e.target.value)}
                     placeholder="0.00"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
 
-                <div className="w-20 text-right">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Taxable (₹)</span>
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-350 h-[28px] flex items-center justify-end font-mono">
-                    {Math.round(((Number(part.qty) * Number(part.rate)) - (Number(part.discount) || 0)) * 100) / 100}
-                  </span>
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={part.taxableAmount !== undefined ? part.taxableAmount : ''}
+                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'taxableAmount', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
+                  />
                 </div>
 
                 <div className="w-36">
@@ -1116,13 +1124,11 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                       value={[0, 3, 5, 12, 18, 28].includes(Number(part.gstPercent)) ? Number(part.gstPercent) : 'custom'}
                       onChange={(e) => {
                         const val = e.target.value;
-                        const list = [...partsList];
                         if (val === 'custom') {
-                          list[idx].gstPercent = 'custom';
+                          handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', 'custom');
                         } else {
-                          list[idx].gstPercent = val;
+                          handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', val);
                         }
-                        setPartsList(list);
                       }}
                       disabled={!['Admin', 'Accounts'].includes(user?.role)}
                       className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
@@ -1143,13 +1149,9 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                         step="0.01"
                         placeholder="0.00"
                         value={part.gstPercent === 'custom' ? '' : part.gstPercent}
-                        onChange={(e) => {
-                          const list = [...partsList];
-                          list[idx].gstPercent = e.target.value;
-                          setPartsList(list);
-                        }}
+                        onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', e.target.value)}
                         disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                        className="w-14 px-1.5 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                        className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                       />
                     )}
                   </div>
@@ -1158,11 +1160,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 <div className="w-24 text-right pr-2">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Total (₹)</span>
                   <span className="text-xs font-black text-slate-800 dark:text-slate-200 h-[28px] flex items-center justify-end font-mono">
-                    {(() => {
-                      const taxable = (Number(part.qty) * Number(part.rate)) - (Number(part.discount) || 0);
-                      const totalVal = taxable * (1 + (Number(part.gstPercent) || 0) / 100);
-                      return Math.round(totalVal * 100) / 100;
-                    })()}
+                    {Math.round((parseFloat(part.taxableAmount || 0) * (1 + (parseFloat(part.gstPercent) || 0) / 100)) * 100) / 100}
                   </span>
                 </div>
 
@@ -1232,14 +1230,13 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   />
                 </div>
-
-                <div className="w-24">
+                    <div className="w-24">
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Labour Cost (₹)</label>
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={lab.rate}
-                    onChange={(e) => handleRowNumericChange(e, labourList, setLabourList, idx, 'rate', true)}
+                    value={lab.rate || ''}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'rate', e.target.value)}
                     placeholder="Cost"
                     className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1249,7 +1246,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
                   <select
                     value={lab.discountType || 'Percent'}
-                    onChange={(e) => handleDiscountTypeChange(labourList, setLabourList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountType', e.target.value)}
                     className="w-full h-[28px] px-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
                   >
                     <option value="Percent">Percent (%)</option>
@@ -1263,7 +1260,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     type="text"
                     inputMode="decimal"
                     value={lab.discountPercent !== undefined ? lab.discountPercent : ''}
-                    onChange={(e) => handleDiscountPercentChange(labourList, setLabourList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountPercent', e.target.value)}
                     placeholder="0"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
@@ -1275,17 +1272,22 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     type="text"
                     inputMode="decimal"
                     value={lab.discountAmount !== undefined ? lab.discountAmount : ''}
-                    onChange={(e) => handleDiscountAmountChange(labourList, setLabourList, idx, e.target.value)}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountAmount', e.target.value)}
                     placeholder="0.00"
                     className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                   />
                 </div>
 
-                <div className="w-20 text-right">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Taxable (₹)</span>
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-350 h-[28px] flex items-center justify-end font-mono">
-                    {Math.round((Number(lab.rate) - (Number(lab.discount) || 0)) * 100) / 100}
-                  </span>
+                <div className="w-20">
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={lab.taxableAmount !== undefined ? lab.taxableAmount : ''}
+                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'taxableAmount', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
+                  />
                 </div>
 
                 <div className="w-36">
@@ -1295,13 +1297,11 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                       value={[0, 3, 5, 12, 18, 28].includes(Number(lab.gstPercent)) ? Number(lab.gstPercent) : 'custom'}
                       onChange={(e) => {
                         const val = e.target.value;
-                        const list = [...labourList];
                         if (val === 'custom') {
-                          list[idx].gstPercent = 'custom';
+                          handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', 'custom');
                         } else {
-                          list[idx].gstPercent = val;
+                          handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', val);
                         }
-                        setLabourList(list);
                       }}
                       disabled={!['Admin', 'Accounts'].includes(user?.role)}
                       className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
@@ -1322,11 +1322,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                         step="0.01"
                         placeholder="0.00"
                         value={lab.gstPercent === 'custom' ? '' : lab.gstPercent}
-                        onChange={(e) => {
-                          const list = [...labourList];
-                          list[idx].gstPercent = e.target.value;
-                          setLabourList(list);
-                        }}
+                        onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', e.target.value)}
                         disabled={!['Admin', 'Accounts'].includes(user?.role)}
                         className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                       />
@@ -1337,11 +1333,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 <div className="w-28 text-right pr-2">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Total (₹)</span>
                   <span className="text-xs font-black text-slate-800 dark:text-slate-200 h-[28px] flex items-center justify-end font-mono">
-                    {(() => {
-                      const taxable = Number(lab.rate) - (Number(lab.discount) || 0);
-                      const totalVal = taxable * (1 + (Number(lab.gstPercent) || 0) / 100);
-                      return Math.round(totalVal * 100) / 100;
-                    })()}
+                    {Math.round((parseFloat(lab.taxableAmount || 0) * (1 + (parseFloat(lab.gstPercent) || 0) / 100)) * 100) / 100}
                   </span>
                 </div>
 

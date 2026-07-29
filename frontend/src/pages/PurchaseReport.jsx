@@ -84,6 +84,7 @@ export default function PurchaseReport({ token, user }) {
     discountType: 'Percent',
     discountPercent: 0,
     discountAmount: 0,
+    taxable: '',
     discountValue: 0,
     gstPercent: 18,
     warehouse: 'Main Store',
@@ -255,47 +256,91 @@ export default function PurchaseReport({ token, user }) {
     }
 
     const qty = Number(updatedRow.qty) || 0;
-    const rate = Number(updatedRow.purchasePrice) || 0;
-    const gross = qty * rate;
-    const type = updatedRow.discountType || 'Percent';
+    const gstP = Number(updatedRow.gstPercent) || 0;
+    let mrpVal = Number(updatedRow.mrp) || 0;
 
-    if (changedField === 'discountPercent') {
-      const pct = Math.max(0, Math.min(100, parseFloat(newValue) || 0));
-      const calculatedAmt = (gross * (pct / 100)).toFixed(2);
-      updatedRow.discountPercent = newValue;
-      updatedRow.discountAmount = calculatedAmt;
-      updatedRow.discountValue = type === 'Percent' ? pct : calculatedAmt;
-    } else if (changedField === 'discountAmount') {
-      const amt = Math.max(0, Math.min(gross, parseFloat(newValue) || 0));
-      const calculatedPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-      updatedRow.discountAmount = newValue;
-      updatedRow.discountPercent = calculatedPercent;
-      updatedRow.discountValue = type === 'Percent' ? calculatedPercent : amt;
-    } else if (changedField === 'discountType') {
-      updatedRow.discountType = newValue;
-      if (newValue === 'Percent') {
-        const pct = parseFloat(updatedRow.discountPercent) || 0;
-        updatedRow.discountAmount = (gross * (pct / 100)).toFixed(2);
-        updatedRow.discountValue = pct;
-      } else {
-        const amt = parseFloat(updatedRow.discountAmount) || 0;
-        updatedRow.discountPercent = gross > 0 ? ((amt / gross) * 100).toFixed(2) : '0';
-        updatedRow.discountValue = amt;
-      }
-    } else {
-      if (type === 'Percent') {
-        const pct = parseFloat(updatedRow.discountPercent) || 0;
-        updatedRow.discountAmount = (gross * (pct / 100)).toFixed(2);
-        updatedRow.discountValue = pct;
-      } else {
-        const amt = parseFloat(updatedRow.discountAmount) || 0;
-        const clampedAmt = Math.max(0, Math.min(gross, amt));
-        updatedRow.discountAmount = clampedAmt.toString();
-        updatedRow.discountPercent = gross > 0 ? ((clampedAmt / gross) * 100).toFixed(2) : '0';
-        updatedRow.discountValue = clampedAmt;
-      }
+    // If MRP is 0 but we have purchasePrice, initialize MRP
+    if (mrpVal === 0 && Number(updatedRow.purchasePrice) > 0) {
+      mrpVal = Number(updatedRow.purchasePrice) * (1 + gstP / 100);
+      updatedRow.mrp = mrpVal.toFixed(2);
     }
 
+    // Calculate Unit Basic Value (purchasePrice/sellingPrice) from MRP
+    let unitBasic = mrpVal / (1 + gstP / 100);
+    updatedRow.purchasePrice = unitBasic.toFixed(2);
+    updatedRow.sellingPrice = unitBasic.toFixed(2);
+
+    const gross = qty * unitBasic;
+    const type = updatedRow.discountType || 'Percent';
+
+    let discPercent = parseFloat(updatedRow.discountPercent) || 0;
+    let discAmt = parseFloat(updatedRow.discountAmount) || 0;
+    let taxVal = updatedRow.taxable !== undefined && updatedRow.taxable !== '' ? parseFloat(updatedRow.taxable) : null;
+
+    if (changedField === 'taxable') {
+      taxVal = Math.max(0, Math.min(gross, parseFloat(newValue) || 0));
+      discAmt = gross - taxVal;
+      discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
+      updatedRow.taxable = newValue;
+      updatedRow.discountAmount = discAmt.toFixed(2);
+      updatedRow.discountPercent = discPercent.toFixed(2);
+    } else if (changedField === 'discountPercent') {
+      discPercent = Math.max(0, Math.min(100, parseFloat(newValue) || 0));
+      discAmt = gross * (discPercent / 100);
+      taxVal = gross - discAmt;
+      updatedRow.discountPercent = newValue;
+      updatedRow.discountAmount = discAmt.toFixed(2);
+      updatedRow.taxable = taxVal.toFixed(2);
+    } else if (changedField === 'discountAmount') {
+      discAmt = Math.max(0, Math.min(gross, parseFloat(newValue) || 0));
+      discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
+      taxVal = gross - discAmt;
+      updatedRow.discountAmount = newValue;
+      updatedRow.discountPercent = discPercent.toFixed(2);
+      updatedRow.taxable = taxVal.toFixed(2);
+    } else if (changedField === 'gstPercent') {
+      unitBasic = mrpVal / (1 + gstP / 100);
+      updatedRow.purchasePrice = unitBasic.toFixed(2);
+      const newGross = qty * unitBasic;
+      if (type === 'Percent') {
+        discAmt = newGross * (discPercent / 100);
+      } else {
+        discAmt = Math.max(0, Math.min(newGross, discAmt));
+        discPercent = newGross > 0 ? (discAmt / newGross) * 100 : 0;
+      }
+      taxVal = newGross - discAmt;
+      updatedRow.discountAmount = discAmt.toFixed(2);
+      updatedRow.discountPercent = discPercent.toFixed(2);
+      updatedRow.taxable = taxVal.toFixed(2);
+    } else if (changedField === 'purchasePrice') {
+      const newBasic = parseFloat(newValue) || 0;
+      mrpVal = newBasic * (1 + gstP / 100);
+      updatedRow.mrp = mrpVal.toFixed(2);
+      const newGross = qty * newBasic;
+      if (type === 'Percent') {
+        discAmt = newGross * (discPercent / 100);
+      } else {
+        discAmt = Math.max(0, Math.min(newGross, discAmt));
+        discPercent = newGross > 0 ? (discAmt / newGross) * 100 : 0;
+      }
+      taxVal = newGross - discAmt;
+      updatedRow.discountAmount = discAmt.toFixed(2);
+      updatedRow.discountPercent = discPercent.toFixed(2);
+      updatedRow.taxable = taxVal.toFixed(2);
+    } else {
+      if (type === 'Percent') {
+        discAmt = gross * (discPercent / 100);
+      } else {
+        discAmt = Math.max(0, Math.min(gross, discAmt));
+        discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
+      }
+      taxVal = gross - discAmt;
+      updatedRow.discountAmount = discAmt.toFixed(2);
+      updatedRow.discountPercent = discPercent.toFixed(2);
+      updatedRow.taxable = taxVal.toFixed(2);
+    }
+
+    updatedRow.discountValue = type === 'Percent' ? updatedRow.discountPercent : updatedRow.discountAmount;
     return updatedRow;
   };
 
@@ -320,29 +365,26 @@ export default function PurchaseReport({ token, user }) {
     }));
   };
 
+  const handleTaxableChange = (rowId, value) => {
+    setPurchaseItems(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+      return recalculateRowDiscounts(row, 'taxable', value);
+    }));
+  };
+
   // Helper row totals calculation
   const calculateRowTotals = (row) => {
     const qty = Number(row.qty) || 0;
-    const rate = Number(row.purchasePrice) || 0;
-    const gross = qty * rate;
+    const gstP = Number(row.gstPercent) || 0;
+    const mrpVal = Number(row.mrp) || 0;
+    const unitBasic = mrpVal / (1 + gstP / 100);
+    const gross = qty * unitBasic;
 
-    const discountType = row.discountType || 'Percent';
     let discountPercent = Number(row.discountPercent) || 0;
     let discountAmount = Number(row.discountAmount) || 0;
 
-    if (discountType === 'Percent') {
-      discountAmount = (gross * discountPercent) / 100;
-    } else {
-      discountPercent = gross > 0 ? (discountAmount / gross) * 100 : 0;
-    }
-
-    // Bounds check
-    discountAmount = Math.max(0, Math.min(gross, discountAmount));
-    discountPercent = Math.max(0, Math.min(100, discountPercent));
-
     const taxable = Math.max(0, gross - discountAmount);
-    const gstPct = !isNaN(Number(row.gstPercent)) ? Number(row.gstPercent) : 18;
-    const gstAmt = taxable * (gstPct / 100);
+    const gstAmt = taxable * (gstP / 100);
     const total = taxable + gstAmt;
 
     const selectedVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
@@ -455,6 +497,7 @@ export default function PurchaseReport({ token, user }) {
       discountValue: item.discountValue !== undefined ? item.discountValue : (item.discountPercent !== undefined ? item.discountPercent : 0),
       discountPercent: item.discountPercent !== undefined ? item.discountPercent : 0,
       discountAmount: item.discountAmount !== undefined ? item.discountAmount : 0,
+      taxable: item.taxableAmount !== undefined ? item.taxableAmount.toString() : '',
       gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
       warehouse: item.warehouse || 'Main Store',
       rackLocation: item.rackLocation || ''
@@ -1231,9 +1274,17 @@ export default function PurchaseReport({ token, user }) {
                           </div>
                         </td>
 
-                        {/* Taxable Amount (Calculated) */}
-                        <td className="py-2.5 px-3 font-semibold text-slate-700 dark:text-slate-300" style={{ width: '140px', minWidth: '140px', verticalAlign: 'middle', textAlign: 'left' }}>
-                          ₹{rowCalc.taxable.toFixed(2)}
+                        {/* Taxable Amount (Calculated / Editable) */}
+                        <td className="py-2.5 px-3" style={{ width: '140px', minWidth: '140px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={row.taxable !== undefined && row.taxable !== null ? row.taxable : rowCalc.taxable.toFixed(2)}
+                            onChange={(e) => handleTaxableChange(row.id, e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
                         </td>
 
                         {/* CGST Amount (Calculated) */}

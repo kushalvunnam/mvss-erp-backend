@@ -1000,6 +1000,7 @@ function PartsMasterBillingModal({
     discountPercent: initialData?.discountPercent !== undefined && initialData?.discountPercent !== null ? initialData.discountPercent.toString() : '0',
     discountAmount: initialData?.discountAmount !== undefined && initialData?.discountAmount !== null ? initialData.discountAmount.toString() : '0',
     discountType: initialData?.discountType || 'Percent',
+    taxableAmount: initialData?.taxableAmount !== undefined && initialData?.taxableAmount !== null ? initialData.taxableAmount.toString() : '',
     gstPercent: initialData?.gstPercent !== undefined && initialData?.gstPercent !== null ? initialData.gstPercent.toString() : '18',
     chargeAmount: initialData?.chargeAmount !== undefined && initialData?.chargeAmount !== null ? initialData.chargeAmount.toString() : '',
     unit: initialData?.unit || 'Pcs',
@@ -1016,7 +1017,6 @@ function PartsMasterBillingModal({
   );
   const [mrpOverride, setMrpOverride] = useState(false);
 
-  // pricing calculations
   const pricing = calculatePricing({
     purchasePrice: form.purchasePrice,
     marginPercent: form.marginPercent,
@@ -1024,9 +1024,11 @@ function PartsMasterBillingModal({
     quantity: form.quantity,
     discountPercent: form.discountPercent,
     discountAmount: form.discountAmount,
+    discountType: form.discountType,
     lastDiscountEdited: form.lastDiscountEdited,
     gstPercent: form.gstPercent,
     mrp: form.mrp,
+    taxableAmount: form.taxableAmount !== '' ? form.taxableAmount : null,
     manualFinalTotal
   });
 
@@ -1048,95 +1050,228 @@ function PartsMasterBillingModal({
   const sellingExceedsMrp = pricing.sellingExceedsMrp;
 
   // Input Handlers
+  const handleMrpChange = (val) => {
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: prev.marginPercent,
+        sellingPrice: prev.sellingPrice,
+        quantity: prev.quantity,
+        discountPercent: prev.discountPercent,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: val,
+        changedField: 'mrp',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        mrp: val,
+        sellingPrice: p.sellingPrice.toFixed(2),
+        marginPercent: p.marginPercent.toFixed(2),
+        discountAmount: p.discountAmount.toFixed(2),
+        discountPercent: p.discountPercent.toFixed(2)
+      };
+    });
+    setManualFinalTotal(null);
+  };
+
   const handlePurchasePriceChange = (val) => {
     const newCost = parseFloat(val) || 0;
     const currentMargin = parseFloat(form.marginPercent) || 0;
-    let newSell = form.sellingPrice;
+    const gstP = parseFloat(form.gstPercent) || 0;
+    let newSell = parseFloat(form.sellingPrice) || 0;
     if (newCost > 0 && currentMargin >= 0) {
-      newSell = (newCost * (1 + currentMargin / 100)).toFixed(2);
+      newSell = newCost * (1 + currentMargin / 100);
     }
-    const newGross = qty * (parseFloat(newSell) || 0);
-    const newDiscAmt = (newGross * (parseFloat(form.discountPercent) || 0) / 100).toFixed(2);
-    setForm(prev => ({
-      ...prev,
-      purchasePrice: val,
-      sellingPrice: newSell,
-      discountAmount: newDiscAmt
-    }));
+    const calculatedMrp = newSell * (1 + gstP / 100);
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: val,
+        marginPercent: prev.marginPercent,
+        sellingPrice: newSell.toFixed(2),
+        quantity: prev.quantity,
+        discountPercent: prev.discountPercent,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: calculatedMrp.toFixed(2),
+        changedField: 'mrp',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        purchasePrice: val,
+        sellingPrice: newSell.toFixed(2),
+        mrp: calculatedMrp.toFixed(2),
+        discountAmount: p.discountAmount.toFixed(2),
+        discountPercent: p.discountPercent.toFixed(2)
+      };
+    });
     setManualFinalTotal(null);
   };
 
   const handleSellingPriceChange = (val) => {
     const newSell = parseFloat(val) || 0;
-    const currentCost = parseFloat(form.purchasePrice) || 0;
-    let newMargin = form.marginPercent;
-    if (currentCost > 0 && newSell >= 0) {
-      newMargin = (((newSell - currentCost) / currentCost) * 100).toFixed(2);
-    }
-    const newGross = qty * newSell;
-    const newDiscAmt = (newGross * (parseFloat(form.discountPercent) || 0) / 100).toFixed(2);
-    setForm(prev => ({
-      ...prev,
-      sellingPrice: val,
-      marginPercent: newMargin,
-      discountAmount: newDiscAmt
-    }));
+    const gstP = parseFloat(form.gstPercent) || 0;
+    const calculatedMrp = newSell * (1 + gstP / 100);
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: prev.marginPercent,
+        sellingPrice: val,
+        quantity: prev.quantity,
+        discountPercent: prev.discountPercent,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: calculatedMrp.toFixed(2),
+        changedField: 'mrp',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        sellingPrice: val,
+        mrp: calculatedMrp.toFixed(2),
+        marginPercent: p.marginPercent.toFixed(2),
+        discountAmount: p.discountAmount.toFixed(2),
+        discountPercent: p.discountPercent.toFixed(2)
+      };
+    });
     setManualFinalTotal(null);
   };
 
   const handleMarginChange = (val) => {
     const newMargin = parseFloat(val) || 0;
     const currentCost = parseFloat(form.purchasePrice) || 0;
-    let newSell = form.sellingPrice;
+    const gstP = parseFloat(form.gstPercent) || 0;
+    let newSell = parseFloat(form.sellingPrice) || 0;
     if (currentCost > 0) {
-      newSell = (currentCost * (1 + newMargin / 100)).toFixed(2);
+      newSell = currentCost * (1 + newMargin / 100);
     }
-    const newGross = qty * (parseFloat(newSell) || 0);
-    const newDiscAmt = (newGross * (parseFloat(form.discountPercent) || 0) / 100).toFixed(2);
-    setForm(prev => ({
-      ...prev,
-      marginPercent: val,
-      sellingPrice: newSell,
-      discountAmount: newDiscAmt
-    }));
+    const calculatedMrp = newSell * (1 + gstP / 100);
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: val,
+        sellingPrice: newSell.toFixed(2),
+        quantity: prev.quantity,
+        discountPercent: prev.discountPercent,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: calculatedMrp.toFixed(2),
+        changedField: 'mrp',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        marginPercent: val,
+        sellingPrice: newSell.toFixed(2),
+        mrp: calculatedMrp.toFixed(2),
+        discountAmount: p.discountAmount.toFixed(2),
+        discountPercent: p.discountPercent.toFixed(2)
+      };
+    });
     setManualFinalTotal(null);
   };
 
   const handleQuantityChange = (val) => {
-    const newQty = Math.max(1, parseFloat(val) || 1);
-    const newGross = newQty * (parseFloat(form.sellingPrice) || 0);
-    const newDiscAmt = (newGross * (parseFloat(form.discountPercent) || 0) / 100).toFixed(2);
-    setForm(prev => ({
-      ...prev,
-      quantity: val,
-      discountAmount: newDiscAmt
-    }));
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: prev.marginPercent,
+        sellingPrice: prev.sellingPrice,
+        quantity: val,
+        discountPercent: prev.discountPercent,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: prev.mrp,
+        changedField: 'qty',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        quantity: val,
+        discountAmount: p.discountAmount.toFixed(2),
+        discountPercent: p.discountPercent.toFixed(2)
+      };
+    });
     setManualFinalTotal(null);
   };
 
   const handleDiscountPercentChange = (val) => {
-    const p = parseFloat(val) || 0;
-    const currentGross = qty * (parseFloat(form.sellingPrice) || 0);
-    const calculatedAmt = (currentGross * (p / 100)).toFixed(2);
-    setForm(prev => ({
-      ...prev,
-      discountPercent: val,
-      discountAmount: calculatedAmt,
-      lastDiscountEdited: 'percent'
-    }));
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: prev.marginPercent,
+        sellingPrice: prev.sellingPrice,
+        quantity: prev.quantity,
+        discountPercent: val,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: prev.mrp,
+        changedField: 'discountPercent',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        discountPercent: val,
+        discountAmount: p.discountAmount.toFixed(2)
+      };
+    });
     setManualFinalTotal(null);
   };
 
   const handleDiscountAmountChange = (val) => {
-    const amt = parseFloat(val) || 0;
-    const currentGross = qty * (parseFloat(form.sellingPrice) || 0);
-    const calculatedPercent = currentGross > 0 ? ((amt / currentGross) * 100).toFixed(2) : '0';
-    setForm(prev => ({
-      ...prev,
-      discountAmount: val,
-      discountPercent: calculatedPercent,
-      lastDiscountEdited: 'amount'
-    }));
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: prev.marginPercent,
+        sellingPrice: prev.sellingPrice,
+        quantity: prev.quantity,
+        discountPercent: prev.discountPercent,
+        discountAmount: val,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: prev.mrp,
+        changedField: 'discountAmount',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        discountAmount: val,
+        discountPercent: p.discountPercent.toFixed(2)
+      };
+    });
+    setManualFinalTotal(null);
+  };
+
+  const handleTaxableAmountChange = (val) => {
+    setForm(prev => {
+      const p = calculatePricing({
+        purchasePrice: prev.purchasePrice,
+        marginPercent: prev.marginPercent,
+        sellingPrice: prev.sellingPrice,
+        quantity: prev.quantity,
+        discountPercent: prev.discountPercent,
+        discountAmount: prev.discountAmount,
+        discountType: prev.discountType,
+        gstPercent: prev.gstPercent,
+        mrp: prev.mrp,
+        taxableAmount: val,
+        changedField: 'taxableAmount',
+        manualFinalTotal
+      });
+      return {
+        ...prev,
+        discountPercent: p.discountPercent.toFixed(2),
+        discountAmount: p.discountAmount.toFixed(2)
+      };
+    });
     setManualFinalTotal(null);
   };
 
@@ -1625,6 +1760,20 @@ function PartsMasterBillingModal({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Taxable Value (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.taxableAmount !== undefined && form.taxableAmount !== '' ? form.taxableAmount : (taxableAmount || 0)}
+                  onChange={(e) => handleTaxableAmountChange(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                   GST Rate (%)
                 </label>
                 <div className="flex gap-2">
@@ -1635,7 +1784,7 @@ function PartsMasterBillingModal({
                       if (val === 'custom') {
                         setForm({ ...form, gstPercent: 'custom' });
                       } else {
-                        setForm({ ...form, gstPercent: val });
+                        handleGstPercentChange(val);
                       }
                     }}
                     disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
@@ -1657,7 +1806,7 @@ function PartsMasterBillingModal({
                       step="0.01"
                       placeholder="0.00"
                       value={form.gstPercent === 'custom' ? '' : form.gstPercent}
-                      onChange={(e) => setForm({ ...form, gstPercent: e.target.value })}
+                      onChange={(e) => handleGstPercentChange(e.target.value)}
                       disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
                       className="w-24 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
                     />
@@ -1727,7 +1876,7 @@ function PartsMasterBillingModal({
                   type="number"
                   step="0.01"
                   value={form.mrp}
-                  onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+                  onChange={(e) => handleMrpChange(e.target.value)}
                   placeholder="0.00"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-slate-900 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
                 />
