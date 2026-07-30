@@ -3,9 +3,27 @@ const mongoose = require('mongoose');
 const attendanceSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   status: { type: String, enum: ['Present', 'Absent', 'Half Day', 'Leave', 'Weekly Off', 'Present (Worked on Weekly Off)'], required: true },
+  isWeeklyOff: { type: Boolean, default: false },
   updatedBy: { type: String, default: '' },
   updatedTime: { type: Date, default: Date.now },
   remarks: { type: String, default: '' }
+}, {
+  toJSON: {
+    transform: function(doc, ret) {
+      if (ret.isWeeklyOff) {
+        ret.status = 'Weekly Off';
+      }
+      return ret;
+    }
+  },
+  toObject: {
+    transform: function(doc, ret) {
+      if (ret.isWeeklyOff) {
+        ret.status = 'Weekly Off';
+      }
+      return ret;
+    }
+  }
 });
 
 const salarySchema = new mongoose.Schema({

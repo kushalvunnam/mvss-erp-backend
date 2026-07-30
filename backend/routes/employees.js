@@ -217,9 +217,17 @@ router.post('/attendance/bulk', async (req, res) => {
           d.setHours(0, 0, 0, 0);
           return d.getTime() !== attendanceDate.getTime();
         });
+        let saveStatus = status;
+        let isWeeklyOff = false;
+        if (status === 'Weekly Off') {
+          saveStatus = 'Present';
+          isWeeklyOff = true;
+        }
+
         employee.attendance.push({
           date: attendanceDate,
-          status,
+          status: saveStatus,
+          isWeeklyOff,
           updatedBy: req.user ? req.user.name : 'System',
           updatedTime: new Date(),
           remarks: remarks || ''
@@ -254,9 +262,17 @@ router.post('/:id/attendance', async (req, res) => {
       return d.getTime() !== attendanceDate.getTime();
     });
 
+    let saveStatus = status;
+    let isWeeklyOff = false;
+    if (status === 'Weekly Off') {
+      saveStatus = 'Present';
+      isWeeklyOff = true;
+    }
+
     employee.attendance.push({
       date: attendanceDate,
-      status,
+      status: saveStatus,
+      isWeeklyOff,
       updatedBy: req.user ? req.user.name : 'System',
       updatedTime: new Date(),
       remarks: remarks || ''
@@ -292,7 +308,7 @@ router.post('/:id/salary', async (req, res) => {
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
-      attendanceMap[`${yyyy}-${mm}-${dd}`] = a.status;
+      attendanceMap[`${yyyy}-${mm}-${dd}`] = a.isWeeklyOff ? 'Weekly Off' : a.status;
     });
 
     for (let day = 1; day <= endDate.getDate(); day++) {
