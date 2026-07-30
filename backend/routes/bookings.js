@@ -176,6 +176,7 @@ router.post('/', async (req, res) => {
     const booking = new Booking({
       customerName,
       mobile,
+      email: customerEmail,
       vehicleNumber,
       vehicleModel: vehicleModel || '',
       serviceType,
@@ -186,8 +187,7 @@ router.post('/', async (req, res) => {
     });
 
     await booking.save();
-    console.log(`[BOOKING ROUTE] Booking saved with ID: ${booking._id}`);
-    console.log('Booking saved');
+    console.log(`[BOOKING ROUTE] Booking Created with ID: ${booking._id}`);
 
 
     // ==========================================
@@ -258,33 +258,96 @@ router.post('/', async (req, res) => {
 
 
     // ==========================================
-    // 7. SEND ADMIN EMAIL NOTIFICATION (RESEND SDK)
+    // 7. SEND EMAIL NOTIFICATIONS (CUSTOMER & ADMIN)
     // ==========================================
 
-    let emailSent = false;
-    let emailError = null;
-    let emailId = null;
+    let adminEmailSent = false;
+    let customerEmailSent = false;
+    let adminEmailError = null;
+    let customerEmailError = null;
+    let adminEmailId = null;
+    let customerEmailId = null;
     let emailLogs = [];
 
+    const senderEmail = process.env.RESEND_FROM_EMAIL;
+    const recipientAdminEmail = process.env.ADMIN_EMAIL;
+
+    // 7a. Send Customer Booking Confirmation
+    if (customerEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (emailRegex.test(customerEmail)) {
+        try {
+          console.log(`[BOOKING ROUTE] Customer Email sending started to: ${customerEmail}`);
+          const htmlBodyCustomer = `
+            <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+              <h2 style="color: #c1121f; margin-top: 0;">Service Booking Confirmed</h2>
+              <p>Dear ${customerName},</p>
+              <p>Thank you for choosing MVSS Automobiles. Your service booking has been registered successfully. Our service team will contact you shortly to confirm your final slot reservation.</p>
+              
+              <h3 style="color: #1e293b; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Booking Details</h3>
+              <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
+                <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold; width: 45%;">Booking Reference Code:</td><td style="padding: 8px 0; font-family: monospace; font-weight: bold; color: #c1121f;">${booking._id.toString().toUpperCase()}</td></tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Vehicle Reg No:</td><td style="padding: 8px 0; text-transform: uppercase;">${vehicleNumber}</td></tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Vehicle Model:</td><td style="padding: 8px 0;">${vehicleModel || 'N/A'}</td></tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Service Category:</td><td style="padding: 8px 0;">${serviceType}</td></tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Preferred Service Date:</td><td style="padding: 8px 0;">${preferredDate || 'Not provided'}</td></tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Branch:</td><td style="padding: 8px 0;">${branch || 'MVSS Automobiles Main Branch'}</td></tr>
+              </table>
+              
+              <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border-radius: 8px; font-size: 12px; color: #64748b; border-left: 4px solid #c1121f;">
+                <strong>Need Help?</strong> Contact us at +91 99494 79765 or reply to this email for any questions.
+              </div>
+              <p style="font-size: 11px; color: #94a3b8; margin-top: 20px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+                © ${new Date().getFullYear()} MVSS Automobiles. Quality service with passion.
+              </p>
+            </div>
+          `;
+
+          const customerResult = await sendEmail({
+            to: customerEmail,
+            subject: `Service Booking Confirmed - MVSS Automobiles`,
+            html: htmlBodyCustomer,
+            from: senderEmail
+          });
+
+          if (customerResult.success) {
+            customerEmailSent = true;
+            customerEmailId = customerResult.emailId || customerResult.data?.id || 'N/A';
+            console.log(`[BOOKING ROUTE SUCCESS] Customer Email Sent to ${customerEmail}. ID: ${customerEmailId}`);
+            emailLogs.push(`Customer email sent successfully to ${customerEmail} (ID: ${customerEmailId})`);
+          } else {
+            customerEmailError = customerResult.error?.message || JSON.stringify(customerResult.error);
+            console.error(`[BOOKING ROUTE ERROR] Customer Email Failed: ${customerEmailError}`);
+            emailLogs.push(`Customer email failed: ${customerEmailError}`);
+          }
+        } catch (custErr) {
+          customerEmailError = custErr.message || String(custErr);
+          console.error('[BOOKING ROUTE EXCEPTION] Customer Email Failed:', custErr);
+          emailLogs.push(`Customer email exception: ${customerEmailError}`);
+        }
+      } else {
+        customerEmailError = 'Invalid email address format';
+        console.warn(`[BOOKING ROUTE WARNING] Customer Email is invalid: ${customerEmail}`);
+        emailLogs.push(`Customer email skipped: invalid format`);
+      }
+    } else {
+      console.log('[BOOKING ROUTE] Customer email not provided, skipping confirmation email.');
+      emailLogs.push('Customer email skipped: not provided');
+    }
+
+    // 7b. Send Admin Booking Notification
     try {
-      const recipientEmail = process.env.ADMIN_EMAIL;
-      const senderEmail = process.env.RESEND_FROM_EMAIL;
-
-      console.log(`[BOOKING ROUTE] Booking saved with ID: ${booking._id}`);
-      console.log(`[BOOKING ROUTE] Calling Resend...`);
-      console.log(`[BOOKING ROUTE] Recipient email: ${recipientEmail}`);
-      console.log(`[BOOKING ROUTE] Sender email: ${senderEmail}`);
-
+      console.log(`[BOOKING ROUTE] Admin Email sending started to: ${recipientAdminEmail}`);
       const htmlBodyAdmin = `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
           <h2 style="color: #4f46e5; margin-top: 0;">New Service Booking Received</h2>
-          <p>A new service appointment has been booked via the MVSS Automobiles portal.</p>
+          <p>A new service appointment has been booked via the MVSS portal.</p>
           <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold; width: 45%;">Booking Reference Number:</td><td style="padding: 8px 0; font-family: monospace; font-weight: bold;">${booking._id.toString().toUpperCase()}</td></tr>
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Customer Name:</td><td style="padding: 8px 0;">${customerName}</td></tr>
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Mobile Number:</td><td style="padding: 8px 0;">${mobile}</td></tr>
             ${customerEmail ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Customer Email:</td><td style="padding: 8px 0;">${customerEmail}</td></tr>` : ''}
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Vehicle Number:</td><td style="padding: 8px 0;">${vehicleNumber}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Vehicle Number:</td><td style="padding: 8px 0; text-transform: uppercase;">${vehicleNumber}</td></tr>
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Vehicle Model:</td><td style="padding: 8px 0;">${vehicleModel || 'N/A'}</td></tr>
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Service Category:</td><td style="padding: 8px 0;">${serviceType}</td></tr>
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: bold;">Preferred Service Date:</td><td style="padding: 8px 0;">${preferredDate || 'Not provided'}</td></tr>
@@ -296,30 +359,27 @@ router.post('/', async (req, res) => {
         </div>
       `;
 
-      console.log('Email sending started');
-      const emailResult = await sendEmail({
-        to: recipientEmail,
+      const adminResult = await sendEmail({
+        to: recipientAdminEmail,
         subject: `New Service Booking - MVSS Automobiles`,
         html: htmlBodyAdmin,
         from: senderEmail
       });
 
-      if (emailResult.success) {
-        emailSent = true;
-        emailId = emailResult.emailId || emailResult.data?.id || 'N/A';
-        console.log(`[BOOKING ROUTE SUCCESS] Email ID: ${emailId}`);
-        console.log('Email sent successfully');
-        emailLogs.push(`Admin email sent successfully to ${recipientEmail} (ID: ${emailId})`);
+      if (adminResult.success) {
+        adminEmailSent = true;
+        adminEmailId = adminResult.emailId || adminResult.data?.id || 'N/A';
+        console.log(`[BOOKING ROUTE SUCCESS] Admin Email Sent to ${recipientAdminEmail}. ID: ${adminEmailId}`);
+        emailLogs.push(`Admin email sent successfully to ${recipientAdminEmail} (ID: ${adminEmailId})`);
       } else {
-        emailError = emailResult.error?.message || JSON.stringify(emailResult.error);
-        console.log('Email failed');
-        emailLogs.push(`Admin email failed: ${emailError}`);
-        console.error(`[BOOKING ROUTE ERROR] Error message if sending fails: ${emailError}`);
+        adminEmailError = adminResult.error?.message || JSON.stringify(adminResult.error);
+        console.error(`[BOOKING ROUTE ERROR] Admin Email Failed: ${adminEmailError}`);
+        emailLogs.push(`Admin email failed: ${adminEmailError}`);
       }
-    } catch (emailErr) {
-      emailError = emailErr.message || String(emailErr);
-      console.log('Email failed');
-      console.error('[BOOKING ROUTE EXCEPTION] Error message if sending fails:', emailErr);
+    } catch (adminErr) {
+      adminEmailError = adminErr.message || String(adminErr);
+      console.error('[BOOKING ROUTE EXCEPTION] Admin Email Failed:', adminErr);
+      emailLogs.push(`Admin email exception: ${adminEmailError}`);
     }
 
 
@@ -335,9 +395,13 @@ router.post('/', async (req, res) => {
       webhookTriggered,
       webhookError,
       webhookUrl: BOOKING_WEBHOOK_URL,
-      emailSent,
-      emailId,
-      emailError,
+      emailSent: adminEmailSent || customerEmailSent,
+      adminEmailSent,
+      customerEmailSent,
+      adminEmailId,
+      customerEmailId,
+      adminEmailError,
+      customerEmailError,
       emailLogs,
       booking,
     });

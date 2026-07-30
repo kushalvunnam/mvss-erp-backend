@@ -17,6 +17,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
   // Booking Form State & Validation
   const [customerName, setCustomerName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [preferredStream, setPreferredStream] = useState('');
@@ -70,6 +71,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
             customerId: cust._id,
             customerName: cust.name,
             mobile: cust.mobile,
+            email: cust.email || '',
             vehicleId: veh ? veh._id : null,
             vehicleNumber: veh ? veh.vehicleNumber : '',
             vehicleModel: veh ? `${veh.make} ${veh.model}` : ''
@@ -117,6 +119,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
   const handleSelectSuggestion = (suggestion) => {
     if (suggestion.customerName) setCustomerName(suggestion.customerName);
     if (suggestion.mobile) setContactPhone(suggestion.mobile);
+    if (suggestion.email) setCustomerEmail(suggestion.email);
     if (suggestion.vehicleNumber) setVehiclePlate(suggestion.vehicleNumber);
     if (suggestion.vehicleModel) setVehicleModel(suggestion.vehicleModel);
 
@@ -190,6 +193,13 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
         const nameRegex = /^[A-Za-z]+( [A-Za-z]+)*$/;
         if (!nameRegex.test(trimmed)) {
           errorMsg = 'Please enter a valid name using letters only.';
+        }
+      }
+    } else if (name === 'customerEmail') {
+      if (trimmed) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(trimmed)) {
+          errorMsg = 'Please enter a valid email address.';
         }
       }
     } else if (name === 'contactPhone') {
@@ -325,6 +335,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
 
     const nameErr = validateField('customerName', trimmedName);
     const phoneErr = validateField('contactPhone', trimmedPhone);
+    const emailErr = validateField('customerEmail', customerEmail);
     const plateErr = validateField('vehiclePlate', trimmedPlate);
     const dateErr = validateField('preferredDate', preferredDate);
     const streamErr = validateField('preferredStream', preferredStream);
@@ -332,6 +343,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
     const newErrors = {
       customerName: nameErr,
       contactPhone: phoneErr,
+      customerEmail: emailErr,
       vehiclePlate: plateErr,
       preferredDate: dateErr,
       preferredStream: streamErr
@@ -339,7 +351,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
 
     setErrors(newErrors);
 
-    if (nameErr || phoneErr || plateErr || dateErr || streamErr) {
+    if (nameErr || phoneErr || emailErr || plateErr || dateErr || streamErr) {
       return;
     }
 
@@ -354,6 +366,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
     // Sanitize inputs
     const sanitizedName = sanitize(trimmedName);
     const sanitizedPhone = sanitize(trimmedPhone);
+    const sanitizedEmail = sanitize(customerEmail.trim());
     const sanitizedPlate = sanitize(trimmedPlate);
     const sanitizedModel = sanitize(vehicleModel.trim());
     const sanitizedStream = sanitize(preferredStream);
@@ -369,6 +382,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
         body: JSON.stringify({
           customerName: sanitizedName,
           mobile: sanitizedPhone,
+          email: sanitizedEmail,
           vehicleNumber: sanitizedPlate,
           vehicleModel: sanitizedModel,
           serviceType: sanitizedStream,
@@ -389,6 +403,7 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
       setShowSuccessMsg(true);
       setCustomerName('');
       setContactPhone('');
+      setCustomerEmail('');
       setVehiclePlate('');
       setVehicleModel('');
       setPreferredStream('');
@@ -1227,6 +1242,36 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
                       </button>
                     ))}
                   </div>
+                )}
+              </div>
+
+              {/* Email Field */}
+              <div className="space-y-1 relative">
+                <label htmlFor="booking-customer-email" className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Email Address (Optional)</label>
+                <div className="relative flex items-center">
+                  <Mail className="absolute left-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <input 
+                    id="booking-customer-email"
+                    type="email" 
+                    value={customerEmail}
+                    disabled={isSubmitting}
+                    onChange={(e) => {
+                      setCustomerEmail(e.target.value);
+                      if (formTouched || errors.customerEmail) {
+                        const err = validateField('customerEmail', e.target.value);
+                        setErrors(prev => ({ ...prev, customerEmail: err }));
+                      }
+                    }}
+                    onBlur={() => {
+                      const err = validateField('customerEmail', customerEmail);
+                      setErrors(prev => ({ ...prev, customerEmail: err }));
+                    }}
+                    placeholder="Enter email address (to receive confirmation)" 
+                    className={`w-full pl-10 pr-4 py-3 bg-slate-50 border rounded-xl text-xs font-medium focus:outline-none focus:bg-white transition-all ${errors.customerEmail ? 'border-red-500 focus:border-red-500' : 'border-slate-200 focus:border-[#C1121F]'}`} 
+                  />
+                </div>
+                {errors.customerEmail && (
+                  <span className="block mt-0.5 text-[9px] text-red-500 font-semibold">{errors.customerEmail}</span>
                 )}
               </div>
 
