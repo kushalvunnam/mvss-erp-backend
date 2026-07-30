@@ -1312,6 +1312,26 @@ function PartsMasterBillingModal({
     setManualFinalTotal(null);
   };
 
+  const handleTaxableBlur = (val) => {
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setForm(prev => ({
+        ...prev,
+        taxableAmount: num.toFixed(2)
+      }));
+    }
+  };
+
+  const handleLabourTaxableBlur = (val) => {
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setForm(prev => ({
+        ...prev,
+        taxableAmount: num.toFixed(2)
+      }));
+    }
+  };
+
   const handleGstPercentChange = (val) => {
     setForm(prev => {
       const p = calculatePricing({
@@ -1767,8 +1787,9 @@ function PartsMasterBillingModal({
                     type="number"
                     step="0.01"
                     required
-                    value={form.taxableAmount !== undefined && form.taxableAmount !== '' ? form.taxableAmount : (taxableAmount || 0)}
+                    value={form.taxableAmount}
                     onChange={(e) => handleLabourTaxableChange(e.target.value)}
+                    onBlur={(e) => handleLabourTaxableBlur(e.target.value)}
                     placeholder="0.00"
                     className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:border-indigo-500"
                   />
@@ -1967,8 +1988,9 @@ function PartsMasterBillingModal({
                   <input
                     type="number"
                     step="0.01"
-                    value={form.taxableAmount !== undefined && form.taxableAmount !== '' ? form.taxableAmount : (taxableAmount || 0)}
+                    value={form.taxableAmount}
                     onChange={(e) => handleTaxableAmountChange(e.target.value)}
+                    onBlur={(e) => handleTaxableBlur(e.target.value)}
                     placeholder="0.00"
                     className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:border-indigo-500"
                   />
