@@ -267,7 +267,9 @@ export default function PurchaseReport({ token, user }) {
 
     // Calculate Unit Basic Value (purchasePrice/sellingPrice) from MRP
     let unitBasic = mrpVal / (1 + gstP / 100);
-    updatedRow.purchasePrice = unitBasic.toFixed(2);
+    if (changedField !== 'purchasePrice') {
+      updatedRow.purchasePrice = unitBasic.toFixed(2);
+    }
     updatedRow.sellingPrice = unitBasic.toFixed(2);
 
     const gross = qty * unitBasic;
@@ -377,6 +379,16 @@ export default function PurchaseReport({ token, user }) {
       if (row.id !== rowId) return row;
       return { ...row, igstPercent: value };
     }));
+  };
+
+  const handleRateBlur = (rowId, val) => {
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      setPurchaseItems(prev => prev.map(row => {
+        if (row.id !== rowId) return row;
+        return { ...row, purchasePrice: num.toFixed(2) };
+      }));
+    }
   };
 
   // Helper row totals calculation
@@ -1239,6 +1251,7 @@ export default function PurchaseReport({ token, user }) {
                             placeholder="0.00"
                             value={row.purchasePrice}
                             onChange={(e) => handleRowChange(row.id, 'purchasePrice', e.target.value)}
+                            onBlur={(e) => handleRateBlur(row.id, e.target.value)}
                             required
                             className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-bold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           />
