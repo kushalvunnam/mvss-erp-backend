@@ -1,5 +1,7 @@
 const PDFDocument = require('pdfkit');
 const numberToWords = require('./numberToWords');
+const fs = require('fs');
+const path = require('path');
 
 // Helper to draw horizontal lines
 function drawLine(doc, y) {
@@ -685,7 +687,17 @@ function drawInvoiceFooter(doc, y, isInvoice = false, invoice = null) {
   }
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5)
       .text('For MVSS Automobiles Private Limited', 350, y + 10);
-      
+
+  // Draw the admin signature if it exists
+  try {
+    const signaturePath = path.join(__dirname, '../uploads/admin_signature.png');
+    if (fs.existsSync(signaturePath)) {
+      doc.image(signaturePath, 390, y + 20, { fit: [90, 36], align: 'center' });
+    }
+  } catch (sigErr) {
+    console.error('Error drawing admin signature on PDF:', sigErr);
+  }
+       
   doc.strokeColor('#cccccc').dash(2, {space: 2})
      .moveTo(350, y + 60).lineTo(520, y + 60).stroke().undash();
       

@@ -853,9 +853,12 @@ export default function Invoices({ token, user, setActiveTab }) {
                 <div style="font-weight: bold; margin-bottom: 5px;">Prepared By:</div>
                 <div style="font-family: monospace; font-size: 11px; font-weight: bold; color: #111;">${inv.preparedBy || 'Staff Incharge'}</div>
               </div>
-              <div>
+              <div style="display: flex; flex-direction: column; align-items: center;">
                 <div style="font-weight: bold; text-align: center;">For MVSS AUTOMOBILES PRIVATE LIMITED</div>
-                <div class="signature-box">Authorized Signatory</div>
+                <div style="height: 40px; display: flex; align-items: center; justify-content: center; margin-top: 10px; margin-bottom: -20px;">
+                  <img src="/workshop/admin_signature.png" alt="Signature" style="max-height: 40px; max-width: 140px; object-fit: contain;" />
+                </div>
+                <div class="signature-box" style="margin-top: 25px;">Authorized Signatory</div>
               </div>
             </div>
           </div>
