@@ -27,6 +27,7 @@ import InventoryReports from './pages/InventoryReports';
 import PurchaseReport from './pages/PurchaseReport';
 import Backlogs from './pages/Backlogs';
 import Expenses from './pages/Expenses';
+import ExternalRepairs from './pages/ExternalRepairs';
 
 const PageSkeletonLoader = () => (
   <div className="p-6 space-y-4 animate-pulse select-none">
@@ -58,7 +59,7 @@ import * as mockData from './utils/mockData';
 
 const tabPermissions = {
   dashboard: ['Admin', 'Service', 'Reception'],
-  bodyshop: ['Admin', 'Body Shop'],
+  bodyshop: ['Admin'],
   customers: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
   vehicles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
   jobcards: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
@@ -72,7 +73,8 @@ const tabPermissions = {
   purchases: ['Admin', 'Spares'],
   purchasereport: ['Admin', 'Spares'],
   backlogs: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'],
-  expenses: ['Admin', 'Accounts', 'Service', 'Spares', 'Body Shop'],
+  expenses: ['Admin', 'Accounts', 'Service', 'Spares'],
+  externalrepairs: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
   employees: ['Admin'],
   claims: ['Admin', 'Service'],
   reports: ['Admin', 'Service'],
@@ -1714,7 +1716,7 @@ export default function App() {
         } else if (user.role === 'Spares') {
           defaultTab = 'inventory';
         } else if (user.role === 'Body Shop') {
-          defaultTab = 'bodyshop';
+          defaultTab = 'jobcards';
         }
         setActiveTab(defaultTab);
       }
@@ -1733,7 +1735,7 @@ export default function App() {
     } else if (loginUser?.role === 'Spares') {
       defaultTab = 'inventory';
     } else if (loginUser?.role === 'Body Shop') {
-      defaultTab = 'bodyshop';
+      defaultTab = 'jobcards';
     }
     setActiveTab(defaultTab);
   };
@@ -1839,7 +1841,7 @@ function ProtectedRoute({ children, token, user }) {
 function getRedirectPath(role) {
   if (role === 'Spares') return '/inventory';
   if (role === 'Accounts') return '/customers';
-  if (role === 'Body Shop') return '/body-shop';
+  if (role === 'Body Shop') return '/job-cards';
   return '/dashboard'; // Default to dashboard for Admin, Service, Reception
 }
 
@@ -1908,6 +1910,7 @@ function ERPShell({
     else if (path === '/purchasereport' || path === '/inventory/purchase-report' || path === '/purchases' || path === '/inventory/purchases') setActiveTab('purchases');
     else if (path === '/backlogs' || path === '/inventory/backlogs') setActiveTab('backlogs');
     else if (path === '/expenses' || path === '/inventory/expenses') setActiveTab('expenses');
+    else if (path === '/external-repairs') setActiveTab('externalrepairs');
     else if (path === '/employees') setActiveTab('employees');
     else if (path === '/claims') setActiveTab('claims');
     else if (path === '/reports') setActiveTab('reports');
@@ -1916,11 +1919,39 @@ function ERPShell({
   }, [location, setActiveTab]);
 
   const userRole = user?.role || 'Guest';
-  const hasAccess = tabPermissions[activeTab]?.includes(userRole) ?? true;
+
+  const getPathTab = (pathname) => {
+    const cleanPath = pathname.toLowerCase();
+    if (cleanPath === '/dashboard') return 'dashboard';
+    if (cleanPath === '/customers') return 'customers';
+    if (cleanPath === '/vehicles') return 'vehicles';
+    if (cleanPath === '/body-shop') return 'bodyshop';
+    if (cleanPath === '/job-cards') return 'jobcards';
+    if (cleanPath === '/estimates') return 'estimates';
+    if (cleanPath === '/invoices') return 'invoices';
+    if (cleanPath === '/inventory') return 'inventory';
+    if (cleanPath === '/stockstatement' || cleanPath === '/inventory/statement') return 'stockstatement';
+    if (cleanPath === '/vendors' || cleanPath === '/inventory/vendors') return 'vendors';
+    if (cleanPath === '/adjustments' || cleanPath === '/inventory/adjustments') return 'adjustments';
+    if (cleanPath === '/inventoryreports' || cleanPath === '/inventory/reports') return 'inventoryreports';
+    if (cleanPath === '/purchasereport' || cleanPath === '/inventory/purchase-report' || cleanPath === '/purchases' || cleanPath === '/inventory/purchases') return 'purchases';
+    if (cleanPath === '/backlogs' || cleanPath === '/inventory/backlogs') return 'backlogs';
+    if (cleanPath === '/expenses' || cleanPath === '/inventory/expenses') return 'expenses';
+    if (cleanPath === '/external-repairs') return 'externalrepairs';
+    if (cleanPath === '/employees') return 'employees';
+    if (cleanPath === '/claims') return 'claims';
+    if (cleanPath === '/reports') return 'reports';
+    if (cleanPath === '/audit-logs') return 'auditlogs';
+    if (cleanPath === '/gate-pass') return 'gatepass';
+    return '';
+  };
+
+  const pathTab = getPathTab(location.pathname);
+  const isPathBlocked = pathTab ? !(tabPermissions[pathTab]?.includes(userRole) ?? true) : false;
 
   const navigationItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception'] },
-    { id: 'bodyshop', name: 'Body Shop', icon: Wrench, roles: ['Admin', 'Body Shop'] },
+    { id: 'bodyshop', name: 'Body Shop', icon: Wrench, roles: ['Admin'] },
     { id: 'customers', name: 'Customers', icon: Users, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'vehicles', name: 'Vehicles', icon: Car, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'jobcards', name: 'Job Cards', icon: FileText, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
@@ -1928,7 +1959,8 @@ function ERPShell({
     { id: 'invoices', name: 'Invoices', icon: Receipt, roles: ['Admin', 'Accounts'] },
     { id: 'inventory', name: 'Inventory', icon: Package, roles: ['Admin', 'Spares'] },
     { id: 'purchases', name: 'Purchases', icon: ShoppingBag, roles: ['Admin', 'Spares'] },
-    { id: 'expenses', name: 'Expenses', icon: Wallet, roles: ['Admin', 'Accounts', 'Service', 'Spares', 'Body Shop'] },
+    { id: 'expenses', name: 'Expenses', icon: Wallet, roles: ['Admin', 'Accounts', 'Service', 'Spares'] },
+    { id: 'externalrepairs', name: 'External Repairs', icon: Wrench, roles: ['Admin', 'Accounts', 'Service', 'Body Shop'] },
     { id: 'employees', name: 'Employees', icon: Users, roles: ['Admin'] },
     { id: 'claims', name: 'Claims', icon: ShieldCheck, roles: ['Admin', 'Service'] },
     { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service'] },
@@ -1952,6 +1984,7 @@ function ERPShell({
           else if (tab === 'bodyshop') navigate('/body-shop');
           else if (tab === 'gatepass') navigate('/gate-pass');
           else if (tab === 'auditlogs') navigate('/audit-logs');
+          else if (tab === 'externalrepairs') navigate('/external-repairs');
           else navigate(`/${tab}`);
         }} 
         user={user} 
@@ -1985,39 +2018,29 @@ function ERPShell({
             else if (tab === 'bodyshop') navigate('/body-shop');
             else if (tab === 'gatepass') navigate('/gate-pass');
             else if (tab === 'auditlogs') navigate('/audit-logs');
+            else if (tab === 'externalrepairs') navigate('/external-repairs');
             else navigate(`/${tab}`);
           }}
           onNavigateToJobCard={handleNavigateToJobCard}
         />
         
         <main className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6 bg-[#F8FAFC] dark:bg-slate-950 transition-colors">
-          {!hasAccess ? (
+          {isPathBlocked ? (
             <div className="min-h-[70vh] flex items-center justify-center p-6 animate-fade-in">
               <div className="glassmorphism max-w-md w-full p-8 rounded-3xl border border-red-500/20 text-center relative overflow-hidden space-y-6 shadow-[0_0_50px_rgba(239,68,68,0.05)]">
                 <div className="absolute -top-24 -left-24 w-48 h-48 bg-red-500/10 rounded-full blur-[60px]" />
                 <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-indigo-500/10 rounded-full blur-[60px]" />
 
-                <div className="mx-auto w-16 h-16 bg-red-955/40 border border-red-900/40 rounded-2xl flex items-center justify-center text-red-400 shadow-lg shadow-red-955/30">
+                <div className="mx-auto w-16 h-16 bg-red-950/40 border border-red-900/40 rounded-2xl flex items-center justify-center text-red-400 shadow-lg shadow-red-950/30">
                   <ShieldAlert className="w-8 h-8 animate-pulse" />
                 </div>
 
                 <div className="space-y-2">
-                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-400">Stream Access Restricted</span>
-                  <h2 className="text-xl font-black text-white uppercase tracking-tight">Locked Workspace Module</h2>
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-400 font-bold block mb-1">Access Denied</span>
+                  <h2 className="text-xl font-black text-red-500 uppercase tracking-tight">Access Denied</h2>
                   <p className="text-xs font-semibold text-slate-400 leading-relaxed">
-                    The current profile (Role: <span className="text-indigo-400 font-bold">{userRole}</span>) does not possess authentication credentials to view or modify the <span className="text-white font-bold">{activeTab.toUpperCase()}</span> stream.
+                    Access Denied. You do not have permission to access this module.
                   </p>
-                </div>
-
-                <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-2xl text-left space-y-2.5">
-                  <span className="block text-[9px] font-extrabold uppercase tracking-widest text-slate-500">Authorized Roles</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {tabPermissions[activeTab]?.map(r => (
-                      <span key={r} className="px-2.5 py-1 bg-indigo-950/30 border border-indigo-900/30 rounded-lg text-[10px] font-bold text-indigo-400">
-                        {r}
-                      </span>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="pt-2">
@@ -2028,10 +2051,6 @@ function ERPShell({
                     Return to Allowed Workspace
                   </button>
                 </div>
-
-                <p className="text-[10px] font-semibold text-slate-500">
-                  Please sign out or return to an authorized console.
-                </p>
               </div>
             </div>
           ) : (
@@ -2069,6 +2088,7 @@ function ERPShell({
                 <Route path="/backlogs" element={<Backlogs token={token} user={user} />} />
                 <Route path="/inventory/expenses" element={<Expenses token={token} user={user} />} />
                 <Route path="/expenses" element={<Expenses token={token} user={user} />} />
+                <Route path="/external-repairs" element={<ExternalRepairs token={token} user={user} />} />
                 <Route path="/employees" element={<Employees token={token} user={user} />} />
                 <Route path="/claims" element={<ErrorBoundary><Claims token={token} user={user} /></ErrorBoundary>} />
                 <Route path="/reports" element={<Reports token={token} user={user} />} />

@@ -10,7 +10,7 @@
 export function calculatePricing({
   purchasePrice = 0,
   marginPercent = 0,
-  sellingPrice = 0, // basic selling price (Rate)
+  sellingPrice = 0, // basic unit selling price (Rate)
   quantity = 1,
   discountPercent = 0,
   discountAmount = 0,
@@ -21,14 +21,14 @@ export function calculatePricing({
   changedField = null,
   manualFinalTotal = null
 }) {
-  const costVal = Math.max(0, parseFloat(purchasePrice) || 0);
+  const costVal = Math.max(0, parseFloat(purchasePrice) || 0); // Unit cost
   const qty = Math.max(1, parseFloat(quantity) || 1);
   const gstP = Math.max(0, parseFloat(gstPercent) || 0);
-  let mrpVal = Math.max(0, parseFloat(mrp) || 0);
+  let mrpVal = Math.max(0, parseFloat(mrp) || 0); // Unit MRP
 
   // If MRP is 0 but we have a basic rate/sellingPrice, initialize MRP
   if (mrpVal === 0 && parseFloat(sellingPrice) > 0) {
-    mrpVal = parseFloat(sellingPrice) * (1 + gstP / 100) * qty;
+    mrpVal = parseFloat(sellingPrice) * (1 + gstP / 100);
   }
 
   // 1. Check if we have manual override of grand total
@@ -40,7 +40,7 @@ export function calculatePricing({
     let discAmt = parseFloat(discountAmount) || 0;
     let totalBasic = taxVal + discAmt;
     let unitBasic = totalBasic / qty;
-    let calculatedMrp = unitBasic * (1 + gstP / 100) * qty;
+    let calculatedMrp = unitBasic * (1 + gstP / 100);
 
     let discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
     discPercent = Math.max(0, Math.min(100, discPercent));
@@ -61,8 +61,8 @@ export function calculatePricing({
       finalTotalAmount: finalTotalAmount,
       unitChargeRate: qty > 0 ? finalTotalAmount / qty : 0,
       mrp: calculatedMrp,
-      customerSaving: calculatedMrp > totalBasic ? calculatedMrp - totalBasic : 0,
-      customerSavingPercent: calculatedMrp > 0 && calculatedMrp > totalBasic ? ((calculatedMrp - totalBasic) / calculatedMrp) * 100 : 0,
+      customerSaving: (calculatedMrp * qty) > totalBasic ? (calculatedMrp * qty) - totalBasic : 0,
+      customerSavingPercent: calculatedMrp > 0 && (calculatedMrp * qty) > totalBasic ? (((calculatedMrp * qty) - totalBasic) / (calculatedMrp * qty)) * 100 : 0,
       sellingExceedsMrp: false
     };
   }
@@ -77,20 +77,18 @@ export function calculatePricing({
   if (changedField === 'taxableAmount' && taxVal !== null) {
     // Taxable Value edited manually -> Reverse calculate Basic Value, MRP, GST and Total
     if (discountType === 'Fixed') {
-      // Keep discountAmount (discAmt) fixed
       totalBasic = taxVal + discAmt;
       discPercent = totalBasic > 0 ? (discAmt / totalBasic) * 100 : 0;
     } else {
-      // Percentage discount: Keep discountPercent (discPercent) fixed
       const factor = 1 - (Math.min(99.99, discPercent) / 100);
       totalBasic = taxVal / factor;
       discAmt = totalBasic - taxVal;
     }
     unitBasic = qty > 0 ? totalBasic / qty : 0;
-    mrpVal = unitBasic * (1 + gstP / 100) * qty;
+    mrpVal = unitBasic * (1 + gstP / 100);
   } else if (changedField === 'rate') {
     unitBasic = Math.max(0, parseFloat(sellingPrice) || 0);
-    mrpVal = unitBasic * (1 + gstP / 100) * qty;
+    mrpVal = unitBasic * (1 + gstP / 100);
     totalBasic = unitBasic * qty;
     if (discountType === 'Fixed') {
       discAmt = Math.max(0, Math.min(totalBasic, discAmt));
@@ -102,7 +100,7 @@ export function calculatePricing({
     taxVal = totalBasic - discAmt;
   } else {
     // Forward calculations for mrp changes, quantity changes, gstPercent changes, or discount edits
-    unitBasic = mrpVal / qty / (1 + gstP / 100);
+    unitBasic = mrpVal / (1 + gstP / 100);
     totalBasic = unitBasic * qty;
 
     if (changedField === 'discountPercent') {
@@ -140,9 +138,10 @@ export function calculatePricing({
     marginP = ((unitBasic - costVal) / costVal) * 100;
   }
 
-  const customerSaving = mrpVal > totalBasic ? mrpVal - totalBasic : 0;
-  const customerSavingPercent = mrpVal > 0 && mrpVal > totalBasic ? (customerSaving / mrpVal) * 100 : 0;
-  const sellingExceedsMrp = mrpVal > 0 && totalBasic > mrpVal;
+  const totalMrp = mrpVal * qty;
+  const customerSaving = totalMrp > totalBasic ? totalMrp - totalBasic : 0;
+  const customerSavingPercent = totalMrp > 0 && totalMrp > totalBasic ? (customerSaving / totalMrp) * 100 : 0;
+  const sellingExceedsMrp = totalMrp > 0 && totalBasic > totalMrp;
 
   return {
     cost: costVal,

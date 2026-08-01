@@ -75,6 +75,41 @@ export default function Backlogs({ token, user }) {
     status: 'Pending Order'
   });
 
+  const createEmptyBacklogRow = () => ({
+    id: `row_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+    partNumber: '',
+    partName: '',
+    brand: '',
+    qty: 1
+  });
+
+  const [backlogItems, setBacklogItems] = useState([createEmptyBacklogRow()]);
+
+  const handleAddPartRow = (partData = {}) => {
+    const newRow = {
+      id: `row_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      partNumber: partData.partNumber || '',
+      partName: partData.partName || '',
+      brand: partData.brand || '',
+      qty: partData.qty || 1
+    };
+
+    setBacklogItems(prev => {
+      if (prev.length === 1 && !prev[0].partName && !prev[0].partNumber) {
+        return [newRow];
+      }
+      return [...prev, newRow];
+    });
+  };
+
+  const handleRemoveBacklogRow = (id) => {
+    if (backlogItems.length === 1) {
+      setBacklogItems([createEmptyBacklogRow()]);
+      return;
+    }
+    setBacklogItems(prev => prev.filter(row => row.id !== id));
+  };
+
   // Role Permissions
   const role = user?.role || 'Guest';
   const canCreate = ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'].includes(role);
@@ -232,7 +267,7 @@ export default function Backlogs({ token, user }) {
       
       const matched = jobCards.find(j => j.jobCardNo === jcNo);
       if (matched) {
-        updated.vehicleNo = matched.vehicleNo || matched.vehicleId?.regNo || '';
+        updated.vehicleNo = matched.vehicleNo || matched.vehicleId?.vehicleNumber || '';
         updated.vehicleModel = matched.vehicleModel || matched.vehicleId?.model || '';
         updated.customerName = matched.customerName || matched.customerId?.name || '';
       }
@@ -265,29 +300,24 @@ export default function Backlogs({ token, user }) {
     if (indexVal === "") return;
     const part = estimateParts[parseInt(indexVal)];
     if (part) {
-      setFormData(prev => ({
-        ...prev,
+      handleAddPartRow({
         partNumber: part.partNo || '',
         partName: part.name || '',
         qty: part.qty || 1
-      }));
+      });
     }
   };
 
   // Auto-fill form when selection of inventory part changes
   const handlePartSelectChange = (partId) => {
-    if (!partId) {
-      setFormData(prev => ({ ...prev, partNumber: '', partName: '', brand: '' }));
-      return;
-    }
+    if (!partId) return;
     const matched = inventoryList.find(p => p._id === partId);
     if (matched) {
-      setFormData(prev => ({
-        ...prev,
+      handleAddPartRow({
         partNumber: matched.partNumber || '',
         partName: matched.partName || '',
         brand: matched.brand || ''
-      }));
+      });
     }
   };
 
@@ -298,18 +328,39 @@ export default function Backlogs({ token, user }) {
     setSuccess('');
 
     try {
+      const payload = {
+        vehicleNo: formData.vehicleNo,
+        customerName: formData.customerName,
+        jobCardNo: formData.jobCardNo,
+        vehicleModel: formData.vehicleModel,
+        vendorName: formData.vendorName,
+        vendorContact: formData.vendorContact,
+        poNumber: formData.poNumber,
+        orderedDate: formData.orderedDate,
+        expectedDeliveryDate: formData.expectedDeliveryDate,
+        priority: formData.priority,
+        remarks: formData.remarks,
+        items: backlogItems.map(item => ({
+          partNumber: item.partNumber,
+          partName: item.partName,
+          brand: item.brand,
+          qty: item.qty
+        }))
+      };
+
       const res = await fetch(`${API_BASE_URL}/backlogs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
         setSuccess('Backlog request recorded successfully.');
         setShowAddModal(false);
+        setBacklogItems([createEmptyBacklogRow()]);
         fetchBacklogs();
         resetFormData();
       } else {
@@ -443,6 +494,7 @@ export default function Backlogs({ token, user }) {
 
   const openAddModal = () => {
     resetFormData();
+    setBacklogItems([createEmptyBacklogRow()]);
     setError('');
     setSuccess('');
     setShowAddModal(true);
@@ -1034,7 +1086,7 @@ export default function Backlogs({ token, user }) {
                     <option value="">-- Manual Entry / No Job Card --</option>
                     {jobCards.map(j => (
                       <option key={j._id} value={j.jobCardNo}>
-                        {j.jobCardNo} ({j.vehicleId?.regNo || j.vehicleNo})
+                        {j.jobCardNo} ({j.vehicleId?.vehicleNumber || j.vehicleNo})
                       </option>
                     ))}
                   </select>
@@ -1114,41 +1166,119 @@ export default function Backlogs({ token, user }) {
                 </div>
               </div>
 
-              {/* Part Info */}
+              {/* Part Info (Multiple Parts Dynamic Table Row UI) */}
               <div>
                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Part Details</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Part Name / Description *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Front Shock Absorber"
-                      value={formData.partName}
-                      onChange={(e) => setFormData({ ...formData, partName: e.target.value })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Part Number *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. SA-8899"
-                      value={formData.partNumber}
-                      onChange={(e) => setFormData({ ...formData, partNumber: e.target.value.toUpperCase() })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-bold focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">OEM / Brand</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Monroe"
-                      value={formData.brand}
-                      onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500"
-                    />
+                
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden mt-2">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-850 text-slate-650 dark:text-slate-350 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="p-3 w-8">#</th>
+                        <th className="p-3 w-1/3">Part Name / Description *</th>
+                        <th className="p-3 w-1/4">Part Number *</th>
+                        <th className="p-3 w-1/4">OEM / Brand</th>
+                        <th className="p-3 w-16">Qty *</th>
+                        <th className="p-3 text-center w-12">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      {backlogItems.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20">
+                          <td className="p-3 text-slate-400 font-semibold">{idx + 1}</td>
+                          
+                          {/* Part Name */}
+                          <td className="p-2">
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Front Shock Absorber"
+                              value={item.partName}
+                              onChange={(e) => {
+                                const updated = [...backlogItems];
+                                updated[idx].partName = e.target.value;
+                                setBacklogItems(updated);
+                              }}
+                              className="w-full text-xs bg-slate-50 dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </td>
+                          
+                          {/* Part Number */}
+                          <td className="p-2">
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. SA-8899"
+                              value={item.partNumber}
+                              onChange={(e) => {
+                                const updated = [...backlogItems];
+                                updated[idx].partNumber = e.target.value.toUpperCase();
+                                setBacklogItems(updated);
+                              }}
+                              className="w-full text-xs bg-slate-50 dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono"
+                            />
+                          </td>
+
+                          {/* OEM / Brand */}
+                          <td className="p-2">
+                            <input
+                              type="text"
+                              placeholder="e.g. Monroe"
+                              value={item.brand}
+                              onChange={(e) => {
+                                const updated = [...backlogItems];
+                                updated[idx].brand = e.target.value;
+                                setBacklogItems(updated);
+                              }}
+                              className="w-full text-xs bg-slate-50 dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </td>
+
+                          {/* Qty */}
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              value={item.qty}
+                              onChange={(e) => {
+                                const updated = [...backlogItems];
+                                updated[idx].qty = Math.max(1, parseInt(e.target.value) || 1);
+                                setBacklogItems(updated);
+                              }}
+                              className="w-full text-xs bg-slate-50 dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </td>
+
+                          {/* Action (Delete Button) */}
+                          <td className="p-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBacklogRow(item.id)}
+                              className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-rose-500 hover:text-rose-600 transition-colors"
+                              title="Remove Part"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  {/* Add Part Button at bottom of table */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">
+                      Total Parts: {backlogItems.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleAddPartRow()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-500/10"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add Part
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1204,21 +1334,10 @@ export default function Backlogs({ token, user }) {
                 </div>
               </div>
 
-              {/* Quantities & Dates */}
+              {/* Schedule & Dates */}
               <div>
-                <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Quantity, Schedule & Priority</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Qty Required *</label>
-                    <input
-                      type="number"
-                      required
-                      min="1"
-                      value={formData.qty}
-                      onChange={(e) => setFormData({ ...formData, qty: Math.max(1, parseInt(e.target.value) || 1) })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-bold focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
+                <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Schedule & Priority</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Ordered Date</label>
                     <input

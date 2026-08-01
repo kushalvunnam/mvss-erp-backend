@@ -180,8 +180,11 @@ const recalculateInvoice = (parts = [], labour = [], isInterstate = false) => {
   };
 };
 
+// Enforce permissions for all Invoice routes
+router.use(auth, restrictTo('Admin', 'Accounts'));
+
 // List invoices
-router.get('/', auth, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { status, paymentStatus } = req.query;
     let query = {};

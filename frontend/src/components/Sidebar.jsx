@@ -25,7 +25,7 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
 
   const navigationItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception'] },
-    { id: 'bodyshop', name: 'Body Shop', icon: Wrench, roles: ['Admin', 'Body Shop'] },
+    { id: 'bodyshop', name: 'Body Shop', icon: Wrench, roles: ['Admin'] },
     { id: 'customers', name: 'Customers', icon: Users, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'vehicles', name: 'Vehicles', icon: Car, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'jobcards', name: 'Job Cards', icon: FileText, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
@@ -39,7 +39,8 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
     { id: 'inventoryreports', name: 'Stock Alerts & Reports', icon: TrendingUp, roles: ['Admin', 'Spares'] },
     { id: 'purchases', name: 'Purchases', icon: ShoppingBag, roles: ['Admin', 'Spares'] },
     { id: 'backlogs', name: 'Backlog Tracking', icon: Clock, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'] },
-    { id: 'expenses', name: 'Miscellaneous Expenses', icon: Wallet, roles: ['Admin', 'Accounts', 'Service', 'Spares', 'Body Shop'] },
+    { id: 'expenses', name: 'Miscellaneous Expenses', icon: Wallet, roles: ['Admin', 'Accounts', 'Service', 'Spares'] },
+    { id: 'externalrepairs', name: 'External Repairs', icon: Wrench, roles: ['Admin', 'Accounts', 'Service', 'Body Shop'] },
     { id: 'employees', name: 'Employees', icon: Users, roles: ['Admin'] },
     { id: 'claims', name: 'Insurance Claims', icon: ShieldCheck, roles: ['Admin', 'Service'] },
     { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service'] },

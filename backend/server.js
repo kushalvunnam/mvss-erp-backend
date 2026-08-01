@@ -149,6 +149,7 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/gatepasses', require('./routes/gatepasses'));
 app.use('/api/branches', require('./routes/branches'));
 app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/external-repairs', require('./routes/externalRepairs'));
 
 // Resend Email Diagnostic Endpoint
 app.get('/api/test-email', async (req, res) => {

@@ -63,6 +63,7 @@ async function getNextSequence(moduleName, modelName, date = new Date()) {
     if (modelName === 'Estimate') fieldName = 'estimateNo';
     else if (modelName === 'Invoice') fieldName = 'invoiceNo';
     else if (modelName === 'Purchase') fieldName = 'purchaseNo';
+    else if (modelName === 'ExternalRepair') fieldName = 'repairNo';
 
     const records = await Model.find({
       [fieldName]: new RegExp('^' + prefix)
@@ -103,6 +104,7 @@ async function getNextSequence(moduleName, modelName, date = new Date()) {
   if (modelName === 'Estimate') fieldName = 'estimateNo';
   else if (modelName === 'Invoice') fieldName = 'invoiceNo';
   else if (modelName === 'Purchase') fieldName = 'purchaseNo';
+  else if (modelName === 'ExternalRepair') fieldName = 'repairNo';
 
   let seqNum = updatedCounter.seq;
   while (true) {

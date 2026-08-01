@@ -18,7 +18,7 @@ router.use((req, res, next) => {
 const { checkLowStockAlerts } = require('../utils/alerts');
 
 // Get dashboard KPIs
-router.get('/stats', auth, async (req, res) => {
+router.get('/stats', auth, restrictTo('Admin', 'Service', 'Reception'), async (req, res) => {
   try {
     await checkLowStockAlerts();
     
@@ -241,7 +241,7 @@ router.get('/stats', auth, async (req, res) => {
 });
 
 // Get chart data
-router.get('/charts', auth, async (req, res) => {
+router.get('/charts', auth, restrictTo('Admin', 'Service', 'Reception'), async (req, res) => {
   try {
     const dateParam = req.query.date;
     let targetDate = new Date();
@@ -631,7 +631,7 @@ router.get('/search', auth, async (req, res) => {
 });
 
 // Get dashboard summary with filters and comparisons
-router.get('/summary', auth, async (req, res) => {
+router.get('/summary', auth, restrictTo('Admin', 'Service', 'Reception'), async (req, res) => {
   try {
     const { filter, startDate, endDate, date } = req.query;
 
@@ -763,7 +763,7 @@ router.get('/summary', auth, async (req, res) => {
 });
 
 // Get dashboard reports grouping data
-router.get('/reports', auth, async (req, res) => {
+router.get('/reports', auth, restrictTo('Admin', 'Service', 'Reception'), async (req, res) => {
   try {
     const { type } = req.query; // 'daily', 'weekly', 'monthly', 'yearly'
     if (!type) {

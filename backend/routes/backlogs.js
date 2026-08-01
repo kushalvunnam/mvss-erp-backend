@@ -149,7 +149,6 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 3. POST: Create Backlog Request
 router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'), async (req, res) => {
   try {
     const { 
@@ -157,28 +156,25 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
       customerName, 
       jobCardNo, 
       vehicleModel, 
-      partNumber, 
-      partName, 
-      brand, 
-      qty, 
       vendorName, 
       vendorContact, 
       poNumber, 
       orderedDate, 
       expectedDeliveryDate, 
       priority, 
-      remarks 
+      remarks,
+      items // Array of { partNumber, partName, brand, qty }
     } = req.body;
 
-    if (!vehicleNo || !vehicleModel || !partNumber || !partName || !qty || !vendorName || !expectedDeliveryDate) {
-      return res.status(400).send({ error: 'Required fields missing: vehicleNo, vehicleModel, partNumber, partName, qty, vendorName, expectedDeliveryDate' });
+    if (!vehicleNo || !vehicleModel || !vendorName || !expectedDeliveryDate) {
+      return res.status(400).send({ error: 'Required fields missing: vehicleNo, vehicleModel, vendorName, expectedDeliveryDate' });
     }
 
-    const backlogId = await generateBacklogId();
+    // Resolve Customer Details from Job Card if missing
     let serviceAdvisorId = req.user.role === 'Service' ? req.user.id : undefined;
     let serviceAdvisorName = req.user.role === 'Service' ? req.user.name : '';
+    let finalCustomerName = customerName || '';
 
-    // If jobCardNo is provided, try to extract Advisor and Customer Details
     if (jobCardNo) {
       try {
         const JobCard = mongoose.model('JobCard');
@@ -187,11 +183,11 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
           serviceAdvisorId = jc.serviceAdvisorId;
           serviceAdvisorName = jc.serviceAdvisorName;
           
-          if (!customerName && jc.customerId) {
+          if (!finalCustomerName && jc.customerId) {
             const Customer = mongoose.model('Customer');
             const cust = await Customer.findById(jc.customerId);
             if (cust) {
-              req.body.customerName = cust.name;
+              finalCustomerName = cust.name;
             }
           }
         }
@@ -200,34 +196,80 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
       }
     }
 
-    const backlog = new Backlog({
-      backlogId,
-      vehicleNo,
-      customerName: customerName || req.body.customerName || '',
-      jobCardNo,
-      vehicleModel,
-      partNumber,
-      partName,
-      brand,
-      qty: Number(qty) || 1,
-      vendorName,
-      vendorContact,
-      poNumber,
-      orderedDate: orderedDate ? new Date(orderedDate) : new Date(),
-      expectedDeliveryDate: new Date(expectedDeliveryDate),
-      priority: priority || 'Medium',
-      remarks: remarks || '',
-      serviceAdvisorId,
-      serviceAdvisorName,
-      createdBy: req.user.name
-    });
+    const baseBacklogId = await generateBacklogId();
+    const savedBacklogs = [];
 
-    await backlog.save();
-    await logAction(req.user, 'BACKLOG_CREATE', `Created backlog entry ${backlog.backlogId} for ${backlog.partName} (${backlog.qty} pcs) - Vehicle ${backlog.vehicleNo}`, req);
-    
-    res.status(201).send(backlog);
+    // If items array is provided, process multiple parts
+    if (items && Array.isArray(items) && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item.partNumber || !item.partName || !item.qty) {
+          return res.status(400).send({ error: `Item #${i + 1}: Required fields missing: partNumber, partName, qty` });
+        }
+
+        const backlogId = i === 0 ? baseBacklogId : `${baseBacklogId}-${i}`;
+
+        const backlog = new Backlog({
+          backlogId,
+          vehicleNo,
+          customerName: finalCustomerName,
+          jobCardNo,
+          vehicleModel,
+          partNumber: item.partNumber,
+          partName: item.partName,
+          brand: item.brand || '',
+          qty: Number(item.qty) || 1,
+          vendorName,
+          vendorContact,
+          poNumber,
+          orderedDate: orderedDate ? new Date(orderedDate) : new Date(),
+          expectedDeliveryDate: new Date(expectedDeliveryDate),
+          priority: priority || 'Medium',
+          remarks: remarks || '',
+          serviceAdvisorId,
+          serviceAdvisorName,
+          createdBy: req.user ? req.user.name : 'Staff'
+        });
+
+        await backlog.save();
+        savedBacklogs.push(backlog);
+      }
+    } else {
+      // Fallback to single part format
+      const { partNumber, partName, brand, qty } = req.body;
+      if (!partNumber || !partName || !qty) {
+        return res.status(400).send({ error: 'Required fields missing: partNumber, partName, qty' });
+      }
+
+      const backlog = new Backlog({
+        backlogId: baseBacklogId,
+        vehicleNo,
+        customerName: finalCustomerName,
+        jobCardNo,
+        vehicleModel,
+        partNumber,
+        partName,
+        brand: brand || '',
+        qty: Number(qty) || 1,
+        vendorName,
+        vendorContact,
+        poNumber,
+        orderedDate: orderedDate ? new Date(orderedDate) : new Date(),
+        expectedDeliveryDate: new Date(expectedDeliveryDate),
+        priority: priority || 'Medium',
+        remarks: remarks || '',
+        serviceAdvisorId,
+        serviceAdvisorName,
+        createdBy: req.user ? req.user.name : 'Staff'
+      });
+
+      await backlog.save();
+      savedBacklogs.push(backlog);
+    }
+
+    res.status(201).send(savedBacklogs.length === 1 ? savedBacklogs[0] : savedBacklogs);
   } catch (error) {
-    res.status(400).send({ error: 'Failed to record backlog request: ' + error.message });
+    res.status(400).send({ error: 'Failed to create backlog request: ' + error.message });
   }
 });
 
