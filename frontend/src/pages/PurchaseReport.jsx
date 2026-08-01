@@ -106,6 +106,7 @@ export default function PurchaseReport({ token, user }) {
   const [purchaseSubmitting, setPurchaseSubmitting] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState('');
   const [purchaseFormError, setPurchaseFormError] = useState('');
+  const [invoiceNoDuplicate, setInvoiceNoDuplicate] = useState(false);
 
   // Helper for 2-decimal rounding
   const round2 = (num) => Math.round(((Number(num) || 0) + Number.EPSILON) * 100) / 100;
@@ -653,6 +654,33 @@ export default function PurchaseReport({ token, user }) {
       reason = window.prompt("Please enter the reason for this edit (optional):") || 'No reason provided';
     }
 
+    setInvoiceNoDuplicate(false);
+
+    // Frontend validation: Check duplicate using Vendor + Invoice No (ignoring case and extra spaces)
+    if (purchaseHeader.invoiceNo && String(purchaseHeader.invoiceNo).trim()) {
+      try {
+        const cleanInv = String(purchaseHeader.invoiceNo).trim().replace(/\s+/g, ' ');
+        const url = `${API_BASE_URL}/purchases/check-duplicate?vendorId=${purchaseHeader.vendorId}&invoiceNo=${encodeURIComponent(cleanInv)}` + (isEdit ? `&excludeId=${editPurchaseId}` : '');
+        
+        setPurchaseSubmitting(true);
+        const checkRes = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        setPurchaseSubmitting(false);
+
+        if (checkRes.status === 409) {
+          setInvoiceNoDuplicate(true);
+          setPurchaseFormError('Invoice No. already exists for this vendor.');
+          return;
+        }
+      } catch (err) {
+        console.warn('Duplicate check failed, relying on backend save validation:', err);
+        setPurchaseSubmitting(false);
+      }
+    }
+
     const payload = {
       vendorId: purchaseHeader.vendorId,
       invoiceNo: purchaseHeader.invoiceNo || `PUR-${Date.now().toString().slice(-6)}`,
@@ -682,6 +710,7 @@ export default function PurchaseReport({ token, user }) {
 
       if (res.ok) {
         setPurchaseSuccess(isEdit ? 'Purchase Entry updated successfully! Inventory stock levels updated.' : 'Purchase Entry saved successfully! Inventory stock automatically updated.');
+        setInvoiceNoDuplicate(false);
         setTimeout(() => {
           setPurchaseSuccess('');
           setEditPurchaseId(null);
@@ -705,6 +734,9 @@ export default function PurchaseReport({ token, user }) {
         }, 1500);
       } else {
         const err = await res.json();
+        if (res.status === 409 || (err.error && err.error.includes('already exists'))) {
+          setInvoiceNoDuplicate(true);
+        }
         setPurchaseFormError(err.error || 'Failed to save purchase entry.');
       }
     } catch (err) {
@@ -982,6 +1014,7 @@ export default function PurchaseReport({ token, user }) {
                 <select
                   value={purchaseHeader.vendorId}
                   onChange={(e) => {
+                    setInvoiceNoDuplicate(false);
                     const selectedV = vendorsList.find(v => v._id === e.target.value);
                     const isInter = selectedV && selectedV.gstNumber 
                       ? !selectedV.gstNumber.trim().startsWith('36') 
@@ -1013,8 +1046,15 @@ export default function PurchaseReport({ token, user }) {
                   type="text"
                   placeholder="e.g. INV-99824"
                   value={purchaseHeader.invoiceNo}
-                  onChange={(e) => setPurchaseHeader({ ...purchaseHeader, invoiceNo: e.target.value })}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  onChange={(e) => {
+                    setInvoiceNoDuplicate(false);
+                    setPurchaseHeader({ ...purchaseHeader, invoiceNo: e.target.value });
+                  }}
+                  className={`w-full text-xs bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:outline-none transition-colors ${
+                    invoiceNoDuplicate 
+                      ? 'border-rose-500 focus:ring-rose-500 focus:border-rose-500 dark:border-rose-500/80 dark:focus:ring-rose-500/50' 
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-indigo-500'
+                  }`}
                 />
               </div>
 

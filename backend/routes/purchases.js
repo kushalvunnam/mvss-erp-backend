@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Purchase = require('../models/Purchase');
 const Inventory = require('../models/Inventory');
 const Vendor = require('../models/Vendor');
@@ -52,6 +53,38 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Check duplicate purchase invoice (Vendor + Invoice No)
+router.get('/check-duplicate', async (req, res) => {
+  try {
+    const { vendorId, invoiceNo, excludeId } = req.query;
+    if (!vendorId || !invoiceNo) {
+      return res.status(400).send({ error: 'Vendor ID and Invoice No are required for check.' });
+    }
+
+    const cleanInvoiceNo = String(invoiceNo).trim().replace(/\s+/g, ' ');
+    const escapedInvoiceNo = cleanInvoiceNo.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+    const query = {
+      vendorId: new mongoose.Types.ObjectId(vendorId),
+      invoiceNo: { $regex: new RegExp('^' + escapedInvoiceNo + '$', 'i') }
+    };
+
+    if (excludeId && excludeId !== 'null' && excludeId !== 'undefined') {
+      query._id = { $ne: new mongoose.Types.ObjectId(excludeId) };
+    }
+
+    const exists = await Purchase.findOne(query);
+    if (exists) {
+      return res.status(409).send({ error: 'Invoice No. already exists for this vendor.' });
+    }
+
+    return res.status(200).send({ available: true });
+  } catch (error) {
+    console.error('[DUPLICATE CHECK ERROR]', error);
+    res.status(500).send({ error: 'Failed to perform duplicate check.' });
+  }
+});
+
 // Create Purchase Entry (Restocks Inventory & Updates Vendor Balances)
 router.post('/', async (req, res) => {
   try {
@@ -62,6 +95,20 @@ router.post('/', async (req, res) => {
 
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) return res.status(404).send({ error: 'Vendor not found.' });
+
+    // Check duplicate using Vendor + Invoice No (ignoring case and extra spaces)
+    if (invoiceNo && String(invoiceNo).trim()) {
+      const cleanInvoiceNo = String(invoiceNo).trim().replace(/\s+/g, ' ');
+      const escapedInvoiceNo = cleanInvoiceNo.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const duplicateExists = await Purchase.findOne({
+        vendorId: vendor._id,
+        invoiceNo: { $regex: new RegExp('^' + escapedInvoiceNo + '$', 'i') }
+      });
+
+      if (duplicateExists) {
+        return res.status(409).send({ error: 'Invoice No. already exists for this vendor.' });
+      }
+    }
 
     const purchaseNo = await generatePurchaseNo();
     const roundToTwo = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
@@ -213,7 +260,7 @@ router.post('/', async (req, res) => {
       vendorId: vendor._id,
       vendorName: vendor.name,
       date: new Date(),
-      invoiceNo: invoiceNo || '',
+      invoiceNo: invoiceNo ? String(invoiceNo).trim().replace(/\s+/g, ' ') : '',
       invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
       items: processedItems,
       totals: {
@@ -349,6 +396,21 @@ router.put('/:id', async (req, res) => {
     const oldVendor = await Vendor.findById(purchase.vendorId);
     const newVendor = await Vendor.findById(vendorId);
     if (!newVendor) return res.status(404).send({ error: 'New Vendor not found.' });
+
+    // Check duplicate using Vendor + Invoice No (excluding current ID, ignoring case and extra spaces)
+    if (invoiceNo && String(invoiceNo).trim()) {
+      const cleanInvoiceNo = String(invoiceNo).trim().replace(/\s+/g, ' ');
+      const escapedInvoiceNo = cleanInvoiceNo.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const duplicateExists = await Purchase.findOne({
+        _id: { $ne: req.params.id },
+        vendorId: newVendor._id,
+        invoiceNo: { $regex: new RegExp('^' + escapedInvoiceNo + '$', 'i') }
+      });
+
+      if (duplicateExists) {
+        return res.status(409).send({ error: 'Invoice No. already exists for this vendor.' });
+      }
+    }
 
     // Save old values for audit logging
     const oldValues = {
@@ -535,7 +597,7 @@ router.put('/:id', async (req, res) => {
     // 4. Update purchase record fields
     purchase.vendorId = newVendor._id;
     purchase.vendorName = newVendor.name;
-    purchase.invoiceNo = invoiceNo || '';
+    purchase.invoiceNo = invoiceNo ? String(invoiceNo).trim().replace(/\s+/g, ' ') : '';
     purchase.invoiceDate = invoiceDate ? new Date(invoiceDate) : new Date();
     purchase.items = processedItems;
     purchase.totals = {
