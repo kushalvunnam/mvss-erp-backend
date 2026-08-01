@@ -11,16 +11,11 @@ router.use((req, res, next) => {
   next();
 });
 
+const { getNextSequence } = require('../utils/documentNumbering');
+
 // Auto-generate Purchase Entry Number
 const generatePurchaseNo = async () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const dateStr = `${year}${month}`;
-  
-  const count = await Purchase.countDocuments();
-  const sequence = String(count + 1).padStart(4, '0');
-  return `PUR-${dateStr}-${sequence}`;
+  return await getNextSequence('PUR', 'Purchase');
 };
 router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive'));
 

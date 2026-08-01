@@ -9,25 +9,12 @@ const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
 const { generateInvoicePDF, generateGatePassPDF } = require('../utils/pdfGenerator');
 const numberToWords = require('../utils/numberToWords');
+const { getNextSequence } = require('../utils/documentNumbering');
 const router = express.Router();
 
 // Helper to auto-generate Invoice Number
 const generateInvoiceNo = async () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  const dateStr = `${year}${month}${day}`;
-  
-  const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(today.setHours(23, 59, 59, 999));
-  
-  const count = await Invoice.countDocuments({
-    createdAt: { $gte: startOfDay, $lte: endOfDay }
-  });
-  
-  const sequence = String(count + 1).padStart(3, '0');
-  return `INV-${dateStr}-${sequence}`;
+  return await getNextSequence('INV', 'Invoice');
 };
 
 // Recalculate Invoice totals with GST splits

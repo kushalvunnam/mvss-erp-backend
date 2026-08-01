@@ -26,16 +26,11 @@ const generateBacklogId = async () => {
   return `${prefix}${sequence}`;
 };
 
+const { getNextSequence } = require('../utils/documentNumbering');
+
 // Helper to generate Purchase entry number
 const generatePurchaseNo = async () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const dateStr = `${year}${month}`;
-  
-  const count = await Purchase.countDocuments();
-  const sequence = String(count + 1).padStart(4, '0');
-  return `PUR-${dateStr}-${sequence}`;
+  return await getNextSequence('PUR', 'Purchase');
 };
 
 // Apply auth middleware to all routes

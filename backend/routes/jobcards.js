@@ -8,6 +8,7 @@ const Vehicle = require('../models/Vehicle');
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
 const { generateJobCardPDF, generateGatePassPDF } = require('../utils/pdfGenerator');
+const { getNextSequence } = require('../utils/documentNumbering');
 const router = express.Router();
 
 // Multer Local Storage Config
@@ -29,40 +30,7 @@ const upload = multer({ storage: storage });
 
 // Helper to auto-generate Job Card Number
 const generateJobCardNo = async () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  const dateStr = `${year}${month}${day}`;
-  
-  const prefix = `JC-${dateStr}-`;
-  
-  // Find the job card created today with the highest sequence number
-  const lastJobCard = await JobCard.findOne({
-    jobCardNo: new RegExp('^' + prefix)
-  }).sort({ jobCardNo: -1 });
-
-  let nextSeqNum = 1;
-  if (lastJobCard && lastJobCard.jobCardNo) {
-    const parts = lastJobCard.jobCardNo.split('-');
-    if (parts.length === 3) {
-      const lastSeq = parseInt(parts[2], 10);
-      if (!isNaN(lastSeq)) {
-        nextSeqNum = lastSeq + 1;
-      }
-    }
-  }
-
-  // Double check that it does not exist (loop to prevent duplicate index collisions)
-  while (true) {
-    const sequence = String(nextSeqNum).padStart(3, '0');
-    const candidateNo = `${prefix}${sequence}`;
-    const exists = await JobCard.findOne({ jobCardNo: candidateNo });
-    if (!exists) {
-      return candidateNo;
-    }
-    nextSeqNum++;
-  }
+  return await getNextSequence('JC', 'JobCard');
 };
 
 

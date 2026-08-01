@@ -6,25 +6,12 @@ const Vehicle = require('../models/Vehicle');
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
 const { generateEstimatePDF, generateCustomerEstimatePDF } = require('../utils/pdfGenerator');
+const { getNextSequence } = require('../utils/documentNumbering');
 const router = express.Router();
 
 // Helper to auto-generate Estimate Number
 const generateEstimateNo = async () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  const dateStr = `${year}${month}${day}`;
-  
-  const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(today.setHours(23, 59, 59, 999));
-  
-  const count = await Estimate.countDocuments({
-    createdAt: { $gte: startOfDay, $lte: endOfDay }
-  });
-  
-  const sequence = String(count + 1).padStart(3, '0');
-  return `EST-${dateStr}-${sequence}`;
+  return await getNextSequence('EST', 'Estimate');
 };
 
 const numberToWords = (num) => {
