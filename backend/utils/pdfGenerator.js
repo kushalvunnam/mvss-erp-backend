@@ -1177,7 +1177,7 @@ function generateGatePassPDF(docData, customer, vehicle, stream) {
 }
 
 function drawCustomerVerticalLines(doc, yStart, yEnd) {
-  const xCoords = [30, 60, 370, 410, 490, 565];
+  const xCoords = [30, 60, 390, 420, 480, 565];
   doc.strokeColor('#cccccc').lineWidth(0.7);
   xCoords.forEach(x => {
     doc.moveTo(x, yStart).lineTo(x, yEnd).stroke();
@@ -1188,10 +1188,10 @@ function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, discount, tot
   doc.fillColor('#000000').font('Helvetica').fontSize(8);
   
   doc.text(index, 30, y + 4, { width: 30, align: 'center' });
-  doc.text(desc, 65, y + 4, { width: 300, height: 10, ellipsis: true });
-  doc.text(qty, 370, y + 4, { width: 40, align: 'center' });
-  doc.text(unitPrice, 410, y + 4, { width: 75, align: 'right' });
-  doc.text(total, 490, y + 4, { width: 70, align: 'right' });
+  doc.text(desc, 65, y + 4, { width: 320, height: 10, ellipsis: true });
+  doc.text(qty, 390, y + 4, { width: 30, align: 'center' });
+  doc.text(unitPrice, 420, y + 4, { width: 55, align: 'right' });
+  doc.text(total, 480, y + 4, { width: 80, align: 'right' });
   
   doc.strokeColor('#cccccc').lineWidth(0.7)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
@@ -1220,10 +1220,10 @@ function drawCustomerTableHeader(doc, y) {
   doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
   
   doc.text('S.No', 30, y + 9, { width: 30, align: 'center' });
-  doc.text('Description', 65, y + 9, { width: 300, align: 'left' });
-  doc.text('Qty', 370, y + 9, { width: 40, align: 'center' });
-  doc.text('Unit Price (Rs.)', 410, y + 9, { width: 75, align: 'right' });
-  doc.text('Line Total (Rs.)', 490, y + 9, { width: 70, align: 'right' });
+  doc.text('Description', 65, y + 9, { width: 320, align: 'left' });
+  doc.text('Qty', 390, y + 9, { width: 30, align: 'center' });
+  doc.text('Unit Price (Rs.)', 420, y + 9, { width: 55, align: 'right' });
+  doc.text('Line Total (Rs.)', 480, y + 9, { width: 80, align: 'right' });
   
   doc.strokeColor('#000000').lineWidth(1)
      .moveTo(30, y).lineTo(565, y).stroke()
@@ -1401,10 +1401,8 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
       
       partsTotalSum += total;
 
-      // Inclusive Unit Price: Rate including GST
-      const inclusiveUnitPrice = rate * (1 + (part.gstPercent || 0) / 100);
-      // Reconciled inclusive discount value
-      const inclusiveDiscount = (inclusiveUnitPrice * qty) - total;
+      // Inclusive Net Unit Price: Total line amount / quantity
+      const inclusiveUnitPrice = total / qty;
 
       drawCustomerTableRow(
         doc,
@@ -1413,7 +1411,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
         part.name,
         qty.toString(),
         inclusiveUnitPrice.toFixed(2),
-        inclusiveDiscount > 0.01 ? inclusiveDiscount.toFixed(2) : '0.00',
+        '0.00',
         total.toFixed(2)
       );
       y += 16;
@@ -1424,7 +1422,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
     y = checkCustomerPageOverflow(doc, y);
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
     doc.text('PARTS TOTAL', 53, y + 4, { width: 225 });
-    doc.text(partsTotalSum.toFixed(2), 490, y + 4, { width: 70, align: 'right' });
+    doc.text(partsTotalSum.toFixed(2), 480, y + 4, { width: 80, align: 'right' });
     doc.strokeColor('#000000').lineWidth(0.7)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawCustomerVerticalLines(doc, y, y + 16);
@@ -1455,10 +1453,8 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
 
       labourTotalSum += total;
 
-      // Inclusive Unit Price: Rate including GST
-      const inclusiveUnitPrice = rate * (1 + (item.gstPercent || 0) / 100);
-      // Reconciled inclusive discount value
-      const inclusiveDiscount = (inclusiveUnitPrice * qty) - total;
+      // Inclusive Net Unit Price: Total line amount / quantity
+      const inclusiveUnitPrice = total / qty;
 
       drawCustomerTableRow(
         doc,
@@ -1467,7 +1463,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
         item.description,
         qty.toString(),
         inclusiveUnitPrice.toFixed(2),
-        inclusiveDiscount > 0.01 ? inclusiveDiscount.toFixed(2) : '0.00',
+        '0.00',
         total.toFixed(2)
       );
       y += 16;
@@ -1478,7 +1474,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
     y = checkCustomerPageOverflow(doc, y);
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
     doc.text('LABOUR TOTAL', 53, y + 4, { width: 225 });
-    doc.text(labourTotalSum.toFixed(2), 490, y + 4, { width: 70, align: 'right' });
+    doc.text(labourTotalSum.toFixed(2), 480, y + 4, { width: 80, align: 'right' });
     doc.strokeColor('#000000').lineWidth(0.7)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawCustomerVerticalLines(doc, y, y + 16);
