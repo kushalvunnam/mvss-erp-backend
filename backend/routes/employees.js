@@ -330,10 +330,12 @@ router.post('/:id/salary', async (req, res) => {
           presentCount += 1;
         } else if (status === 'Weekly Off') {
           weeklyOffCount += 1;
+          presentCount += 1;
         }
       } else {
         if (currentDate.getDay() === 0) {
           weeklyOffCount += 1; // Default Sunday to Weekly Off
+          presentCount += 1;
         }
       }
     }

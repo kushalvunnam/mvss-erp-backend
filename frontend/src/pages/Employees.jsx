@@ -1168,10 +1168,14 @@ export default function Employees({ token, user }) {
         else if (status === 'Absent') absent++;
         else if (status === 'Half Day') halfDay++;
         else if (status === 'Leave') leave++;
-        else if (status === 'Weekly Off') weeklyOff++;
+        else if (status === 'Weekly Off') {
+          weeklyOff++;
+          present++;
+        }
       } else {
         if (currentDate.getDay() === 0) {
           weeklyOff++; // Default Sunday to Weekly Off
+          present++;
         }
       }
     }
@@ -1657,7 +1661,7 @@ export default function Employees({ token, user }) {
                 if (!emp) return <p className="text-center text-slate-400 italic">Select a valid employee.</p>;
                 
                 const list = getMonthlyDetails(emp);
-                const presentDays = list.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)').length;
+                const presentDays = list.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)' || d.status === 'Weekly Off').length;
                 const absentDays = list.filter(d => d.status === 'Absent').length;
                 const halfDays = list.filter(d => d.status === 'Half Day').length;
                 const leaveDays = list.filter(d => d.status === 'Leave').length;
@@ -1772,7 +1776,7 @@ export default function Employees({ token, user }) {
                   <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
                     {employees.map(emp => {
                       const details = getMonthlyDetails(emp);
-                      const presentDays = details.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)').length;
+                      const presentDays = details.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)' || d.status === 'Weekly Off').length;
                       const absentDays = details.filter(d => d.status === 'Absent').length;
                       const halfDays = details.filter(d => d.status === 'Half Day').length;
                       const leaveDays = details.filter(d => d.status === 'Leave').length;
@@ -3063,8 +3067,8 @@ export default function Employees({ token, user }) {
                   <div className="space-y-4">
                     {/* Present Dates */}
                     <div>
-                      <span className="text-[10px] font-black text-emerald-650 dark:text-emerald-400 uppercase tracking-wider block mb-1">🟢 Present ({presentDays.length} Days)</span>
-                      {presentDays.length > 0 ? (
+                      <span className="text-[10px] font-black text-emerald-650 dark:text-emerald-400 uppercase tracking-wider block mb-1">🟢 Present ({presentDates.length + weeklyOffDates.length} Days, includes Weekly Off)</span>
+                      {presentDates.length > 0 ? (
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                           {presentDates.map(d => (
                             <div key={d.dateStr} className="p-2 bg-emerald-50/30 dark:bg-emerald-955/10 rounded-lg border border-emerald-150/40" title={`By: ${d.updatedBy || 'N/A'}\nTime: ${d.updatedTime ? new Date(d.updatedTime).toLocaleString('en-IN') : 'N/A'}\nRemarks: ${d.remarks || 'None'}`}>
