@@ -759,7 +759,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream) {
       
       const qty = part.qty || 1;
       const rate = part.rate || 0;
-      const amount = part.taxableValue !== undefined ? part.taxableValue : (part.amount !== undefined ? part.amount : (qty * rate - (part.discount || 0)));
+      const amount = part.taxableValue !== undefined ? part.taxableValue : (part.amount !== undefined ? part.amount : (qty * rate));
       const gstAmount = part.gstAmount || (amount * (part.gstPercent / 100));
       const total = part.total || (amount + gstAmount);
 
@@ -825,7 +825,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream) {
       
       const qty = item.qty || 1;
       const rate = item.rate || 0;
-      const amount = item.taxableValue !== undefined ? item.taxableValue : (item.amount !== undefined ? item.amount : (qty * rate - (item.discount || 0)));
+      const amount = item.taxableValue !== undefined ? item.taxableValue : (item.amount !== undefined ? item.amount : (qty * rate));
       const gstAmount = item.gstAmount || (amount * (item.gstPercent / 100));
       const total = item.total || (amount + gstAmount);
 
