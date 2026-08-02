@@ -474,7 +474,7 @@ export default function ExternalRepairs({ token, user }) {
               ) : filteredRepairs.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="p-8 text-center text-slate-400 font-semibold">
-                    No external repairs recorded matching the filters.
+                    No external repairs found.
                   </td>
                 </tr>
               ) : (

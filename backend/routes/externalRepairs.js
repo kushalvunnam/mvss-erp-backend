@@ -1,5 +1,16 @@
 const express = require('express');
 const ExternalRepair = require('../models/ExternalRepair');
+
+// Ensure referenced models are registered for mongoose population
+require('../models/JobCard');
+require('../models/Vendor');
+require('../models/Vehicle');
+
+// Auto-create collection in DB if missing
+ExternalRepair.createCollection().catch(err => {
+  console.log('ExternalRepair collection auto-creation:', err.message);
+});
+
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
 const { getNextSequence } = require('../utils/documentNumbering');
@@ -8,7 +19,7 @@ const router = express.Router();
 router.use(auth);
 
 // GET: List all external repairs
-router.get('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'), async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const repairs = await ExternalRepair.find()
       .populate('jobCardId')
@@ -17,12 +28,12 @@ router.get('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Recepti
       .sort({ createdAt: -1 });
     res.send(repairs);
   } catch (error) {
-    res.status(550).send({ error: 'Failed to retrieve external repairs: ' + error.message });
+    res.status(500).send({ error: 'Failed to retrieve external repairs: ' + error.message });
   }
 });
 
 // GET: Get specific external repair
-router.get('/:id', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'), async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const repair = await ExternalRepair.findById(req.params.id)
       .populate('jobCardId')
