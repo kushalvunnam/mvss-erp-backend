@@ -547,10 +547,45 @@ mongoose.connect(MONGODB_URI, {
 .then(async () => {
   console.log('Connected to MongoDB successfully at', MONGODB_URI);
   await seedDatabase();
+  await migrateWeeklyOffAttendance();
 })
 .catch((err) => {
   console.error('MongoDB connection error (Starting server anyway in warning mode):', err);
 });
+
+// Self-healing migration for Weekly Off attendance records
+async function migrateWeeklyOffAttendance() {
+  try {
+    const Employee = require('./models/Employee');
+    const employees = await Employee.find({});
+    let totalMigrated = 0;
+    
+    for (const emp of employees) {
+      let isUpdated = false;
+      emp.attendance = emp.attendance.map((att) => {
+        if (att.status === 'Weekly Off') {
+          totalMigrated++;
+          isUpdated = true;
+          return {
+            ...att.toObject(),
+            status: 'Present',
+            isWeeklyOff: true,
+            weeklyOff: true
+          };
+        }
+        return att;
+      });
+      if (isUpdated) {
+        await emp.save();
+      }
+    }
+    if (totalMigrated > 0) {
+      console.log(`[Self-healing Migration] Standardized ${totalMigrated} legacy 'Weekly Off' records to 'Present' with weeklyOff=true.`);
+    }
+  } catch (err) {
+    console.error('[Self-healing Migration] Weekly Off standardization failed:', err);
+  }
+}
 
 console.log('Listening on PORT...');
 app.listen(PORT, '0.0.0.0', () => {
