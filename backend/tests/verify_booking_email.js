@@ -56,7 +56,7 @@ async function testBookingEmail() {
       body: {
         customerName: 'Kushal Test',
         mobile: '+919949479765',
-        email: process.env.ADMIN_EMAIL || 'accounts@mvssautomobiles.com',
+        email: process.env.ADMIN_EMAIL || 'accounts@auto4m.in',
         vehicleNumber: 'TS-09-XX-1234',
         vehicleModel: 'Maruti Swift',
         serviceType: 'General Servicing',

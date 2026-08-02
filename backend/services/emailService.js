@@ -42,6 +42,7 @@ async function sendEmail({ to, subject, html, from }) {
   console.log('[EMAIL SERVICE] Email send started');
   console.log(`[EMAIL SERVICE] Sender email: ${senderEmail}`);
   console.log(`[EMAIL SERVICE] Recipient email: ${recipientEmail}`);
+  console.log(`[EMAIL SERVICE VERIFICATION] VERIFYING RECIPIENT EMAIL: ${recipientEmail}`);
   console.log(`[EMAIL SERVICE] Subject: ${subject}`);
 
   try {
