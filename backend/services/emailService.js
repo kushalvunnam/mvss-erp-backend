@@ -12,7 +12,7 @@ const { Resend } = require('resend');
 async function sendEmail({ to, subject, html, from }) {
   const apiKey = process.env.RESEND_API_KEY;
   const senderEmail = from || process.env.RESEND_FROM_EMAIL;
-  const recipientEmail = to || process.env.ADMIN_EMAIL;
+  const recipientEmail = to !== undefined ? to : process.env.ADMIN_EMAIL;
 
   // 1. Check if RESEND_FROM_EMAIL is missing from environment
   if (!process.env.RESEND_FROM_EMAIL) {
@@ -60,6 +60,19 @@ async function sendEmail({ to, subject, html, from }) {
     // 5. Handle response errors
     if (response.error) {
       console.error('[EMAIL SERVICE ERROR] Full error response if sending fails:', JSON.stringify(response.error, null, 2));
+      
+      // Check for suppression or bounce errors from Resend
+      const errorMsg = response.error.message || '';
+      const errorType = response.error.name || response.error.type || '';
+      if (
+        errorMsg.toLowerCase().includes('suppress') || 
+        errorType.toLowerCase().includes('suppress') ||
+        errorMsg.toLowerCase().includes('bounce') ||
+        errorType.toLowerCase().includes('bounce')
+      ) {
+        console.warn(`[EMAIL SERVICE WARNING] Suppression/Bounce error detected for recipient: ${recipientEmail}. Details:`, JSON.stringify(response.error, null, 2));
+      }
+      
       return { success: false, error: response.error };
     }
 

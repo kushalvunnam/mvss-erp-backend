@@ -42,8 +42,8 @@ async function testBookingEmail() {
     await postHandler(mockReq1, mockRes1);
     console.log('Status code returned:', statusReturned1);
     console.log('Response body:', bodyReturned1);
-    if (statusReturned1 === 400 && bodyReturned1.error === 'Customer email is required') {
-      console.log('✔ Correctly returned 400 Bad Request with "Customer email is required"!');
+    if (statusReturned1 === 400 && bodyReturned1.error === 'Customer email is missing.') {
+      console.log('✔ Correctly returned 400 Bad Request with "Customer email is missing."!');
     } else {
       console.error('❌ Failed validation test 1!');
       process.exit(1);

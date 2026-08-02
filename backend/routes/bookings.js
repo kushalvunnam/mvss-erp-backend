@@ -116,7 +116,7 @@ router.post('/', async (req, res) => {
     if (!customerEmail) {
       return res.status(400).json({
         success: false,
-        error: 'Customer email is required',
+        error: 'Customer email is missing.',
       });
     }
 
@@ -404,6 +404,11 @@ router.post('/', async (req, res) => {
       emailLogs.push(`Admin email exception: ${adminEmailError}`);
     }
 
+    // Required logging details
+    console.log(`[BOOKING LOG] Customer email: ${customerEmail}`);
+    console.log(`[BOOKING LOG] Admin email: ${recipientAdminEmail}`);
+    console.log(`[BOOKING LOG] Resend status: ${customerEmailSent && adminEmailSent ? 'Success' : 'Failed'}`);
+    console.log(`[BOOKING LOG] Email ID: ${customerEmailId || 'N/A'} / ${adminEmailId || 'N/A'}`);
 
     // ==========================================
     // 8. RETURN SUCCESS RESPONSE
