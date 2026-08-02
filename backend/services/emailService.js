@@ -64,16 +64,31 @@ async function sendEmail({ to, subject, html, from }) {
       // Check for suppression or bounce errors from Resend
       const errorMsg = response.error.message || '';
       const errorType = response.error.name || response.error.type || '';
-      if (
+      
+      const isSuppressed = 
         errorMsg.toLowerCase().includes('suppress') || 
         errorType.toLowerCase().includes('suppress') ||
         errorMsg.toLowerCase().includes('bounce') ||
-        errorType.toLowerCase().includes('bounce')
-      ) {
-        console.warn(`[EMAIL SERVICE WARNING] Suppression/Bounce error detected for recipient: ${recipientEmail}. Details:`, JSON.stringify(response.error, null, 2));
+        errorType.toLowerCase().includes('bounce');
+
+      if (isSuppressed) {
+        console.warn(`[EMAIL SERVICE WARNING] Recipient is on Resend suppression list`);
+        return { 
+          success: false, 
+          error: { 
+            message: 'Recipient is on Resend suppression list',
+            details: response.error 
+          } 
+        };
       }
       
-      return { success: false, error: response.error };
+      return { 
+        success: false, 
+        error: { 
+          message: errorMsg || 'Email failed.',
+          details: response.error 
+        } 
+      };
     }
 
     if (response.data && response.data.id) {
@@ -88,7 +103,7 @@ async function sendEmail({ to, subject, html, from }) {
     console.error('[EMAIL SERVICE EXCEPTION] Full error response if sending fails:', err);
     return {
       success: false,
-      error: { message: err.message || String(err) }
+      error: { message: err.message || 'Email failed.' }
     };
   }
 }
