@@ -1184,7 +1184,7 @@ function drawCustomerVerticalLines(doc, yStart, yEnd) {
   });
 }
 
-function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, discount, total) {
+function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, total) {
   doc.fillColor('#000000').font('Helvetica').fontSize(8);
   
   doc.text(index, 30, y + 4, { width: 30, align: 'center' });
@@ -1411,7 +1411,6 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
         part.name,
         qty.toString(),
         inclusiveUnitPrice.toFixed(2),
-        '0.00',
         total.toFixed(2)
       );
       y += 16;
@@ -1463,7 +1462,6 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
         item.description,
         qty.toString(),
         inclusiveUnitPrice.toFixed(2),
-        '0.00',
         total.toFixed(2)
       );
       y += 16;
