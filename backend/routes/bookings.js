@@ -89,6 +89,7 @@ router.post('/', async (req, res) => {
     const {
       customerName,
       mobile,
+      email,
       vehicleNumber,
       vehicleModel,
       serviceType,
@@ -98,6 +99,8 @@ router.post('/', async (req, res) => {
       remarks,
       branch,
     } = req.body;
+
+    const customerEmail = email ? String(email).trim() : '';
 
     console.log(`[BOOKING ROUTE] Booking received for ${customerName} (${vehicleNumber})`);
     console.log('Booking request received');
@@ -110,6 +113,26 @@ router.post('/', async (req, res) => {
       });
     }
 
+    if (!customerEmail) {
+      return res.status(400).json({
+        success: false,
+        error: 'Customer email is required',
+      });
+    }
+
+    // Validate env variables
+    const missingEnvVars = [];
+    if (!process.env.RESEND_API_KEY) missingEnvVars.push('RESEND_API_KEY');
+    if (!process.env.RESEND_FROM_EMAIL) missingEnvVars.push('RESEND_FROM_EMAIL');
+    if (!process.env.ADMIN_EMAIL) missingEnvVars.push('ADMIN_EMAIL');
+
+    if (missingEnvVars.length > 0) {
+      return res.status(500).json({
+        success: false,
+        error: `Required email environment variable(s) missing: ${missingEnvVars.join(', ')}`,
+      });
+    }
+
     const bDate =
       bookingDate || new Date().toLocaleDateString('en-IN');
 
@@ -118,7 +141,6 @@ router.post('/', async (req, res) => {
 
 
     const adminEmail = process.env.ADMIN_EMAIL || process.env.WORKSHOP_EMAIL || 'accounts@auto4m.in';
-    const customerEmail = req.body.email ? String(req.body.email).trim() : '';
 
     // ==========================================
     // 1. PREPARE DATA FOR N8N WEBHOOK

@@ -196,7 +196,9 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
         }
       }
     } else if (name === 'customerEmail') {
-      if (trimmed) {
+      if (!trimmed) {
+        errorMsg = 'Please enter your email address.';
+      } else {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(trimmed)) {
           errorMsg = 'Please enter a valid email address.';
@@ -1247,12 +1249,13 @@ export default function LandingPage({ onLoginSuccess, onStaffLoginClick }) {
 
               {/* Email Field */}
               <div className="space-y-1 relative">
-                <label htmlFor="booking-customer-email" className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Email Address (Optional)</label>
+                <label htmlFor="booking-customer-email" className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Email Address</label>
                 <div className="relative flex items-center">
                   <Mail className="absolute left-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
                   <input 
                     id="booking-customer-email"
                     type="email" 
+                    required
                     value={customerEmail}
                     disabled={isSubmitting}
                     onChange={(e) => {
