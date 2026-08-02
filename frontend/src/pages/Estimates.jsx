@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
-import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText } from 'lucide-react';
+import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText, Trash2 } from 'lucide-react';
 import EstimateForm from './EstimateForm';
 
 export default function Estimates({ token, user, setActiveTab }) {
@@ -43,6 +43,26 @@ export default function Estimates({ token, user, setActiveTab }) {
       });
       if (res.ok) {
         fetchEstimates();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteEstimate = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this estimate permanently?')) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/estimates/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchEstimates();
+      } else {
+        const err = await res.json();
+        alert('Failed to delete estimate: ' + (err.error || res.statusText));
       }
     } catch (err) {
       console.error(err);
@@ -692,6 +712,15 @@ export default function Estimates({ token, user, setActiveTab }) {
                             >
                               <FileText className="w-3.5 h-3.5 text-indigo-650 dark:text-indigo-400" />
                             </button>
+                            {user?.role === 'Admin' && (
+                              <button
+                                onClick={(e) => handleDeleteEstimate(est._id, e)}
+                                className="text-slate-400 hover:text-red-650 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850"
+                                title="Delete Estimate"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

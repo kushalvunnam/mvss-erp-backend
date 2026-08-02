@@ -406,4 +406,40 @@ router.post('/:id/parts/return', auth, restrictTo('Admin', 'Spares', 'Service'),
   }
 });
 
+// DELETE: Delete an Estimate permanently (Admin only)
+router.delete('/:id', auth, restrictTo('Admin'), async (req, res) => {
+  try {
+    const estimate = await Estimate.findById(req.params.id);
+    if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });
+
+    await Estimate.findByIdAndDelete(req.params.id);
+
+    // Create deletion notification entry
+    try {
+      const mongoose = require('mongoose');
+      const Customer = require('../models/Customer');
+      const Notification = require('../models/Notification');
+      const JobCard = require('../models/JobCard');
+      const jobCard = await JobCard.findById(estimate.jobCardId);
+      const customer = jobCard ? await Customer.findById(jobCard.customerId) : null;
+
+      const notification = new Notification({
+        type: 'estimate',
+        title: 'Estimate Deleted',
+        message: `Estimate ${estimate.estimateNo} has been deleted.`,
+        vehicleNumber: jobCard && jobCard.vehicleId ? (await mongoose.model('Vehicle').findById(jobCard.vehicleId))?.vehicleNumber : undefined,
+        customerName: customer ? customer.name : undefined
+      });
+      await notification.save();
+    } catch (notifErr) {
+      console.error('Failed to create estimate deletion notification:', notifErr);
+    }
+
+    await logAction(req.user, 'ESTIMATE_DELETE', `Deleted Estimate ${estimate.estimateNo}`, req);
+    res.send({ message: 'Estimate deleted successfully.' });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to delete estimate: ' + error.message });
+  }
+});
+
 module.exports = router;
