@@ -648,11 +648,7 @@ router.post('/:id/duplicate', auth, restrictTo('Admin', 'Accounts'), async (req,
     if (!sourceInvoice) return res.status(404).send({ error: 'Source invoice not found.' });
 
     // Generate new unique invoice number
-    const count = await Invoice.countDocuments();
-    const today = new Date();
-    const dateStr = today.getFullYear() + String(today.getMonth() + 1).padStart(2, '0') + String(today.getDate()).padStart(2, '0');
-    const sequence = String(count + 1).padStart(3, '0');
-    const newInvoiceNo = `INV-${dateStr}-${sequence}`;
+    const newInvoiceNo = await generateInvoiceNo();
 
     // Create duplicate data
     const duplicateData = sourceInvoice.toObject();

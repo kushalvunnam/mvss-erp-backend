@@ -135,8 +135,8 @@ router.post('/purchase', auth, restrictTo('Admin', 'Spares'), async (req, res) =
 
     // Generate dedicated Purchase document entry
     const roundToTwo = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
-    const count = await Purchase.countDocuments();
-    const purchaseNo = `PUR-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(count + 1).padStart(4, '0')}`;
+    const { getNextSequence } = require('../utils/documentNumbering');
+    const purchaseNo = await getNextSequence('PUR', 'Purchase');
     const gstPercent = item.gstPercent || 18;
     const taxable = roundToTwo(qty * rate);
     const gstAmt = roundToTwo(taxable * (gstPercent / 100));
