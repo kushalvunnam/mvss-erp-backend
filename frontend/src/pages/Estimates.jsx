@@ -62,7 +62,7 @@ export default function Estimates({ token, user, setActiveTab }) {
         fetchEstimates();
       } else {
         const err = await res.json();
-        alert('Failed to delete estimate: ' + (err.error || res.statusText));
+        alert('Failed to delete estimate: ' + (err.error || err.message || res.statusText || 'Unknown error'));
       }
     } catch (err) {
       console.error(err);
