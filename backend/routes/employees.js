@@ -220,7 +220,7 @@ router.post('/attendance/bulk', async (req, res) => {
         let saveStatus = status;
         let isWeeklyOff = false;
         let weeklyOff = false;
-        if (status === 'Weekly Off') {
+        if (status && status.trim().toLowerCase() === 'weekly off') {
           saveStatus = 'Present';
           isWeeklyOff = true;
           weeklyOff = true;
@@ -268,7 +268,7 @@ router.post('/:id/attendance', async (req, res) => {
     let saveStatus = status;
     let isWeeklyOff = false;
     let weeklyOff = false;
-    if (status === 'Weekly Off') {
+    if (status && status.trim().toLowerCase() === 'weekly off') {
       saveStatus = 'Present';
       isWeeklyOff = true;
       weeklyOff = true;
