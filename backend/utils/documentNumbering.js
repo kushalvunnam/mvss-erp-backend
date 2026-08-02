@@ -125,8 +125,46 @@ async function getNextSequence(moduleName, modelName, date = new Date()) {
   }
 }
 
+function formatLegacyNumber(val, moduleName, fallbackDate = new Date()) {
+  if (!val) return val;
+  if (val.startsWith('MVSS/')) return val;
+
+  // If it matches JC/26-27/005, map to MVSS/JC/26-27/005
+  if (val.includes('/')) {
+    const subParts = val.split('/');
+    if (subParts.length === 3) {
+      return `MVSS/${moduleName}/${subParts[1]}/${subParts[2]}`;
+    }
+  }
+
+  // Try to parse format e.g. EST-20260802-001 or EST-2026-001
+  const parts = val.split('-');
+  if (parts.length >= 3) {
+    const dateStr = parts[1]; // e.g. "20260802"
+    const seqStr = parts[2]; // e.g. "001"
+    let d = new Date(fallbackDate);
+    if (dateStr && dateStr.length === 8) {
+      const year = parseInt(dateStr.slice(0, 4), 10);
+      const month = parseInt(dateStr.slice(4, 6), 10) - 1;
+      const day = parseInt(dateStr.slice(6, 8), 10);
+      if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+        d = new Date(year, month, day);
+      }
+    } else if (dateStr && dateStr.length === 4) {
+      const year = parseInt(dateStr, 10);
+      if (!isNaN(year)) {
+        d = new Date(year, 6, 1); // default to middle of year
+      }
+    }
+    const fy = getFinancialYear(d);
+    return `MVSS/${moduleName}/${fy}/${seqStr}`;
+  }
+  return val;
+}
+
 module.exports = {
   getFinancialYear,
   getNextSequence,
+  formatLegacyNumber,
   Counter
 };

@@ -141,6 +141,10 @@ const invoiceSchema = new mongoose.Schema({
     required: true,
     unique: true,
     index: true,
+    get: function(val) {
+      const { formatLegacyNumber } = require('../utils/documentNumbering');
+      return formatLegacyNumber(val, 'INV', this.date || this.createdAt);
+    }
   },
   jobCardId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -264,6 +268,8 @@ const invoiceSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
+  toJSON: { getters: true },
+  toObject: { getters: true }
 });
 
 invoiceSchema.pre('validate', function(next) {

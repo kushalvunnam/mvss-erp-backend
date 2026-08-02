@@ -139,6 +139,10 @@ const estimateSchema = new mongoose.Schema({
     required: true,
     unique: true,
     index: true,
+    get: function(val) {
+      const { formatLegacyNumber } = require('../utils/documentNumbering');
+      return formatLegacyNumber(val, 'EST', this.date || this.createdAt);
+    }
   },
   jobCardId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -179,6 +183,8 @@ const estimateSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
+  toJSON: { getters: true },
+  toObject: { getters: true }
 });
 
 module.exports = mongoose.model('Estimate', estimateSchema);

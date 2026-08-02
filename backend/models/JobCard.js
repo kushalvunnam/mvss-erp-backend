@@ -6,6 +6,10 @@ const JobCardSchema = new mongoose.Schema({
     required: true,
     unique: true,
     index: true,
+    get: function(val) {
+      const { formatLegacyNumber } = require('../utils/documentNumbering');
+      return formatLegacyNumber(val, 'JC', this.date || this.createdAt);
+    }
   },
   date: {
     type: Date,
@@ -308,6 +312,8 @@ const JobCardSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
+  toJSON: { getters: true },
+  toObject: { getters: true }
 });
 
 module.exports = mongoose.model('JobCard', JobCardSchema);
