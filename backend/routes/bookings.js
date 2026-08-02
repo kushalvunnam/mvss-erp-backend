@@ -140,7 +140,7 @@ router.post('/', async (req, res) => {
       bookingTime || new Date().toLocaleTimeString('en-IN');
 
 
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.WORKSHOP_EMAIL || 'accounts@auto4m.in';
+    const adminEmail = process.env.ADMIN_EMAIL;
 
     // ==========================================
     // 1. PREPARE DATA FOR N8N WEBHOOK

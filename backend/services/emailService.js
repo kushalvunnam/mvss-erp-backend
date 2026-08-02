@@ -14,10 +14,19 @@ async function sendEmail({ to, subject, html, from }) {
   const senderEmail = from || process.env.RESEND_FROM_EMAIL;
   const recipientEmail = to || process.env.ADMIN_EMAIL;
 
-  // 1. Validate required environment variables before sending
+  // 1. Check if RESEND_FROM_EMAIL is missing from environment
+  if (!process.env.RESEND_FROM_EMAIL) {
+    const errorMsg = "RESEND_FROM_EMAIL environment variable is missing.";
+    console.error(`[EMAIL SERVICE ERROR] ${errorMsg}`);
+    return {
+      success: false,
+      error: { message: errorMsg }
+    };
+  }
+
+  // 2. Validate other required environment variables before sending
   const missingEnvVars = [];
   if (!apiKey) missingEnvVars.push('RESEND_API_KEY');
-  if (!senderEmail) missingEnvVars.push('RESEND_FROM_EMAIL');
   if (!recipientEmail) missingEnvVars.push('ADMIN_EMAIL');
 
   if (missingEnvVars.length > 0) {
@@ -29,10 +38,10 @@ async function sendEmail({ to, subject, html, from }) {
     };
   }
 
-  // 2. Logging details
+  // 3. Logging details
   console.log('[EMAIL SERVICE] Email send started');
-  console.log(`[EMAIL SERVICE] Sender address: ${senderEmail}`);
-  console.log(`[EMAIL SERVICE] Recipient address: ${recipientEmail}`);
+  console.log(`[EMAIL SERVICE] Sender email: ${senderEmail}`);
+  console.log(`[EMAIL SERVICE] Recipient email: ${recipientEmail}`);
   console.log(`[EMAIL SERVICE] Subject: ${subject}`);
 
   try {
@@ -45,12 +54,12 @@ async function sendEmail({ to, subject, html, from }) {
       html
     });
 
-    // 3. Log full response
-    console.log('[EMAIL SERVICE] Full Resend API response:', JSON.stringify(response, null, 2));
+    // 4. Log Resend response
+    console.log('[EMAIL SERVICE] Resend response:', JSON.stringify(response, null, 2));
 
-    // 4. Handle response errors
+    // 5. Handle response errors
     if (response.error) {
-      console.error('[EMAIL SERVICE ERROR] Complete error object on failure:', JSON.stringify(response.error, null, 2));
+      console.error('[EMAIL SERVICE ERROR] Full error response if sending fails:', JSON.stringify(response.error, null, 2));
       return { success: false, error: response.error };
     }
 
@@ -63,7 +72,7 @@ async function sendEmail({ to, subject, html, from }) {
       return { success: false, error: err };
     }
   } catch (err) {
-    console.error('[EMAIL SERVICE EXCEPTION] Complete error object on failure:', err);
+    console.error('[EMAIL SERVICE EXCEPTION] Full error response if sending fails:', err);
     return {
       success: false,
       error: { message: err.message || String(err) }

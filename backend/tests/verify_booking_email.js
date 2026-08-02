@@ -51,17 +51,12 @@ async function testBookingEmail() {
 
     // 2. Test successful booking and customer email delivery
     console.log('\n2. Testing booking request with valid customer email...');
-    // We send from onboarding@resend.dev to accounts@auto4m.in because that is authorized in sandbox.
-    // For the test, we temporarily set customer email to accounts@auto4m.in.
-    // But since the API key is not authorized to send *from* auto4m.in in sandbox mode, we temporarily override RESEND_FROM_EMAIL in process.env
-    const originalFrom = process.env.RESEND_FROM_EMAIL;
-    process.env.RESEND_FROM_EMAIL = 'onboarding@resend.dev';
-
+    // We send using live verified domain credentials
     const mockReq2 = {
       body: {
         customerName: 'Kushal Test',
         mobile: '+919949479765',
-        email: 'accounts@auto4m.in', // customer email (must be accounts@auto4m.in for sandbox delivery)
+        email: process.env.ADMIN_EMAIL || 'accounts@mvssautomobiles.com',
         vehicleNumber: 'TS-09-XX-1234',
         vehicleModel: 'Maruti Swift',
         serviceType: 'General Servicing',
@@ -83,9 +78,6 @@ async function testBookingEmail() {
     await postHandler(mockReq2, mockRes2);
     console.log('Status code returned:', statusReturned2);
     console.log('Response body:', bodyReturned2);
-
-    // Restore original
-    process.env.RESEND_FROM_EMAIL = originalFrom;
 
     if (statusReturned2 === 201 && bodyReturned2.success === true) {
       console.log('✔ Booking created successfully!');
