@@ -137,14 +137,15 @@ export default function Estimates({ token, user, setActiveTab }) {
         const sgst = taxable * (p.gstPercent / 200);
         const taxAmt = cgst + sgst;
         const net = taxable + taxAmt;
+        const netRate = taxable / (p.qty || 1);
         partsRowsHtml += `
           <tr>
             <td>${idx + 1}</td>
             <td style="text-align: left;"><strong>${p.name || 'Spare Part'}</strong><br/><span style="font-size: 10px; color: #555;">No: ${p.partNo || 'N/A'}</span></td>
             <td>${p.hsnCode || '8708'}</td>
             <td>${p.qty} ${p.unit || 'Pcs'}</td>
-            <td>₹${p.rate.toFixed(2)}</td>
-            <td>₹${(p.qty * p.rate).toFixed(2)} ${discount > 0 ? `<br/><span style="color: red; font-size: 9px;">Disc: -₹${discount.toFixed(2)}</span>` : ''}</td>
+            <td>₹${netRate.toFixed(2)}</td>
+            <td>₹${taxable.toFixed(2)}</td>
             <td>₹${taxable.toFixed(2)}</td>
             <td style="font-size: 9px; line-height: 1.2;">
               CGST: ₹${cgst.toFixed(2)} (${(p.gstPercent/2)}%)<br/>
@@ -167,14 +168,16 @@ export default function Estimates({ token, user, setActiveTab }) {
         const sgst = taxable * (l.gstPercent / 200);
         const taxAmt = cgst + sgst;
         const net = taxable + taxAmt;
+        const qty = l.qty || 1;
+        const netRate = taxable / qty;
         labourRowsHtml += `
           <tr>
             <td>${idx + 1}</td>
             <td style="text-align: left;"><strong>${l.description || 'Labour Service'}</strong></td>
             <td>9987</td>
             <td>1 Pcs</td>
-            <td>₹${l.rate.toFixed(2)}</td>
-            <td>₹${l.rate.toFixed(2)} ${discount > 0 ? `<br/><span style="color: red; font-size: 9px;">Disc: -₹${discount.toFixed(2)}</span>` : ''}</td>
+            <td>₹${netRate.toFixed(2)}</td>
+            <td>₹${taxable.toFixed(2)}</td>
             <td>₹${taxable.toFixed(2)}</td>
             <td style="font-size: 9px; line-height: 1.2;">
               CGST: ₹${cgst.toFixed(2)} (${(l.gstPercent/2)}%)<br/>

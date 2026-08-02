@@ -955,228 +955,193 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             >
               + Add Spare Part
             </button>
-          </div>
-
-          <div className="space-y-2">
-            {partsList.map((part, idx) => (
-              <div key={idx} className="flex flex-wrap sm:flex-nowrap gap-2.5 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
-                <div className="w-full sm:w-44">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Part Catalog</label>
-                  <select
-                    value={part.partId}
-                    onChange={(e) => handlePartSelect(idx, e.target.value)}
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-bold focus:outline-none"
-                  >
-                    <option value="">-- Custom Part --</option>
-                    {inventory.map(item => (
-                      <option key={item._id} value={item._id}>
-                        {item.partName} {item.brand ? `[${item.brand}]` : ''} {item.model ? `(${item.model}${item.variant ? ` - ${item.variant}` : ''})` : ''} ({item.partNumber})
-                      </option>
-                    ))}
-                  </select>
-                  {(() => {
-                    const matched = inventory.find(item => item._id === part.partId);
-                    if (matched) {
-                      const avail = matched.stockQuantity;
-                      const hasSufficient = avail >= (Number(part.qty) || 0);
-                      return (
-                        <span className={`block text-[9px] font-bold mt-1 uppercase ${hasSufficient ? 'text-emerald-500' : 'text-red-500'}`}>
-                          Stock: {avail} units {hasSufficient ? '✓ Available' : '⚠️ Insufficient'}
-                        </span>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
-
-                <div className="flex-1 min-w-[150px]">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Part Name (Editable)</label>
-                  <input
-                    type="text"
-                    required
-                    value={part.name}
-                    onChange={(e) => handlePartRowValue(idx, 'name', e.target.value)}
-                    placeholder="e.g. Engine Oil 10W-40"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  />
-                </div>
-
-                <div className="w-28">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Part Number</label>
-                  <input
-                    type="text"
-                    value={part.partNo || ''}
-                    onChange={(e) => handlePartRowValue(idx, 'partNo', e.target.value)}
-                    placeholder="e.g. SP-ENG-10W40"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  />
-                </div>
-
-                <div className="w-24">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">HSN Code</label>
-                  <input
-                    type="text"
-                    value={part.hsnCode || ''}
-                    onChange={(e) => handlePartRowValue(idx, 'hsnCode', e.target.value)}
-                    placeholder="e.g. 27101980"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  />
-                </div>
-
-                <div className="w-16">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Unit</label>
-                  <input
-                    type="text"
-                    value={part.unit || 'Pcs'}
-                    onChange={(e) => handlePartRowValue(idx, 'unit', e.target.value)}
-                    placeholder="Unit"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  />
-                </div>
-                <div className="w-20">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">MRP (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={part.mrp || ''}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'mrp', e.target.value)}
-                    placeholder="MRP"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-20">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Rate (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={part.rate || ''}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'rate', e.target.value)}
-                    placeholder="Rate"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-16">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Qty</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={part.qty || ''}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'qty', e.target.value)}
-                    placeholder="Qty"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-16">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
-                  <select
-                    value={part.discountType || 'Percent'}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountType', e.target.value)}
-                    className="w-full h-[28px] px-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  >
-                    <option value="Percent">Percent (%)</option>
-                    <option value="Fixed">Flat (₹)</option>
-                  </select>
-                </div>
-
-                <div className="w-14">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc %</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={part.discountPercent !== undefined ? part.discountPercent : ''}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountPercent', e.target.value)}
-                    placeholder="0"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-20">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Amt (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={part.discountAmount !== undefined ? part.discountAmount : ''}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'discountAmount', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-20">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={part.taxableAmount !== undefined ? part.taxableAmount : ''}
-                    onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'taxableAmount', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
-                  />
-                </div>
-
-                <div className="w-36">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">GST %</label>
-                  <div className="flex gap-1 items-center">
+          </div>          <div className="overflow-x-auto pb-3">
+            <div className="space-y-2 min-w-[1250px] pr-2">
+              {partsList.map((part, idx) => (
+                <div key={idx} className="flex flex-nowrap gap-2.5 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
+                  <div className="w-48">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Part Catalog</label>
                     <select
-                      value={[0, 3, 5, 12, 18, 28].includes(Number(part.gstPercent)) ? Number(part.gstPercent) : 'custom'}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === 'custom') {
-                          handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', 'custom');
-                        } else {
-                          handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', val);
-                        }
-                      }}
-                      disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                      className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
+                      value={part.partId}
+                      onChange={(e) => handlePartSelect(idx, e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-bold focus:outline-none"
                     >
-                      <option value={0}>0%</option>
-                      <option value={3}>3%</option>
-                      <option value={5}>5%</option>
-                      <option value={12}>12%</option>
-                      <option value={18}>18%</option>
-                      <option value={28}>28%</option>
-                      <option value="custom">Custom...</option>
+                      <option value="">-- Custom Part --</option>
+                      {inventory.map(item => (
+                        <option key={item._id} value={item._id}>
+                          {item.partName} {item.brand ? `[${item.brand}]` : ''} {item.model ? `(${item.model}${item.variant ? ` - ${item.variant}` : ''})` : ''} ({item.partNumber})
+                        </option>
+                      ))}
                     </select>
-                    {![0, 3, 5, 12, 18, 28].includes(Number(part.gstPercent)) && (
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={part.gstPercent === 'custom' ? '' : part.gstPercent}
-                        onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', e.target.value)}
-                        disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                        className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                      />
-                    )}
+                    {(() => {
+                      const matched = inventory.find(item => item._id === part.partId);
+                      if (matched) {
+                        const avail = matched.stockQuantity;
+                        const hasSufficient = avail >= (Number(part.qty) || 0);
+                        return (
+                          <span className={`block text-[9px] font-bold mt-1 uppercase ${hasSufficient ? 'text-emerald-500' : 'text-red-500'}`}>
+                            Stock: {avail} units {hasSufficient ? '✓ Available' : '⚠️ Insufficient'}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
+
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Part Name (Editable)</label>
+                    <input
+                      type="text"
+                      required
+                      value={part.name}
+                      onChange={(e) => handlePartRowValue(idx, 'name', e.target.value)}
+                      placeholder="e.g. Engine Oil 10W-40"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="w-32">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Part Number</label>
+                    <input
+                      type="text"
+                      value={part.partNo || ''}
+                      onChange={(e) => handlePartRowValue(idx, 'partNo', e.target.value)}
+                      placeholder="e.g. SP-ENG-10W40"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-28">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">HSN Code</label>
+                    <input
+                      type="text"
+                      value={part.hsnCode || ''}
+                      onChange={(e) => handlePartRowValue(idx, 'hsnCode', e.target.value)}
+                      placeholder="e.g. 27101980"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-20">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Unit</label>
+                    <input
+                      type="text"
+                      value={part.unit || 'Pcs'}
+                      onChange={(e) => handlePartRowValue(idx, 'unit', e.target.value)}
+                      placeholder="Unit"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="w-24">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">MRP (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={part.mrp || ''}
+                      onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'mrp', e.target.value)}
+                      placeholder="MRP"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-24">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Rate (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={part.rate || ''}
+                      onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'rate', e.target.value)}
+                      placeholder="Rate"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-20">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Qty</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={part.qty || ''}
+                      onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'qty', e.target.value)}
+                      placeholder="Qty"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-28">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={part.taxableAmount !== undefined ? part.taxableAmount : ''}
+                      onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'taxableAmount', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
+                    />
+                  </div>
+
+                  <div className="w-36">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">GST %</label>
+                    <div className="flex gap-1 items-center">
+                      <select
+                        value={[0, 3, 5, 12, 18, 28].includes(Number(part.gstPercent)) ? Number(part.gstPercent) : 'custom'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === 'custom') {
+                            handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', 'custom');
+                          } else {
+                            handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', val);
+                          }
+                        }}
+                        disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                        className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
+                      >
+                        <option value={0}>0%</option>
+                        <option value={3}>3%</option>
+                        <option value={5}>5%</option>
+                        <option value={12}>12%</option>
+                        <option value={18}>18%</option>
+                        <option value={28}>28%</option>
+                        <option value="custom">Custom...</option>
+                      </select>
+                      {![0, 3, 5, 12, 18, 28].includes(Number(part.gstPercent)) && (
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={part.gstPercent === 'custom' ? '' : part.gstPercent}
+                          onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', e.target.value)}
+                          disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                          className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="w-28 text-right pr-2">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Total (₹)</span>
+                    <span className="text-xs font-black text-slate-800 dark:text-slate-200 h-[28px] flex items-center justify-end font-mono">
+                      {Math.round((parseFloat(part.taxableAmount || 0) * (1 + (parseFloat(part.gstPercent) || 0) / 100)) * 100) / 100}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePartRow(idx)}
+                    className="text-red-500 hover:text-red-700 p-2 rounded-lg border border-slate-200/40 hover:bg-red-50 dark:hover:bg-red-950/20"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
+              ))}
 
-                <div className="w-24 text-right pr-2">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Total (₹)</span>
-                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 h-[28px] flex items-center justify-end font-mono">
-                    {Math.round((parseFloat(part.taxableAmount || 0) * (1 + (parseFloat(part.gstPercent) || 0) / 100)) * 100) / 100}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleRemovePartRow(idx)}
-                  className="text-red-500 hover:text-red-700 p-2 rounded-lg border border-slate-200/40 hover:bg-red-50 dark:hover:bg-red-950/20"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-
-            {partsList.length === 0 && (
-              <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">No spare parts added to estimate.</p>
-            )}
+              {partsList.length === 0 && (
+                <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">No spare parts added to estimate.</p>
+              )}
+            </div>
           </div>
         </div>
 
