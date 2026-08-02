@@ -7,7 +7,7 @@ const router = express.Router();
 
 // Version Check
 router.get('/version', (req, res) => {
-  res.send({ version: '2.0.0-attendance-and-delete-fix' });
+  res.send({ version: '2.1.0-total-discount-pdf-removal' });
 });
 
 // User Login
