@@ -72,7 +72,7 @@ export default function Backlogs({ token, user }) {
     expectedDeliveryDate: '',
     priority: 'Medium',
     remarks: '',
-    status: 'Pending Order'
+    status: 'Pending'
   });
 
   const createEmptyBacklogRow = () => ({
@@ -487,7 +487,7 @@ export default function Backlogs({ token, user }) {
       expectedDeliveryDate: '',
       priority: 'Medium',
       remarks: '',
-      status: 'Pending Order'
+      status: 'Pending'
     });
     setSelectedBacklog(null);
   };
@@ -532,12 +532,12 @@ export default function Backlogs({ token, user }) {
 
   // Dashboard Stats Calculations
   const totalBacklogParts = backlogs
-    .filter(b => ['Pending Order', 'Ordered', 'Partially Received'].includes(b.status))
+    .filter(b => ['Pending', 'Pending Order', 'Ordered', 'Partially Received'].includes(b.status))
     .reduce((sum, item) => sum + (item.qty || 0), 0);
 
-  const pendingCount = backlogs.filter(b => b.status === 'Pending Order').length;
+  const pendingCount = backlogs.filter(b => b.status === 'Pending' || b.status === 'Pending Order').length;
   const orderedCount = backlogs.filter(b => b.status === 'Ordered').length;
-  const partiallyReceivedCount = backlogs.filter(b => b.status === 'Partially Received').length;
+  const partiallyReceivedCount = backlogs.filter(b => b.status === 'Partially Received' || b.status === 'Installed').length;
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const receivedTodayCount = backlogs.filter(b => 
@@ -567,6 +567,7 @@ export default function Backlogs({ token, user }) {
 
     let classes = '';
     switch (status) {
+      case 'Pending':
       case 'Pending Order':
         classes = 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/40';
         break;
@@ -578,6 +579,9 @@ export default function Backlogs({ token, user }) {
         break;
       case 'Received':
         classes = 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40';
+        break;
+      case 'Installed':
+        classes = 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/40';
         break;
       case 'Cancelled':
         classes = 'bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/60';
@@ -766,10 +770,10 @@ export default function Backlogs({ token, user }) {
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-2 text-xs font-semibold text-slate-700 dark:text-slate-350 focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">-- All Statuses --</option>
-                <option value="Pending Order">Pending Order</option>
+                <option value="Pending">Pending</option>
                 <option value="Ordered">Ordered</option>
-                <option value="Partially Received">Partially Received</option>
                 <option value="Received">Received</option>
+                <option value="Installed">Installed</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
             </div>
@@ -1448,10 +1452,10 @@ export default function Backlogs({ token, user }) {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                     className="w-full text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-bold text-slate-850 dark:text-white focus:ring-2 focus:ring-indigo-500"
                   >
-                    <option value="Pending Order">Pending Order</option>
+                    <option value="Pending">Pending</option>
                     <option value="Ordered">Ordered</option>
-                    <option value="Partially Received">Partially Received</option>
                     <option value="Received">Received</option>
+                    <option value="Installed">Installed</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>
