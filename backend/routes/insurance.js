@@ -79,7 +79,8 @@ router.delete('/:id', auth, async (req, res) => {
     await logAction(req.user, 'INSURANCE_DELETE', `Deleted insurance policy ${policy.policyNumber} (${policy.insuranceCompany})`, req);
     res.send({ message: 'Policy deleted successfully.' });
   } catch (error) {
-    res.status(500).send({ error: 'Failed to delete policy.' });
+    const status = error.name === 'CastError' ? 400 : 500;
+    res.status(status).send({ error: 'Failed to delete policy.' });
   }
 });
 
