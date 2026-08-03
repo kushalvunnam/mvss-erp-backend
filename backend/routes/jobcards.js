@@ -86,6 +86,90 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// General Service History: search complete vehicle service and invoice records
+router.get('/service-history', auth, async (req, res) => {
+  try {
+    const { search } = req.query;
+    if (!search || !search.trim()) {
+      return res.send([]);
+    }
+
+    const term = search.trim();
+
+    const customers = await Customer.find({
+      $or: [
+        { name: { $regex: term, $options: 'i' } },
+        { mobile: { $regex: term, $options: 'i' } }
+      ]
+    });
+    const customerIds = customers.map(c => c._id);
+
+    const vehicles = await Vehicle.find({
+      $or: [
+        { vehicleNumber: { $regex: term, $options: 'i' } },
+        { chassisNumber: { $regex: term, $options: 'i' } }
+      ]
+    });
+    const vehicleIds = vehicles.map(v => v._id);
+
+    const jobCards = await JobCard.find({
+      $or: [
+        { jobCardNo: { $regex: term, $options: 'i' } },
+        { customerId: { $in: customerIds } },
+        { vehicleId: { $in: vehicleIds } }
+      ]
+    })
+      .populate('customerId')
+      .populate('vehicleId')
+      .sort({ createdAt: -1 });
+
+    const Invoice = require('../models/Invoice');
+    const Estimate = require('../models/Estimate');
+
+    const history = await Promise.all(jobCards.map(async (jc) => {
+      const invoice = await Invoice.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 });
+      const estimate = invoice ? null : await Estimate.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 });
+      const source = invoice || estimate;
+
+      const servicesPerformed = source && Array.isArray(source.labour)
+        ? source.labour.map(l => l.description).filter(Boolean)
+        : [];
+      const partsReplaced = source && Array.isArray(source.parts)
+        ? source.parts.map(p => p.name).filter(Boolean)
+        : [];
+
+      const invoiceAmount = invoice
+        ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0)
+        : (jc.billingSummary?.grandTotal || jc.estAmt || 0);
+
+      const vehicle = jc.vehicleId || {};
+      const customer = jc.customerId || {};
+
+      return {
+        _id: jc._id,
+        visitDate: jc.date || jc.createdAt,
+        jobCardNo: jc.jobCardNo,
+        vehicleNumber: vehicle.vehicleNumber || 'N/A',
+        model: vehicle.model ? `${vehicle.make || ''} ${vehicle.model}`.trim() : (vehicle.make || 'N/A'),
+        chassisNumber: vehicle.chassisNumber || '',
+        customerName: customer.name || 'N/A',
+        customerMobile: customer.mobile || 'N/A',
+        odometer: jc.odometerReading || 0,
+        technician: jc.technicianName || 'N/A',
+        invoiceAmount: Number(invoiceAmount) || 0,
+        status: jc.status || 'N/A',
+        servicesPerformed,
+        partsReplaced
+      };
+    }));
+
+    res.send(history);
+  } catch (error) {
+    console.error('Failed to fetch service history:', error);
+    res.status(500).send({ error: 'Failed to fetch service history.' });
+  }
+});
+
 router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Reception'), async (req, res) => {
   try {
     let jobCard;
