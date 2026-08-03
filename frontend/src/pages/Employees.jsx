@@ -201,9 +201,11 @@ export default function Employees({ token, user }) {
     deductions: '',
     deductionsDescription: '',
     epfPercent: '',
+    professionalTax: '',
     specialAllowance: '',
     otherAllowance: '',
     otherAllowanceDescription: '',
+    additionalDeductions: [],
     leavesCount: 0,
     exemptedLeaves: 1,
     calculatedNetSalary: 0,
@@ -270,17 +272,10 @@ export default function Employees({ token, user }) {
     
     const selectionStart = input.selectionStart;
     
-    setSalaryForm(prev => {
-      const updated = { ...prev, [key]: processedValue };
-      if (key === 'basicSalary' || key === 'epfPercent') {
-        const basicVal = parseFloat(updated.basicSalary) || 0;
-        const percent = parseFloat(updated.epfPercent) || 0;
-        const epfVal = Math.round(basicVal * (percent / 100));
-        updated.deductions = percent > 0 ? epfVal.toString() : '';
-        updated.deductionsDescription = percent > 0 ? `EPF (${percent}%)` : '';
-      }
-      return updated;
-    });
+    setSalaryForm(prev => ({
+      ...prev,
+      [key]: processedValue
+    }));
 
     requestAnimationFrame(() => {
       if (input && input.setSelectionRange) {
@@ -401,13 +396,19 @@ export default function Employees({ token, user }) {
 
     const basic = Number(salaryForm.basicSalary) || 0;
     const adv = Number(salaryForm.advances) || 0;
-    const extraDeduct = Number(salaryForm.deductions) || 0;
     const special = Number(salaryForm.specialAllowance) || 0;
     const other = Number(salaryForm.otherAllowance) || 0;
     
+    const epfPercent = Number(salaryForm.epfPercent) || 0;
+    const epfAmount = Math.round(basic * (epfPercent / 100));
+    const professionalTax = Number(salaryForm.professionalTax) || 0;
+    const additionalDeductionsSum = (salaryForm.additionalDeductions || []).reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+
     // Per day leave deduction (assumes 30 days)
     const leaveDeduction = excessLeaves > 0 ? (basic / 30) * excessLeaves : 0;
-    const net = Math.round(Math.max(0, basic + special + other - adv - extraDeduct - leaveDeduction));
+    
+    // Net Pay calculation
+    const net = Math.round(Math.max(0, basic + special + other - adv - leaveDeduction - epfAmount - professionalTax - additionalDeductionsSum));
 
     setSalaryForm(prev => ({
       ...prev,
@@ -415,7 +416,18 @@ export default function Employees({ token, user }) {
       exemptedLeaves: exempted,
       calculatedNetSalary: net
     }));
-  }, [salaryForm.employeeId, salaryForm.monthYear, salaryForm.basicSalary, salaryForm.advances, salaryForm.deductions, salaryForm.specialAllowance, salaryForm.otherAllowance, employees]);
+  }, [
+    salaryForm.employeeId,
+    salaryForm.monthYear,
+    salaryForm.basicSalary,
+    salaryForm.advances,
+    salaryForm.specialAllowance,
+    salaryForm.otherAllowance,
+    salaryForm.epfPercent,
+    salaryForm.professionalTax,
+    salaryForm.additionalDeductions,
+    employees
+  ]);
 
   const handleAddSubmit = async (e) => {
     e.preventDefault();
@@ -761,11 +773,12 @@ export default function Employees({ token, user }) {
           monthYear: salaryForm.monthYear,
           basicSalary: Number(salaryForm.basicSalary) || 0,
           advances: Number(salaryForm.advances) || 0,
-          deductions: Number(salaryForm.deductions) || 0,
-          deductionsDescription: salaryForm.deductionsDescription,
           specialAllowance: Number(salaryForm.specialAllowance) || 0,
           otherAllowance: Number(salaryForm.otherAllowance) || 0,
-          otherAllowanceDescription: salaryForm.otherAllowanceDescription
+          otherAllowanceDescription: salaryForm.otherAllowanceDescription,
+          epfPercent: Number(salaryForm.epfPercent) || 0,
+          professionalTax: Number(salaryForm.professionalTax) || 0,
+          additionalDeductions: salaryForm.additionalDeductions || []
         })
       });
       if (res.ok) {
@@ -791,6 +804,11 @@ export default function Employees({ token, user }) {
     const other = Number(salaryForm.otherAllowance) || 0;
     const otherDesc = salaryForm.otherAllowanceDescription || '';
     const deductionsDesc = salaryForm.deductionsDescription || '';
+    
+    const epfPercent = Number(salaryForm.epfPercent) || 0;
+    const epfAmount = Math.round(Number(salaryForm.basicSalary || 0) * (epfPercent / 100));
+    const ptAmount = Number(salaryForm.professionalTax) || 0;
+    const additionalDeductions = salaryForm.additionalDeductions || [];
 
     printWindow.document.write(`
       <html>
@@ -868,10 +886,30 @@ export default function Employees({ token, user }) {
                 <td>Advances Received</td>
                 <td class="right">- ₹${Number(salaryForm.advances).toFixed(2)}</td>
               </tr>
+              ${epfAmount > 0 ? `
+              <tr>
+                <td>EPF Deduction (${epfPercent}%)</td>
+                <td class="right">- ₹${epfAmount.toFixed(2)}</td>
+              </tr>
+              ` : ''}
+              ${ptAmount > 0 ? `
+              <tr>
+                <td>Professional Tax</td>
+                <td class="right">- ₹${ptAmount.toFixed(2)}</td>
+              </tr>
+              ` : ''}
+              ${additionalDeductions.map(d => `
+              <tr>
+                <td>Deduction: ${d.name}</td>
+                <td class="right">- ₹${(Number(d.amount) || 0).toFixed(2)}</td>
+              </tr>
+              `).join('')}
+              ${(additionalDeductions.length === 0 && Number(salaryForm.deductions) > 0) ? `
               <tr>
                 <td>Other Known Deductions ${deductionsDesc ? `(${deductionsDesc})` : ''}</td>
                 <td class="right">- ₹${Number(salaryForm.deductions).toFixed(2)}</td>
               </tr>
+              ` : ''}
               <tr class="total-row">
                 <td>Net Payable Salary</td>
                 <td class="right">₹${Number(salaryForm.calculatedNetSalary).toFixed(2)}</td>
@@ -903,6 +941,11 @@ export default function Employees({ token, user }) {
     const other = Number(slip.otherAllowance) || 0;
     const otherDesc = slip.otherAllowanceDescription || '';
     const deductionsDesc = slip.deductionsDescription || '';
+    
+    const epfPercent = Number(slip.epfPercent) || 0;
+    const epfAmount = slip.epfAmount || Math.round(Number(slip.basicSalary || 0) * (epfPercent / 100));
+    const ptAmount = Number(slip.professionalTax) || 0;
+    const additionalDeductions = slip.additionalDeductions || [];
 
     printWindow.document.write(`
       <html>
@@ -980,10 +1023,30 @@ export default function Employees({ token, user }) {
                 <td>Advances Received</td>
                 <td class="right">- ₹${Number(slip.advances).toFixed(2)}</td>
               </tr>
+              ${epfAmount > 0 ? `
+              <tr>
+                <td>EPF Deduction (${epfPercent}%)</td>
+                <td class="right">- ₹${epfAmount.toFixed(2)}</td>
+              </tr>
+              ` : ''}
+              ${ptAmount > 0 ? `
+              <tr>
+                <td>Professional Tax</td>
+                <td class="right">- ₹${ptAmount.toFixed(2)}</td>
+              </tr>
+              ` : ''}
+              ${additionalDeductions.map(d => `
+              <tr>
+                <td>Deduction: ${d.name}</td>
+                <td class="right">- ₹${(Number(d.amount) || 0).toFixed(2)}</td>
+              </tr>
+              `).join('')}
+              ${(additionalDeductions.length === 0 && Number(slip.deductions) > 0) ? `
               <tr>
                 <td>Other Known Deductions ${deductionsDesc ? `(${deductionsDesc})` : ''}</td>
                 <td class="right">- ₹${Number(slip.deductions).toFixed(2)}</td>
               </tr>
+              ` : ''}
               <tr class="total-row">
                 <td>Net Payable Salary</td>
                 <td class="right">₹${Number(slip.netSalary).toFixed(2)}</td>
@@ -1962,26 +2025,70 @@ export default function Employees({ token, user }) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Other Deductions (₹)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Professional Tax (₹)</label>
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={salaryForm.deductions}
-                      onChange={(e) => handleSalaryNumericChange(e, 'deductions', true)}
+                      value={salaryForm.professionalTax}
+                      onChange={(e) => handleSalaryNumericChange(e, 'professionalTax', true)}
                       placeholder="Enter amount"
                       className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none font-mono"
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Deductions Description</label>
-                    <input
-                      type="text"
-                      value={salaryForm.deductionsDescription}
-                      onChange={(e) => setSalaryForm({ ...salaryForm, deductionsDescription: e.target.value })}
-                      placeholder="e.g. EPF, Professional Tax, ESI"
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
-                    />
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Additional Deductions</label>
+                    <div className="space-y-2">
+                      {(salaryForm.additionalDeductions || []).map((deduction, index) => (
+                        <div key={index} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={deduction.name}
+                            onChange={(e) => {
+                              const newDeductions = [...salaryForm.additionalDeductions];
+                              newDeductions[index].name = e.target.value;
+                              setSalaryForm({ ...salaryForm, additionalDeductions: newDeductions });
+                            }}
+                            placeholder="Deduction Name"
+                            className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold focus:outline-none"
+                          />
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={deduction.amount}
+                            onChange={(e) => {
+                              const newDeductions = [...salaryForm.additionalDeductions];
+                              newDeductions[index].amount = cleanNumberInput(e.target.value, true);
+                              setSalaryForm({ ...salaryForm, additionalDeductions: newDeductions });
+                            }}
+                            placeholder="Amount"
+                            className="w-24 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newDeductions = salaryForm.additionalDeductions.filter((_, i) => i !== index);
+                              setSalaryForm({ ...salaryForm, additionalDeductions: newDeductions });
+                            }}
+                            className="px-2 py-2 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSalaryForm({
+                            ...salaryForm,
+                            additionalDeductions: [...(salaryForm.additionalDeductions || []), { name: '', amount: '' }]
+                          });
+                        }}
+                        className="w-full px-3 py-2 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/40 transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add Deduction
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2085,26 +2192,49 @@ export default function Employees({ token, user }) {
                     )}
                     {Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves) > 0 && (
                       <div className="flex justify-between text-xs font-medium text-rose-400">
-                        <span>Absent Deductions ({Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)}d excess):</span>
+                        <span>Leave Deduction ({Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)}d excess):</span>
                         <span className="font-mono">- ₹{Math.round((salaryForm.basicSalary / 30) * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}</span>
                       </div>
                     )}
 
                     {Number(salaryForm.advances) > 0 && (
                       <div className="flex justify-between text-xs font-medium text-rose-400">
-                        <span>Advances Repayment:</span>
+                        <span>Advance Recovery:</span>
                         <span className="font-mono">- ₹{Number(salaryForm.advances).toLocaleString()}</span>
                       </div>
                     )}
 
+                    {Number(salaryForm.epfPercent) > 0 && (
+                      <div className="flex justify-between text-xs font-medium text-rose-400">
+                        <span>EPF Deduction ({salaryForm.epfPercent}%):</span>
+                        <span className="font-mono">- ₹{Math.round(Number(salaryForm.basicSalary) * (Number(salaryForm.epfPercent) / 100)).toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {Number(salaryForm.professionalTax) > 0 && (
+                      <div className="flex justify-between text-xs font-medium text-rose-400">
+                        <span>Professional Tax:</span>
+                        <span className="font-mono">- ₹{Number(salaryForm.professionalTax).toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {(salaryForm.additionalDeductions || []).map((deduction, index) => (
+                      Number(deduction.amount) > 0 && (
+                        <div key={index} className="flex justify-between text-xs font-medium text-rose-400">
+                          <span>{deduction.name || `Deduction ${index + 1}`}:</span>
+                          <span className="font-mono">- ₹{Number(deduction.amount).toLocaleString()}</span>
+                        </div>
+                      )
+                    ))}
+
                     {Number(salaryForm.deductions) > 0 && (
                       <div className="flex justify-between text-xs font-medium text-rose-400">
-                        <span>Deduction {salaryForm.deductionsDescription ? `(${salaryForm.deductionsDescription})` : ''}:</span>
+                        <span>Other Deductions {salaryForm.deductionsDescription ? `(${salaryForm.deductionsDescription})` : ''}:</span>
                         <span className="font-mono">- ₹{Number(salaryForm.deductions).toLocaleString()}</span>
                       </div>
                     )}
 
-                    {Number(salaryForm.leavesCount) === 0 && Number(salaryForm.advances) === 0 && Number(salaryForm.deductions) === 0 && (
+                    {Number(salaryForm.leavesCount) === 0 && Number(salaryForm.advances) === 0 && Number(salaryForm.deductions) === 0 && Number(salaryForm.epfPercent) === 0 && Number(salaryForm.professionalTax) === 0 && (!salaryForm.additionalDeductions || salaryForm.additionalDeductions.length === 0) && (
                       <div className="text-xs text-slate-500 italic py-0.5">No deductions applied for this period</div>
                     )}
                   </div>
