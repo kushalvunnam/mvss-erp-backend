@@ -88,7 +88,15 @@ export default function PurchaseReport({ token, user }) {
     discountValue: 0,
     gstPercent: 18,
     warehouse: 'Main Store',
-    rackLocation: ''
+    rackLocation: '',
+    // New fields for Parts Master integration
+    brand: '',
+    supplierBrand: '',
+    vehicleMake: '',
+    vehicleModel: '',
+    compatibility: '',
+    oemBrand: '',
+    warranty: ''
   });
 
   const [purchaseHeader, setPurchaseHeader] = useState({
@@ -244,7 +252,14 @@ export default function PurchaseReport({ token, user }) {
         mrp: selected.mrp !== undefined ? selected.mrp.toString() : '',
         gstPercent: selected.gstPercent !== undefined ? selected.gstPercent : 18,
         warehouse: selected.warehouse || 'Main Store',
-        currentStock: selected.stockQuantity || 0
+        currentStock: selected.stockQuantity || 0,
+        // Populate new fields from Inventory
+        brand: selected.brand || '',
+        supplierBrand: selected.supplier || '',
+        compatibility: selected.vehicleCompatibility || '',
+        oemBrand: selected.oemBrand || '',
+        warranty: selected.warranty || '',
+        rackLocation: selected.locationRack || ''
       };
       return recalculateRowDiscounts(rawRow, null, null);
     }));
@@ -379,6 +394,23 @@ export default function PurchaseReport({ token, user }) {
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
       return { ...row, igstPercent: value };
+    }));
+  };
+
+  // Auto-generate compatibility from vehicleMake and vehicleModel
+  const handleVehicleMakeModelChange = (rowId, field, value) => {
+    setPurchaseItems(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+      const updatedRow = { ...row, [field]: value };
+      // Auto-generate compatibility when both make and model are present
+      if (updatedRow.vehicleMake && updatedRow.vehicleModel) {
+        updatedRow.compatibility = `${updatedRow.vehicleMake}, ${updatedRow.vehicleModel}`;
+      } else if (field === 'vehicleMake' && !value) {
+        updatedRow.compatibility = '';
+      } else if (field === 'vehicleModel' && !value) {
+        updatedRow.compatibility = updatedRow.vehicleMake || '';
+      }
+      return updatedRow;
     }));
   };
 
@@ -545,7 +577,15 @@ export default function PurchaseReport({ token, user }) {
         gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
         igstPercent: itemIgstPercent,
         warehouse: item.warehouse || 'Main Store',
-        rackLocation: item.rackLocation || ''
+        rackLocation: item.rackLocation || '',
+        // New fields for Parts Master integration
+        brand: item.brand || '',
+        supplierBrand: item.supplierBrand || '',
+        vehicleMake: item.vehicleMake || '',
+        vehicleModel: item.vehicleModel || '',
+        compatibility: item.compatibility || '',
+        oemBrand: item.oemBrand || '',
+        warranty: item.warranty || ''
       };
     });
 
@@ -644,7 +684,15 @@ export default function PurchaseReport({ token, user }) {
         cgst: rowCalc.cgst,
         sgst: rowCalc.sgst,
         igst: rowCalc.igst,
-        total: rowCalc.total
+        total: rowCalc.total,
+        // New fields for Parts Master integration
+        brand: row.brand || '',
+        supplierBrand: row.supplierBrand || '',
+        vehicleMake: row.vehicleMake || '',
+        vehicleModel: row.vehicleModel || '',
+        compatibility: row.compatibility || '',
+        oemBrand: row.oemBrand || '',
+        warranty: row.warranty || ''
       };
     });
 
@@ -1183,7 +1231,7 @@ export default function PurchaseReport({ token, user }) {
 
             {/* Line Items Table */}
             <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-              <table className="w-full text-left border-collapse" style={{ minWidth: '2640px', tableLayout: 'fixed' }}>
+              <table className="w-full text-left border-collapse" style={{ minWidth: '3300px', tableLayout: 'fixed' }}>
                 <thead>
                   <tr className="bg-slate-100 dark:bg-slate-800/80 text-[11px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                     <th className="py-2.5 px-3" style={{ width: '50px', minWidth: '50px', verticalAlign: 'middle', textAlign: 'left' }}>#</th>
@@ -1205,6 +1253,13 @@ export default function PurchaseReport({ token, user }) {
                     <th className="py-2.5 px-3" style={{ width: '160px', minWidth: '160px', verticalAlign: 'middle', textAlign: 'left' }}>Total (₹)</th>
                     <th className="py-2.5 px-3" style={{ width: '180px', minWidth: '180px', verticalAlign: 'middle', textAlign: 'left' }}>Warehouse</th>
                     <th className="py-2.5 px-3" style={{ width: '140px', minWidth: '140px', verticalAlign: 'middle', textAlign: 'left' }}>Rack Location</th>
+                    <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>Brand</th>
+                    <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>Supplier Brand</th>
+                    <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>Vehicle Make</th>
+                    <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>Vehicle Model</th>
+                    <th className="py-2.5 px-3" style={{ width: '150px', minWidth: '150px', verticalAlign: 'middle', textAlign: 'left' }}>Compatibility</th>
+                    <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>OEM Brand</th>
+                    <th className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>Warranty</th>
                     <th className="py-2.5 px-3" style={{ width: '80px', minWidth: '80px', verticalAlign: 'middle', textAlign: 'left' }}>Action</th>
                   </tr>
                 </thead>
@@ -1464,6 +1519,85 @@ export default function PurchaseReport({ token, user }) {
                             placeholder="A-1, B-3..."
                             value={row.rackLocation || ''}
                             onChange={(e) => handleRowChange(row.id, 'rackLocation', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+
+                        {/* Brand */}
+                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="Brand"
+                            value={row.brand || ''}
+                            onChange={(e) => handleRowChange(row.id, 'brand', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+
+                        {/* Supplier Brand */}
+                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="Supplier Brand"
+                            value={row.supplierBrand || ''}
+                            onChange={(e) => handleRowChange(row.id, 'supplierBrand', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+
+                        {/* Vehicle Make */}
+                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="Make"
+                            value={row.vehicleMake || ''}
+                            onChange={(e) => handleVehicleMakeModelChange(row.id, 'vehicleMake', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+
+                        {/* Vehicle Model */}
+                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="Model"
+                            value={row.vehicleModel || ''}
+                            onChange={(e) => handleVehicleMakeModelChange(row.id, 'vehicleModel', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+
+                        {/* Compatibility (Auto-generated) */}
+                        <td className="py-2.5 px-3" style={{ width: '150px', minWidth: '150px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="Auto-generated"
+                            value={row.compatibility || ''}
+                            onChange={(e) => handleRowChange(row.id, 'compatibility', e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-600 dark:text-slate-400 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                            readOnly
+                            title="Auto-generated from Vehicle Make + Vehicle Model"
+                          />
+                        </td>
+
+                        {/* OEM Brand */}
+                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="OEM Brand"
+                            value={row.oemBrand || ''}
+                            onChange={(e) => handleRowChange(row.id, 'oemBrand', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </td>
+
+                        {/* Warranty */}
+                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                          <input
+                            type="text"
+                            placeholder="Warranty"
+                            value={row.warranty || ''}
+                            onChange={(e) => handleRowChange(row.id, 'warranty', e.target.value)}
                             className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           />
                         </td>

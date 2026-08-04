@@ -61,7 +61,9 @@ export default function Inventory({ token, user }) {
     vehicleCompatibility: '',
     supplier: '',
     reorderLevel: '',
-    locationRack: ''
+    locationRack: '',
+    oemBrand: '',
+    warranty: ''
   });
 
   const [restockForm, setRestockForm] = useState({
@@ -95,7 +97,9 @@ export default function Inventory({ token, user }) {
     vehicleCompatibility: '',
     supplier: '',
     reorderLevel: '',
-    locationRack: ''
+    locationRack: '',
+    oemBrand: '',
+    warranty: ''
   });
 
   const cleanNumberInput = (val, allowDecimal = true, maxVal = null) => {
@@ -181,7 +185,9 @@ export default function Inventory({ token, user }) {
         purchasePrice: Number(addForm.purchasePrice) || 0,
         sellingPrice: Number(addForm.sellingPrice) || 0,
         gstPercent: Number(addForm.gstPercent) || 0,
-        reorderLevel: Number(addForm.reorderLevel) || 0
+        reorderLevel: Number(addForm.reorderLevel) || 0,
+        oemBrand: addForm.oemBrand || '',
+        warranty: addForm.warranty || ''
       };
       const res = await fetch(`${API_BASE_URL}/inventory`, {
         method: 'POST',
@@ -209,7 +215,9 @@ export default function Inventory({ token, user }) {
           vehicleCompatibility: '',
           supplier: '',
           reorderLevel: '',
-          locationRack: ''
+          locationRack: '',
+          oemBrand: '',
+          warranty: ''
         });
         fetchInventory();
       } else {
@@ -331,7 +339,9 @@ export default function Inventory({ token, user }) {
       vehicleCompatibility: item.vehicleCompatibility || '',
       supplier: item.supplier || '',
       reorderLevel: item.reorderLevel !== undefined && item.reorderLevel !== null ? item.reorderLevel.toString() : '',
-      locationRack: item.locationRack || ''
+      locationRack: item.locationRack || '',
+      oemBrand: item.oemBrand || '',
+      warranty: item.warranty || ''
     });
     setShowEditModal(true);
   };
@@ -346,7 +356,9 @@ export default function Inventory({ token, user }) {
         purchasePrice: Number(editForm.purchasePrice) || 0,
         sellingPrice: Number(editForm.sellingPrice) || 0,
         gstPercent: Number(editForm.gstPercent) || 0,
-        reorderLevel: Number(editForm.reorderLevel) || 0
+        reorderLevel: Number(editForm.reorderLevel) || 0,
+        oemBrand: editForm.oemBrand || '',
+        warranty: editForm.warranty || ''
       };
       const res = await fetch(`${API_BASE_URL}/inventory/${editForm._id}`, {
         method: 'PUT',
@@ -1009,6 +1021,8 @@ function PartsMasterBillingModal({
     supplier: initialData?.supplier || '',
     barcode: initialData?.barcode || '',
     notes: initialData?.notes || '',
+    oemBrand: initialData?.oemBrand || '',
+    warranty: initialData?.warranty || '',
     lastDiscountEdited: initialData?.discountType === 'Fixed' ? 'amount' : 'percent'
   }));
 
@@ -1526,7 +1540,9 @@ function PartsMasterBillingModal({
       gstPercent: Number(form.gstPercent) || 0,
       chargeAmount: Number(unitChargeRate) || 0,
       finalTotalAmount: Number(finalTotalAmount) || 0,
-      manualFinalTotal: manualFinalTotal
+      manualFinalTotal: manualFinalTotal,
+      oemBrand: form.oemBrand || '',
+      warranty: form.warranty || ''
     });
   };
 
@@ -1762,6 +1778,32 @@ function PartsMasterBillingModal({
                   value={form.vehicleCompatibility}
                   onChange={(e) => setForm({ ...form, vehicleCompatibility: e.target.value })}
                   placeholder="e.g. Maruti Swift 2018-2024"
+                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  OEM Brand (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={form.oemBrand}
+                  onChange={(e) => setForm({ ...form, oemBrand: e.target.value })}
+                  placeholder="e.g. Bosch, Moog"
+                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Warranty (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={form.warranty}
+                  onChange={(e) => setForm({ ...form, warranty: e.target.value })}
+                  placeholder="e.g. 1 Year, 6 Months"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>

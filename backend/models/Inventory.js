@@ -68,6 +68,16 @@ const inventorySchema = new mongoose.Schema({
     default: '',
     trim: true,
   },
+  oemBrand: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  warranty: {
+    type: String,
+    default: '',
+    trim: true,
+  },
   stockQuantity: {
     type: Number,
     required: true,

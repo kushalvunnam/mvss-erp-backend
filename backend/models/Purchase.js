@@ -92,6 +92,35 @@ const purchaseItemSchema = new mongoose.Schema({
   total: {
     type: Number,
     required: true,
+  },
+  // New fields for Parts Master integration
+  brand: {
+    type: String,
+    default: ''
+  },
+  supplierBrand: {
+    type: String,
+    default: ''
+  },
+  vehicleMake: {
+    type: String,
+    default: ''
+  },
+  vehicleModel: {
+    type: String,
+    default: ''
+  },
+  compatibility: {
+    type: String,
+    default: ''
+  },
+  oemBrand: {
+    type: String,
+    default: ''
+  },
+  warranty: {
+    type: String,
+    default: ''
   }
 });
 
