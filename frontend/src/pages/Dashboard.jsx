@@ -177,21 +177,27 @@ export default function Dashboard({ token, user, setActiveTab }) {
         const statsUrl = `${API_BASE_URL}/dashboard/stats?date=${dateStr}`;
         const chartsUrl = `${API_BASE_URL}/dashboard/charts?date=${dateStr}`;
 
-        const [statsRes, chartsRes] = await Promise.all([
-          fetch(statsUrl, { headers }),
-          fetch(chartsUrl, { headers }),
+        // Parallelize all 4 independent requests!
+        await Promise.all([
+          (async () => {
+            const res = await fetch(statsUrl, { headers });
+            if (res.ok) {
+              const data = await res.json();
+              setCachedData(statsUrl, data);
+              setStats(data);
+            }
+          })(),
+          (async () => {
+            const res = await fetch(chartsUrl, { headers });
+            if (res.ok) {
+              const data = await res.json();
+              setCachedData(chartsUrl, data);
+              setCharts(data);
+            }
+          })(),
+          fetchSummaryData(),
+          fetchReportsData()
         ]);
-
-        if (statsRes.ok && chartsRes.ok) {
-          const statsData = await statsRes.json();
-          const chartsData = await chartsRes.json();
-          setCachedData(statsUrl, statsData);
-          setCachedData(chartsUrl, chartsData);
-          setStats(statsData);
-          setCharts(chartsData);
-        }
-        await fetchSummaryData();
-        await fetchReportsData();
       } catch (err) {
         console.error('Failed to fetch dashboard metrics:', err);
       } finally {
@@ -203,15 +209,6 @@ export default function Dashboard({ token, user, setActiveTab }) {
     const interval = setInterval(fetchDashboardData, 10000);
     return () => clearInterval(interval);
   }, [token, selectedDate, summaryFilter, customStartDate, customEndDate, reportType]);
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex justify-center items-center h-full min-h-[400px] text-sm font-semibold text-slate-400">
-        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping mr-2" />
-        Loading analytics dashboard...
-      </div>
-    );
-  }
 
   if (user?.role === 'Service' || user?.role === 'Spares') {
     return (
@@ -537,19 +534,24 @@ export default function Dashboard({ token, user, setActiveTab }) {
             <div className="flex items-center justify-between">
               <span className="text-xs font-black text-slate-400 dark:text-slate-550 uppercase tracking-wide">Revenue & Billing</span>
               <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">{summaryFilter}</span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-2xl font-black text-slate-800 dark:text-white block">₹{(summaryData.periodStats?.totalBilling || 0).toLocaleString('en-IN')}</span>
+            </div>            <div className="space-y-1">
+              <span className="text-2xl font-black text-slate-800 dark:text-white block">
+                {loading ? <span className="inline-block h-6 w-32 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1" /> : `₹${(summaryData.periodStats?.totalBilling || 0).toLocaleString('en-IN')}`}
+              </span>
               <span className="text-[10px] text-slate-450 font-semibold block">Total Grand Billing Amount</span>
             </div>
             <div className="pt-2 border-t border-slate-200/50 dark:border-slate-850 grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-500">
               <div>
                 <span className="block text-slate-400">GST Collected</span>
-                <span className="text-slate-700 dark:text-slate-300">₹{(summaryData.periodStats?.gstCollected || 0).toLocaleString('en-IN')}</span>
+                <span className="text-slate-700 dark:text-slate-300">
+                  {loading ? <span className="inline-block h-3.5 w-16 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-0.5" /> : `₹${(summaryData.periodStats?.gstCollected || 0).toLocaleString('en-IN')}`}
+                </span>
               </div>
               <div>
                 <span className="block text-slate-400">Discounts Allowed</span>
-                <span className="text-slate-700 dark:text-slate-300">₹{(summaryData.periodStats?.discounts || 0).toLocaleString('en-IN')}</span>
+                <span className="text-slate-700 dark:text-slate-300">
+                  {loading ? <span className="inline-block h-3.5 w-16 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-0.5" /> : `₹${(summaryData.periodStats?.discounts || 0).toLocaleString('en-IN')}`}
+                </span>
               </div>
             </div>
           </div>
@@ -561,17 +563,23 @@ export default function Dashboard({ token, user, setActiveTab }) {
               <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">{summaryFilter}</span>
             </div>
             <div className="space-y-1">
-              <span className="text-2xl font-black text-slate-800 dark:text-white block">₹{(summaryData.periodStats?.salePartsValue || 0).toLocaleString('en-IN')}</span>
+              <span className="text-2xl font-black text-slate-800 dark:text-white block">
+                {loading ? <span className="inline-block h-6 w-32 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1" /> : `₹${(summaryData.periodStats?.salePartsValue || 0).toLocaleString('en-IN')}`}
+              </span>
               <span className="text-[10px] text-slate-450 font-semibold block">Parts Selling Value</span>
             </div>
             <div className="pt-2 border-t border-slate-200/50 dark:border-slate-850 grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-500">
               <div>
                 <span className="block text-slate-400">Parts Purchase Value</span>
-                <span className="text-slate-700 dark:text-slate-300">₹{(summaryData.periodStats?.purchasePartsValue || 0).toLocaleString('en-IN')}</span>
+                <span className="text-slate-700 dark:text-slate-300">
+                  {loading ? <span className="inline-block h-3.5 w-16 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-0.5" /> : `₹${(summaryData.periodStats?.purchasePartsValue || 0).toLocaleString('en-IN')}`}
+                </span>
               </div>
               <div>
                 <span className="block text-slate-400">Net Parts Revenue</span>
-                <span className="text-slate-750 dark:text-slate-200">₹{Math.max(0, (summaryData.periodStats?.salePartsValue || 0) - (summaryData.periodStats?.discounts || 0)).toLocaleString('en-IN')}</span>
+                <span className="text-slate-750 dark:text-slate-200">
+                  {loading ? <span className="inline-block h-3.5 w-16 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-0.5" /> : `₹${Math.max(0, (summaryData.periodStats?.salePartsValue || 0) - (summaryData.periodStats?.discounts || 0)).toLocaleString('en-IN')}`}
+                </span>
               </div>
             </div>
           </div>
@@ -583,17 +591,23 @@ export default function Dashboard({ token, user, setActiveTab }) {
               <span className="text-[10px] bg-amber-50 dark:bg-amber-955/30 text-amber-655 dark:text-amber-450 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">{summaryFilter}</span>
             </div>
             <div className="space-y-1">
-              <span className="text-2xl font-black text-slate-800 dark:text-white block">₹{(summaryData.periodStats?.labourRevenue || 0).toLocaleString('en-IN')}</span>
+              <span className="text-2xl font-black text-slate-800 dark:text-white block">
+                {loading ? <span className="inline-block h-6 w-32 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1" /> : `₹${(summaryData.periodStats?.labourRevenue || 0).toLocaleString('en-IN')}`}
+              </span>
               <span className="text-[10px] text-slate-440 font-semibold block">Total Labour Charges</span>
             </div>
             <div className="pt-2 border-t border-slate-200/50 dark:border-slate-850 grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-500">
               <div>
                 <span className="block text-slate-400">Closed Job Cards</span>
-                <span className="text-slate-700 dark:text-slate-300 font-extrabold text-xs">{summaryData.periodStats?.closedJobCardsCount || 0} Cards</span>
+                <span className="text-slate-700 dark:text-slate-300 font-extrabold text-xs">
+                  {loading ? <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-0.5" /> : `${summaryData.periodStats?.closedJobCardsCount || 0} Cards`}
+                </span>
               </div>
               <div>
                 <span className="block text-slate-400">Workforce Revenue</span>
-                <span className="text-slate-750 dark:text-slate-200">₹{(summaryData.periodStats?.labourRevenue || 0).toLocaleString('en-IN')}</span>
+                <span className="text-slate-750 dark:text-slate-200">
+                  {loading ? <span className="inline-block h-3.5 w-16 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-0.5" /> : `₹${(summaryData.periodStats?.labourRevenue || 0).toLocaleString('en-IN')}`}
+                </span>
               </div>
             </div>
           </div>
@@ -606,18 +620,24 @@ export default function Dashboard({ token, user, setActiveTab }) {
               <span className="text-[9px] bg-white/20 text-white font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">{summaryFilter}</span>
             </div>
             <div className="space-y-1">
-              <span className="text-3xl font-black block">₹{(summaryData.periodStats?.netProfit || 0).toLocaleString('en-IN')}</span>
+              <span className="text-3xl font-black block">
+                {loading ? <span className="inline-block h-8 w-40 bg-white/20 animate-pulse rounded mt-1" /> : `₹${(summaryData.periodStats?.netProfit || 0).toLocaleString('en-IN')}`}
+              </span>
               <span className="text-[10px] text-emerald-100 font-semibold block">Net Profit (Gross Profit - Expenses)</span>
             </div>
             <div className="pt-2 border-t border-white/25 grid grid-cols-2 gap-2 text-[10px] font-bold text-emerald-100">
               <div>
                 <span className="block text-emerald-200">Gross Profit</span>
-                <span className="text-white text-xs font-black">₹{(summaryData.periodStats?.grossProfit || 0).toLocaleString('en-IN')}</span>
+                <span className="text-white text-xs font-black">
+                  {loading ? <span className="inline-block h-3.5 w-16 bg-white/20 animate-pulse rounded mt-0.5" /> : `₹${(summaryData.periodStats?.grossProfit || 0).toLocaleString('en-IN')}`}
+                </span>
               </div>
               <div>
                 <span className="block text-emerald-200">Profit Margin %</span>
                 <span className="text-white text-xs font-black">
-                  {summaryData.periodStats?.salePartsValue + summaryData.periodStats?.labourRevenue > 0
+                  {loading ? (
+                    <span className="inline-block h-3.5 w-12 bg-white/20 animate-pulse rounded mt-0.5" />
+                  ) : summaryData.periodStats?.salePartsValue + summaryData.periodStats?.labourRevenue > 0
                     ? `${Math.round((summaryData.periodStats?.grossProfit / (summaryData.periodStats?.salePartsValue + summaryData.periodStats?.labourRevenue)) * 100)}%`
                     : '0%'}
                 </span>
@@ -760,7 +780,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatsCard 
           title="Total Customers" 
-          value={stats.totalCustomers || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.totalCustomers || 0)} 
           icon={Users} 
           description="Registered Clients" 
           trend="+4%" 
@@ -768,7 +788,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Total Vehicles" 
-          value={stats.totalVehicles || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.totalVehicles || 0)} 
           icon={Car} 
           description="Automobile Registry" 
           trend="+5%" 
@@ -776,7 +796,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Active Job Cards" 
-          value={stats.activeJobCards || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.activeJobCards || 0)} 
           icon={FileText} 
           description="Active Shop Floor" 
           trend="In Progress" 
@@ -784,7 +804,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Completed Job Cards" 
-          value={stats.completedJobCards || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.completedJobCards || 0)} 
           icon={CheckCircle2} 
           description="Delivered Vehicles" 
           trend="Closed" 
@@ -792,7 +812,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Pending Job Cards" 
-          value={stats.pendingJobCards || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.pendingJobCards || 0)} 
           icon={Clock} 
           description="Awaiting Work" 
           trend="Queue" 
@@ -800,7 +820,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Revenue This Month" 
-          value={`₹${Math.round(stats.revenueThisMonth || stats.monthlyRevenue || 0).toLocaleString('en-IN')}`} 
+          value={loading ? <div className="h-5 w-24 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : `₹${Math.round(stats.revenueThisMonth || stats.monthlyRevenue || 0).toLocaleString('en-IN')}`} 
           icon={IndianRupee} 
           description="Current Month" 
           trend="+12%" 
@@ -808,7 +828,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Revenue This Year" 
-          value={`₹${Math.round(stats.revenueThisYear || 0).toLocaleString('en-IN')}`} 
+          value={loading ? <div className="h-5 w-24 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : `₹${Math.round(stats.revenueThisYear || 0).toLocaleString('en-IN')}`} 
           icon={TrendingUp} 
           description="Current Year" 
           trend="Annual" 
@@ -816,7 +836,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Pending Payments" 
-          value={`₹${Math.round(stats.pendingPayments || 0).toLocaleString('en-IN')}`} 
+          value={loading ? <div className="h-5 w-24 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : `₹${Math.round(stats.pendingPayments || 0).toLocaleString('en-IN')}`} 
           icon={IndianRupee} 
           description="Unpaid Invoices" 
           trend="Due" 
@@ -824,7 +844,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Inventory Value" 
-          value={`₹${Math.round(stats.inventoryValue || 0).toLocaleString('en-IN')}`} 
+          value={loading ? <div className="h-5 w-24 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : `₹${Math.round(stats.inventoryValue || 0).toLocaleString('en-IN')}`} 
           icon={ShoppingBag} 
           description="Stock Valuation" 
           trend="Asset" 
@@ -832,7 +852,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Low Stock Items" 
-          value={stats.lowStockItems || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.lowStockItems || 0)} 
           icon={AlertTriangle} 
           description="Needs Reordering" 
           trend={stats.lowStockItems > 0 ? 'Warning' : 'OK'} 
@@ -840,7 +860,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Insurance Claims" 
-          value={stats.insuranceClaims || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.insuranceClaims || 0)} 
           icon={ShieldCheck} 
           description="Insurance surveys" 
           trend="Claims" 
@@ -848,7 +868,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
         />
         <StatsCard 
           title="Body Shop Jobs" 
-          value={stats.bodyShopJobs || 0} 
+          value={loading ? <div className="h-5 w-12 bg-slate-200 dark:bg-slate-800 animate-pulse rounded mt-1.5" /> : (stats.bodyShopJobs || 0)} 
           icon={Wrench} 
           description="Dent/Paint/Align" 
           trend="In Progress" 
@@ -962,7 +982,11 @@ export default function Dashboard({ token, user, setActiveTab }) {
             </div>
             
             <div className="relative mt-2">
-              {revenuePoints.length > 1 ? (
+              {loading ? (
+                <div className="w-full h-[200px] bg-slate-55/40 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-2xl animate-pulse flex items-center justify-center text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                  Loading Chart...
+                </div>
+              ) : revenuePoints.length > 1 ? (
                 <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-auto overflow-visible">
                   {[0, 0.5, 1].map((val, idx) => {
                     const y = chartHeight - val * (chartHeight - 30) - 15;

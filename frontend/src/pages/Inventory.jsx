@@ -31,6 +31,7 @@ export default function Inventory({ token, user }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [lowStockFilter, setLowStockFilter] = useState(false);
+  const [loading, setLoading] = useState(false);
   
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -147,7 +148,11 @@ export default function Inventory({ token, user }) {
   const fetchInventory = async () => {
     const url = `${API_BASE_URL}/inventory?search=${encodeURIComponent(search)}&lowStock=${lowStockFilter}&category=${encodeURIComponent(categoryFilter)}`;
     const cached = getCachedData(url);
-    if (cached && items.length === 0) setItems(cached);
+    if (cached) {
+      setItems(cached);
+    } else if (items.length === 0) {
+      setLoading(true);
+    }
 
     try {
       const res = await fetch(url, {
@@ -160,6 +165,8 @@ export default function Inventory({ token, user }) {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -323,25 +330,23 @@ export default function Inventory({ token, user }) {
 
   const triggerEdit = (item) => {
     setEditForm({
-      _id: item._id,
-      partName: item.partName || '',
-      partNumber: item.partNumber || '',
-      hsnCode: item.hsnCode || '',
-      brand: item.brand || '',
-      model: item.model || '',
-      variant: item.variant || '',
-      stockQuantity: item.stockQuantity !== undefined && item.stockQuantity !== null ? item.stockQuantity.toString() : '',
-      lowStockThreshold: item.lowStockThreshold !== undefined && item.lowStockThreshold !== null ? item.lowStockThreshold.toString() : '',
+      ...item,
+      stockQuantity: item.stockQuantity !== undefined && item.stockQuantity !== null ? item.stockQuantity.toString() : '0',
+      openingStock: item.openingStock !== undefined && item.openingStock !== null ? item.openingStock.toString() : '0',
+      lowStockThreshold: item.lowStockThreshold !== undefined && item.lowStockThreshold !== null ? item.lowStockThreshold.toString() : '5',
+      maxStock: item.maxStock !== undefined && item.maxStock !== null ? item.maxStock.toString() : '100',
+      reorderLevel: item.reorderLevel !== undefined && item.reorderLevel !== null ? item.reorderLevel.toString() : '5',
       purchasePrice: item.purchasePrice !== undefined && item.purchasePrice !== null ? item.purchasePrice.toString() : '',
       sellingPrice: item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice.toString() : '',
-      gstPercent: item.gstPercent !== undefined && item.gstPercent !== null ? item.gstPercent.toString() : '',
-      category: item.category || '',
-      vehicleCompatibility: item.vehicleCompatibility || '',
-      supplier: item.supplier || '',
-      reorderLevel: item.reorderLevel !== undefined && item.reorderLevel !== null ? item.reorderLevel.toString() : '',
-      locationRack: item.locationRack || '',
-      oemBrand: item.oemBrand || '',
-      warranty: item.warranty || ''
+      mrp: item.mrp !== undefined && item.mrp !== null ? item.mrp.toString() : '',
+      marginPercent: item.marginPercent !== undefined && item.marginPercent !== null ? item.marginPercent.toString() : '',
+      quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity.toString() : '1',
+      discountPercent: item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent.toString() : '0',
+      discountAmount: item.discountAmount !== undefined && item.discountAmount !== null ? item.discountAmount.toString() : '0',
+      gstPercent: item.gstPercent !== undefined && item.gstPercent !== null ? item.gstPercent.toString() : '18',
+      chargeAmount: item.chargeAmount !== undefined && item.chargeAmount !== null ? item.chargeAmount.toString() : '',
+      taxableAmount: item.taxableAmount !== undefined && item.taxableAmount !== null ? item.taxableAmount.toString() : '',
+      supplier: item.supplier || item.vendorName || '',
     });
     setShowEditModal(true);
   };
@@ -505,7 +510,41 @@ export default function Inventory({ token, user }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-              {items.length > 0 ? (
+              {loading && items.length === 0 ? (
+                Array.from({ length: 8 }).map((_, idx) => (
+                  <tr key={idx} className="animate-pulse">
+                    <td className="p-4">
+                      <div className="h-4 w-36 bg-slate-200 dark:bg-slate-800 rounded" />
+                      <div className="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded mt-2" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded" />
+                      <div className="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded mt-2" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded font-mono" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded font-mono" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded font-mono" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-5 w-20 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-5 w-24 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded" />
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded inline-block" />
+                    </td>
+                  </tr>
+                ))
+              ) : items.length > 0 ? (
                 items.map(item => {
                   const isLow = item.stockQuantity <= item.lowStockThreshold;
                   const isReorder = item.stockQuantity <= (item.reorderLevel || item.lowStockThreshold);
@@ -1469,6 +1508,23 @@ function PartsMasterBillingModal({
     }));
   };
 
+  const handleLabourFinalAmountChange = (val) => {
+    const finalAmt = parseFloat(val) || 0;
+    const gstP = parseFloat(form.gstPercent) || 0;
+    const calculatedTaxable = finalAmt / (1 + gstP / 100);
+    setForm(prev => ({
+      ...prev,
+      taxableAmount: finalAmt > 0 ? calculatedTaxable.toFixed(4) : '',
+      sellingPrice: finalAmt > 0 ? calculatedTaxable.toFixed(4) : '',
+      mrp: finalAmt > 0 ? finalAmt.toFixed(2) : '',
+      quantity: '1',
+      discountPercent: '0',
+      discountAmount: '0',
+      purchasePrice: '0',
+      marginPercent: '0'
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.partName || !form.partNumber) {
@@ -1881,13 +1937,15 @@ function PartsMasterBillingModal({
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    Final Amount (Auto Calculated) (₹)
+                    Final Amount (₹) *
                   </label>
                   <input
-                    type="text"
-                    readOnly
-                    value={`₹ ${finalTotalAmount.toFixed(2)}`}
-                    className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-xl font-mono text-emerald-600 dark:text-emerald-450 font-bold"
+                    type="number"
+                    step="0.01"
+                    required
+                    value={finalTotalAmount === 0 ? '' : finalTotalAmount.toFixed(2)}
+                    onChange={(e) => handleLabourFinalAmountChange(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-emerald-600 dark:text-emerald-450 font-bold focus:outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>

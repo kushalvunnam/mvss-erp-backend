@@ -12,6 +12,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit', 'details'
   const [selectedJcId, setSelectedJcId] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   // If a global viewJcId is passed down, open details immediately
   useEffect(() => {
@@ -24,7 +25,11 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   const fetchJobCards = async () => {
     const url = `${API_BASE_URL}/jobcards?search=${encodeURIComponent(search)}&status=${statusFilter}`;
     const cached = getCachedData(url);
-    if (cached && jobCards.length === 0) setJobCards(cached);
+    if (cached) {
+      setJobCards(cached);
+    } else if (jobCards.length === 0) {
+      setLoading(true);
+    }
 
     try {
       const res = await fetch(url, {
@@ -37,6 +42,8 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -223,7 +230,24 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
 
       {/* Grid List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {jobCards.length > 0 ? (
+        {loading && jobCards.length === 0 ? (
+          Array.from({ length: 6 }).map((_, idx) => (
+            <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl space-y-4 animate-pulse">
+              <div className="flex justify-between items-center">
+                <div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" />
+                <div className="h-5 w-20 bg-slate-200 dark:bg-slate-800 rounded-full" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-6 w-36 bg-slate-200 dark:bg-slate-800 rounded" />
+                <div className="h-3 w-48 bg-slate-200 dark:bg-slate-800 rounded" />
+              </div>
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between">
+                <div className="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded" />
+                <div className="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded" />
+              </div>
+            </div>
+          ))
+        ) : jobCards.length > 0 ? (
           jobCards.map(jc => {
             let statusColor = 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
             if (jc.status === 'Waiting for Customer Approval') statusColor = 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border border-purple-200/50';
