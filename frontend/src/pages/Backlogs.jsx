@@ -181,6 +181,33 @@ export default function Backlogs({ token, user }) {
     }
   };
 
+  const handleStatusChange = async (id, newStatus) => {
+    setActionLoading(true);
+    setSuccess('');
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/backlogs/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        setSuccess('Backlog status updated successfully.');
+        setBacklogs(prev => prev.map(b => b._id === id ? { ...b, status: newStatus } : b));
+      } else {
+        const err = await res.json();
+        setError(err.error || 'Failed to update status.');
+      }
+    } catch (err) {
+      setError('Network error. Failed to update status.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const fetchBacklogs = async () => {
     setLoading(true);
     setError('');
@@ -541,57 +568,64 @@ export default function Backlogs({ token, user }) {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const receivedTodayCount = backlogs.filter(b => 
-    b.status === 'Received' && 
+    ['Received', 'In Stock', 'Issued', 'Completed'].includes(b.status) && 
     b.receivedDate && 
     new Date(b.receivedDate).toISOString().slice(0, 10) === todayStr
   ).length;
 
   const overdueCount = backlogs.filter(b => {
-    const isReceived = b.status === 'Received';
+    const isReceived = ['Received', 'In Stock', 'Issued', 'Completed'].includes(b.status);
     const isCancelled = b.status === 'Cancelled';
     const isPast = new Date(b.expectedDeliveryDate) < new Date(todayStr);
     return !isReceived && !isCancelled && isPast;
   }).length;
 
+  // Render Status Badge Class Helper
+  const getStatusBadgeClass = (status, expectedDate) => {
+    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && !['Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'].includes(status);
+    if (isOverdue) {
+      return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-955/20 dark:text-rose-400 dark:border-rose-900/40';
+    }
+    switch (status) {
+      case 'Pending':
+      case 'Pending Order':
+        return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-955/20 dark:text-blue-400 dark:border-blue-900/40';
+      case 'Ordered':
+        return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900/40';
+      case 'Partially Received':
+        return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 dark:border-amber-900/40';
+      case 'Received':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40';
+      case 'In Stock':
+        return 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/20 dark:text-teal-400 dark:border-teal-900/40';
+      case 'Issued':
+        return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-955/20 dark:text-orange-455 dark:border-orange-900/40';
+      case 'Completed':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40';
+      case 'Installed':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/40';
+      case 'Cancelled':
+        return 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/60';
+      default:
+        return 'bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-800/40 dark:text-slate-400';
+    }
+  };
+
   // Render Status Badge
   const getStatusBadge = (status, expectedDate) => {
-    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && status !== 'Received' && status !== 'Cancelled';
+    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && !['Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'].includes(status);
     
     if (isOverdue) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/40">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-955/20 dark:text-rose-400 dark:border-rose-900/40">
           <AlertTriangle className="w-3 h-3" /> Overdue
         </span>
       );
     }
 
-    let classes = '';
-    switch (status) {
-      case 'Pending':
-      case 'Pending Order':
-        classes = 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/40';
-        break;
-      case 'Ordered':
-        classes = 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900/40';
-        break;
-      case 'Partially Received':
-        classes = 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40';
-        break;
-      case 'Received':
-        classes = 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40';
-        break;
-      case 'Installed':
-        classes = 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/40';
-        break;
-      case 'Cancelled':
-        classes = 'bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/60';
-        break;
-      default:
-        classes = 'bg-slate-50 text-slate-600';
-    }
-
+    const classes = getStatusBadgeClass(status, expectedDate);
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide ${classes}`}>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${classes}`}>
         {status}
       </span>
     );
@@ -773,7 +807,9 @@ export default function Backlogs({ token, user }) {
                 <option value="Pending">Pending</option>
                 <option value="Ordered">Ordered</option>
                 <option value="Received">Received</option>
-                <option value="Installed">Installed</option>
+                <option value="In Stock">In Stock</option>
+                <option value="Issued">Issued</option>
+                <option value="Completed">Completed</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
             </div>
@@ -990,7 +1026,24 @@ export default function Backlogs({ token, user }) {
 
                       {/* Status */}
                       <td className="p-3 text-center">
-                        {getStatusBadge(b.status, b.expectedDeliveryDate)}
+                        {canEdit ? (
+                          <select
+                            value={b.status}
+                            disabled={actionLoading}
+                            onChange={(e) => handleStatusChange(b._id, e.target.value)}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${getStatusBadgeClass(b.status, b.expectedDeliveryDate)}`}
+                          >
+                            <option value="Pending" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Pending</option>
+                            <option value="Ordered" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Ordered</option>
+                            <option value="Received" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Received</option>
+                            <option value="In Stock" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">In Stock</option>
+                            <option value="Issued" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Issued</option>
+                            <option value="Completed" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Completed</option>
+                            <option value="Cancelled" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Cancelled</option>
+                          </select>
+                        ) : (
+                          getStatusBadge(b.status, b.expectedDeliveryDate)
+                        )}
                       </td>
 
                       {/* Priority */}
@@ -1009,7 +1062,7 @@ export default function Backlogs({ token, user }) {
                             <Eye className="w-3.5 h-3.5" />
                           </button>
 
-                          {canEdit && b.status !== 'Received' && (
+                          {canEdit && b.status !== 'Cancelled' && b.status !== 'Completed' && (
                             <button
                               onClick={() => openEditModal(b)}
                               className="p-1 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors"
@@ -1019,7 +1072,7 @@ export default function Backlogs({ token, user }) {
                             </button>
                           )}
 
-                          {canReceive && b.status !== 'Received' && b.status !== 'Cancelled' && (
+                          {canReceive && !['Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'].includes(b.status) && (
                             <button
                               onClick={() => handleMarkReceived(b)}
                               className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
@@ -1455,7 +1508,9 @@ export default function Backlogs({ token, user }) {
                     <option value="Pending">Pending</option>
                     <option value="Ordered">Ordered</option>
                     <option value="Received">Received</option>
-                    <option value="Installed">Installed</option>
+                    <option value="In Stock">In Stock</option>
+                    <option value="Issued">Issued</option>
+                    <option value="Completed">Completed</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>

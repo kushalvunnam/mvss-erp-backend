@@ -279,9 +279,22 @@ router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares'), async
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });
 
-    // Block changes if already received
-    if (backlog.status === 'Received' && req.body.status !== 'Received') {
-      return res.status(400).send({ error: 'Cannot modify a backlog entry that is already marked as Received.' });
+    // Block core fields changes if already received, but allow status changes
+    const postReceivedStatuses = ['Received', 'In Stock', 'Issued', 'Completed'];
+    const isPostReceived = postReceivedStatuses.includes(backlog.status);
+
+    if (isPostReceived) {
+      const restrictedFields = [
+        'vehicleNo', 'customerName', 'jobCardNo', 'vehicleModel',
+        'partNumber', 'partName', 'brand', 'qty', 'vendorName',
+        'vendorContact', 'poNumber', 'orderedDate'
+      ];
+      const modifyingRestricted = restrictedFields.some(field => 
+        req.body[field] !== undefined && String(req.body[field]) !== String(backlog[field])
+      );
+      if (modifyingRestricted) {
+        return res.status(400).send({ error: 'Cannot modify backlog part/quantity/details after the item has been marked as Received.' });
+      }
     }
 
     const updatableFields = [
@@ -313,7 +326,8 @@ router.put('/:id/receive', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares'
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });
 
-    if (backlog.status === 'Received') {
+    const postReceivedStatuses = ['Received', 'In Stock', 'Issued', 'Completed'];
+    if (postReceivedStatuses.includes(backlog.status)) {
       return res.status(400).send({ error: 'This backlog item has already been received.' });
     }
 
