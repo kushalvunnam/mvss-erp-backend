@@ -1600,7 +1600,8 @@ function PartsMasterBillingModal({
       finalTotalAmount: Number(finalTotalAmount) || 0,
       manualFinalTotal: manualFinalTotal,
       oemBrand: form.oemBrand || '',
-      warranty: form.warranty || ''
+      warranty: form.warranty || '',
+      vendorName: form.supplier || ''
     });
   };
 

@@ -807,8 +807,6 @@ export default function Backlogs({ token, user }) {
                 <option value="Pending">Pending</option>
                 <option value="Ordered">Ordered</option>
                 <option value="Received">Received</option>
-                <option value="In Stock">In Stock</option>
-                <option value="Issued">Issued</option>
                 <option value="Completed">Completed</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
@@ -1036,8 +1034,6 @@ export default function Backlogs({ token, user }) {
                             <option value="Pending" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Pending</option>
                             <option value="Ordered" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Ordered</option>
                             <option value="Received" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Received</option>
-                            <option value="In Stock" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">In Stock</option>
-                            <option value="Issued" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Issued</option>
                             <option value="Completed" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Completed</option>
                             <option value="Cancelled" className="text-slate-805 dark:text-white bg-white dark:bg-slate-900">Cancelled</option>
                           </select>
@@ -1508,8 +1504,6 @@ export default function Backlogs({ token, user }) {
                     <option value="Pending">Pending</option>
                     <option value="Ordered">Ordered</option>
                     <option value="Received">Received</option>
-                    <option value="In Stock">In Stock</option>
-                    <option value="Issued">Issued</option>
                     <option value="Completed">Completed</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
