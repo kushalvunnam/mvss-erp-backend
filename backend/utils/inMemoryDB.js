@@ -300,13 +300,16 @@ function createMockModel(modelName) {
     static findOne(query = {}) {
       const list = collections[modelName].filter(doc => matchesQuery(doc, query));
       if (list.length === 0) {
-        return {
-          populate: () => ({ then: (res) => res(null) }),
+        const nullResult = {
+          populate: () => nullResult,
+          select: () => nullResult,
+          lean: () => nullResult,
           then: (resolve) => resolve(null)
         };
+        return nullResult;
       }
       const inst = new MockDoc(modelName, list[0]);
-      return {
+      const chain = {
         populate: (path) => {
           let refId = inst[path];
           let targetColl = null;
@@ -322,10 +325,13 @@ function createMockModel(modelName) {
               inst[path] = deepClone(matchedRef);
             }
           }
-          return { then: (res) => res(inst) };
+          return chain;
         },
+        select: () => chain,
+        lean: () => chain,
         then: (resolve) => resolve(inst)
       };
+      return chain;
     }
 
     static findById(id) {

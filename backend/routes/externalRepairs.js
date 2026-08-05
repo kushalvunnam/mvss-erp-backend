@@ -7,9 +7,11 @@ require('../models/Vendor');
 require('../models/Vehicle');
 
 // Auto-create collection in DB if missing
-ExternalRepair.createCollection().catch(err => {
-  console.log('ExternalRepair collection auto-creation:', err.message);
-});
+if (typeof ExternalRepair.createCollection === 'function') {
+  ExternalRepair.createCollection().catch(err => {
+    console.log('ExternalRepair collection auto-creation:', err.message);
+  });
+}
 
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
