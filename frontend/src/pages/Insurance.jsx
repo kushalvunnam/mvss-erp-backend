@@ -488,7 +488,7 @@ export default function Insurance({ token }) {
                 </label>
                 <div className="relative">
                   <div className="relative">
-                    <SearchCode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <SearchCode className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
                       value={vehicleSearch}
@@ -498,7 +498,7 @@ export default function Insurance({ token }) {
                       }}
                       onFocus={() => setShowVehicleDropdown(true)}
                       placeholder="Type registration number, brand or model to link vehicle..."
-                      className="w-full pl-9.5 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-bold focus:outline-none focus:border-indigo-500 placeholder-slate-400 text-slate-800 dark:text-slate-200"
+                      className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-bold focus:outline-none focus:border-indigo-500 placeholder-slate-400 text-slate-800 dark:text-slate-200"
                     />
                     {formData.vehicleId && (
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black">
