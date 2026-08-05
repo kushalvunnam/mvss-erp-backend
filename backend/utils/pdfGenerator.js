@@ -863,7 +863,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
       const rate = part.rate || 0;
       const amount = part.taxableValue !== undefined ? part.taxableValue : (qty * rate);
       const hasGst = part.gstPercent !== undefined && part.gstPercent !== null && part.gstPercent !== '';
-      const gstPercent = hasGst ? Number(part.gstPercent) : 0;
+      const gstPercent = hasGst ? Number(part.gstPercent) : 18;
       const gstAmount = amount * (gstPercent / 100);
       const total = amount + gstAmount;
 
@@ -938,7 +938,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
       const rate = item.rate || 0;
       const amount = item.taxableValue !== undefined ? item.taxableValue : (qty * rate);
       const hasGst = item.gstPercent !== undefined && item.gstPercent !== null && item.gstPercent !== '';
-      const gstPercent = hasGst ? Number(item.gstPercent) : 0;
+      const gstPercent = hasGst ? Number(item.gstPercent) : 18;
       const gstAmount = amount * (gstPercent / 100);
       const total = amount + gstAmount;
 

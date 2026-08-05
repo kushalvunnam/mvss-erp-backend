@@ -196,16 +196,16 @@ router.post('/', async (req, res) => {
           inventoryItem.purchasePrice = purchasePrice;
         }
         if (sellingPrice > 0) inventoryItem.sellingPrice = sellingPrice;
-        if (updateMRP && mrp > 0 && inventoryItem.mrp !== mrp) {
+        if (mrp > 0) {
           inventoryItem.mrp = mrp;
         }
         inventoryItem.vendorId = vendor._id;
         inventoryItem.vendorName = vendor.name;
+        inventoryItem.supplier = vendor.name;
         if (gstPercent !== undefined) inventoryItem.gstPercent = gstPercent;
         
         // Update Parts Master fields from Purchase Entry if provided
         if (item.brand && item.brand.trim()) inventoryItem.brand = item.brand.trim();
-        if (item.supplierBrand && item.supplierBrand.trim()) inventoryItem.supplier = item.supplierBrand.trim();
         if (item.compatibility && item.compatibility.trim()) inventoryItem.vehicleCompatibility = item.compatibility.trim();
         if (item.oemBrand && item.oemBrand.trim()) inventoryItem.oemBrand = item.oemBrand.trim();
         if (item.warranty && item.warranty.trim()) inventoryItem.warranty = item.warranty.trim();
@@ -228,7 +228,7 @@ router.post('/', async (req, res) => {
           warehouse: item.warehouse || 'Main Store',
           // Set Parts Master fields from Purchase Entry
           brand: item.brand || '',
-          supplier: item.supplierBrand || '',
+          supplier: vendor.name,
           vehicleCompatibility: item.compatibility || '',
           oemBrand: item.oemBrand || '',
           warranty: item.warranty || '',
@@ -553,9 +553,14 @@ router.put('/:id', async (req, res) => {
         if (mrp > 0) inventoryItem.mrp = mrp;
         inventoryItem.vendorId = newVendor._id;
         inventoryItem.vendorName = newVendor.name;
+        inventoryItem.supplier = newVendor.name;
+        if (item.brand && item.brand.trim()) inventoryItem.brand = item.brand.trim();
+        if (item.compatibility && item.compatibility.trim()) inventoryItem.vehicleCompatibility = item.compatibility.trim();
+        if (item.oemBrand && item.oemBrand.trim()) inventoryItem.oemBrand = item.oemBrand.trim();
+        if (item.warranty && item.warranty.trim()) inventoryItem.warranty = item.warranty.trim();
         if (gstPercent !== undefined) inventoryItem.gstPercent = gstPercent;
         if (item.warehouse) inventoryItem.warehouse = item.warehouse;
-        if (item.rackLocation) inventoryItem.rackLocation = item.rackLocation;
+        if (item.rackLocation && item.rackLocation.trim()) inventoryItem.locationRack = item.rackLocation.trim();
         await inventoryItem.save();
         partId = inventoryItem._id;
       } else {
@@ -570,8 +575,13 @@ router.put('/:id', async (req, res) => {
           gstPercent,
           vendorId: newVendor._id,
           vendorName: newVendor.name,
+          supplier: newVendor.name,
           warehouse: item.warehouse || 'Main Store',
-          rackLocation: item.rackLocation || ''
+          brand: item.brand || '',
+          vehicleCompatibility: item.compatibility || '',
+          oemBrand: item.oemBrand || '',
+          warranty: item.warranty || '',
+          locationRack: item.rackLocation || ''
         });
         await inventoryItem.save();
         partId = inventoryItem._id;

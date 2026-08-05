@@ -130,6 +130,11 @@ router.post('/purchase', auth, restrictTo('Admin', 'Spares'), async (req, res) =
     if (purchasePrice !== undefined) item.purchasePrice = Number(purchasePrice);
     if (sellingPrice !== undefined) item.sellingPrice = Number(sellingPrice);
     if (mrp !== undefined) item.mrp = Number(mrp);
+    if (vendorId) item.vendorId = vendorId;
+    if (vendorName) {
+      item.vendorName = vendorName;
+      item.supplier = vendorName;
+    }
 
     await item.save();
 

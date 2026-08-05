@@ -186,7 +186,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Selection
   const [selectedJcId, setSelectedJcId] = useState('');
   const [partsList, setPartsList] = useState([]);
-  const [labourList, setLabourList] = useState([{ description: '', rate: '', gstPercent: '' }]);
+  const [labourList, setLabourList] = useState([{ description: '', rate: '', gstPercent: '18' }]);
 
   // Totals
   const [totals, setTotals] = useState({
@@ -441,7 +441,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
 
     if (!selectedJcId || jobCards.length === 0 || inventory.length === 0) {
       setPartsList([]);
-      setLabourList([{ description: '', rate: '', gstPercent: '' }]);
+      setLabourList([{ description: '', rate: '', gstPercent: '18' }]);
       return;
     }
 
@@ -529,7 +529,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     });
 
     setPartsList(suggestedParts);
-    setLabourList(suggestedLabour.length > 0 ? suggestedLabour : [{ description: '', rate: '', gstPercent: '' }]);
+    setLabourList(suggestedLabour.length > 0 ? suggestedLabour : [{ description: '', rate: '', gstPercent: '18' }]);
   }, [selectedJcId, jobCards, inventory, editId]);
 
   // Handle live recalculation
@@ -642,7 +642,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Parts rows operations
   const handleAddPartRow = () => {
     setManualOverride(false);
-    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '', taxableAmount: '' }]);
+    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '' }]);
   };
 
   const handleRemovePartRow = (idx) => {
@@ -702,7 +702,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Labour rows operations
   const handleAddLabourRow = () => {
     setManualOverride(false);
-    setLabourList([...labourList, { description: '', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '', taxableAmount: '' }]);
+    setLabourList([...labourList, { description: '', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '' }]);
   };
 
   const handleRemoveLabourRow = (idx) => {
@@ -759,7 +759,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
           qty: Math.max(1, Number(p.qty) || 1), // Mongoose requires min: 1
           rate: Number(p.rate) || 0,
           discount: Number(p.discount) || 0,
-          gstPercent: Number(p.gstPercent) || 0
+          gstPercent: (p.gstPercent !== undefined && p.gstPercent !== null && p.gstPercent !== '') ? Number(p.gstPercent) : 18
         };
         // Only include partId if it's a valid non-empty string to avoid CastError
         if (p.partId && p.partId.trim() !== '') {
@@ -775,7 +775,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         description: l.description.trim(),
         rate: Number(l.rate) || 0,
         discount: Number(l.discount) || 0,
-        gstPercent: Number(l.gstPercent) || 0
+        gstPercent: (l.gstPercent !== undefined && l.gstPercent !== null && l.gstPercent !== '') ? Number(l.gstPercent) : 18
       }));
 
     if (cleanedParts.length === 0 && cleanedLabour.length === 0) {
