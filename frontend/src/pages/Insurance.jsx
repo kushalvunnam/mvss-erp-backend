@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
 import { Search, Plus, Edit2, Trash2, Shield, Calendar, Phone, User, Landmark, DollarSign, AlertTriangle, Clock, X, Check, SearchCode } from 'lucide-react';
+import { getCachedData, setCachedData } from '../utils/apiCache';
 
 export default function Insurance({ token }) {
-  const [policies, setPolicies] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
+  const [policies, setPolicies] = useState(() => getCachedData(`${API_BASE_URL}/insurance?search=&company=&claimStatus=`) || []);
+  const [vehicles, setVehicles] = useState(() => getCachedData(`${API_BASE_URL}/vehicles`) || []);
   const [search, setSearch] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
   const [claimFilter, setClaimFilter] = useState('');
@@ -48,15 +49,21 @@ export default function Insurance({ token }) {
 
   // Fetch policies and vehicles
   const fetchPolicies = async () => {
-    setLoading(true);
+    const url = `${API_BASE_URL}/insurance?search=${encodeURIComponent(search)}&company=${companyFilter}&claimStatus=${claimFilter}`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setPolicies(cached);
+    } else if (policies.length === 0) {
+      setLoading(true);
+    }
     setError('');
     try {
-      const url = `${API_BASE_URL}/insurance?search=${encodeURIComponent(search)}&company=${companyFilter}&claimStatus=${claimFilter}`;
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setCachedData(url, data);
         setPolicies(data);
       } else {
         const err = await res.json();
@@ -71,12 +78,18 @@ export default function Insurance({ token }) {
   };
 
   const fetchVehicles = async () => {
+    const url = `${API_BASE_URL}/vehicles`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setVehicles(cached);
+    }
     try {
-      const res = await fetch(`${API_BASE_URL}/vehicles`, {
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setCachedData(url, data);
         setVehicles(data);
       }
     } catch (err) {

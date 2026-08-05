@@ -1,23 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
 import { Search, ChevronDown, ChevronUp, Calendar, Hash, Milestone, Shield, DollarSign, User, AlertCircle, Wrench, CheckCircle } from 'lucide-react';
+import { getCachedData, setCachedData } from '../utils/apiCache';
 
 export default function ServiceHistory({ token }) {
   const [search, setSearch] = useState('');
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(() => getCachedData(`${API_BASE_URL}/jobcards/service-history?search=`) || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedRows, setExpandedRows] = useState({});
 
   const fetchServiceHistory = async () => {
-    setLoading(true);
+    const url = `${API_BASE_URL}/jobcards/service-history?search=${encodeURIComponent(search)}`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setHistory(cached);
+    } else if (history.length === 0) {
+      setLoading(true);
+    }
     setError('');
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards/service-history?search=${encodeURIComponent(search)}`, {
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setCachedData(url, data);
         setHistory(data);
       } else {
         const err = await res.json();
