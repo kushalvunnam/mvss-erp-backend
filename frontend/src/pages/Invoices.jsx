@@ -914,7 +914,7 @@ export default function Invoices({ token, user, setActiveTab }) {
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             placeholder="Search by invoice number, customer name, mobile, vehicle plate..."

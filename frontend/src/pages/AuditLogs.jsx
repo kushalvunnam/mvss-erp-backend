@@ -264,13 +264,13 @@ export default function AuditLogs({ token }) {
         <div>
           <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Search Keywords</label>
           <div className="relative flex items-center">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input 
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search description..."
-              className="w-full pl-8 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+              className="w-full pl-10 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
             />
           </div>
         </div>

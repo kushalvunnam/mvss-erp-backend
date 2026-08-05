@@ -270,7 +270,7 @@ export default function Claims({ token, user }) {
         {/* Filters */}
         <div className="flex gap-3">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
               placeholder="Search claims by number, policy, surveyor..."
