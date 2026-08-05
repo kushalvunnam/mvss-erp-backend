@@ -1299,6 +1299,16 @@ function generateGatePassPDF(docData, customer, vehicle, stream) {
   doc.text('Security Sign-off', 240, y + 100);
   doc.text('Authorized Signatory', 415, y + 100);
 
+  // Draw the admin signature if it exists
+  try {
+    const signaturePath = path.join(__dirname, '../uploads/admin_signature.png');
+    if (fs.existsSync(signaturePath)) {
+      doc.image(signaturePath, 430, y + 55, { fit: [80, 30], align: 'center' });
+    }
+  } catch (sigErr) {
+    console.error('Error drawing admin signature on Gate Pass PDF:', sigErr);
+  }
+
   doc.strokeColor('#cccccc').dash(2, {space: 2})
      .moveTo(50, y + 90).lineTo(170, y + 90).stroke()
      .moveTo(230, y + 90).lineTo(350, y + 90).stroke()
