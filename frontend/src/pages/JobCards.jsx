@@ -8,6 +8,7 @@ import { getCachedData, setCachedData } from '../utils/apiCache';
 
 export default function JobCards({ token, user, setActiveTab, viewJcId = null, setViewJcId = null }) {
   const [jobCards, setJobCards] = useState(() => getCachedData(`${API_BASE_URL}/jobcards?search=&status=`) || []);
+  const [searchVal, setSearchVal] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit', 'details'
@@ -53,9 +54,18 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
     }
   }, [search, statusFilter, viewMode]);
 
+  // Debounce search input
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setSearch(searchVal);
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [searchVal]);
+
   useEffect(() => {
     const globalFilter = localStorage.getItem('global_search_filter');
     if (globalFilter) {
+      setSearchVal(globalFilter);
       setSearch(globalFilter);
       localStorage.removeItem('global_search_filter');
     }
@@ -200,8 +210,8 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
           <input
             type="text"
             placeholder="Search by Job Card Number, vehicle plate, or owner mobile..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchVal}
+            onChange={(e) => setSearchVal(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 placeholder-slate-400 text-xs font-semibold focus:outline-none focus:border-indigo-500"
           />
         </div>

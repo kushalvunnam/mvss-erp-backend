@@ -148,6 +148,7 @@ const estimateSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'JobCard',
     required: true,
+    index: true,
   },
   parts: [estimateItemSchema],
   labour: [labourItemSchema],

@@ -23,11 +23,13 @@ const JobCardSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer',
     required: true,
+    index: true,
   },
   vehicleId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vehicle',
     required: true,
+    index: true,
   },
   odometerReading: {
     type: Number,

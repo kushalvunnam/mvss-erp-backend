@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
 import { Search, Plus, Receipt, Download, Share2, Mail, CheckCircle2, Printer, Edit2, Eye, Trash2, Copy, Link, ChevronDown, MessageSquare, X } from 'lucide-react';
 import InvoiceForm from './InvoiceForm';
@@ -6,7 +6,7 @@ import InvoiceForm from './InvoiceForm';
 import { getCachedData, setCachedData } from '../utils/apiCache';
 
 export default function Invoices({ token, user, setActiveTab }) {
-  const [invoices, setInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices?status=`) || []);
+  const [rawInvoices, setRawInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices?status=`) || []);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit'
@@ -19,11 +19,27 @@ export default function Invoices({ token, user, setActiveTab }) {
   const [shareEmail, setShareEmail] = useState('');
   const [shareSuccess, setShareSuccess] = useState(false);
 
+  const invoices = useMemo(() => {
+    return rawInvoices.filter(inv => {
+      const invNo = inv.invoiceNo || '';
+      const name = inv.customerId?.name || '';
+      const mobile = inv.customerId?.mobile || '';
+      const plate = inv.vehicleId?.vehicleNumber || '';
+      const term = search.toLowerCase();
+      return (
+        invNo.toLowerCase().includes(term) ||
+        name.toLowerCase().includes(term) ||
+        mobile.includes(term) ||
+        plate.toLowerCase().includes(term)
+      );
+    });
+  }, [rawInvoices, search]);
+
   const fetchInvoices = async () => {
     const url = `${API_BASE_URL}/invoices?status=${statusFilter}`;
     const cached = getCachedData(url);
-    if (cached && invoices.length === 0) {
-      setInvoices(cached);
+    if (cached && rawInvoices.length === 0) {
+      setRawInvoices(cached);
     }
 
     try {
@@ -33,21 +49,7 @@ export default function Invoices({ token, user, setActiveTab }) {
       if (res.ok) {
         const data = await res.json();
         setCachedData(url, data);
-        
-        // Filter search locally for robustness
-        const filtered = data.filter(inv => {
-          const invNo = inv.invoiceNo || '';
-          const name = inv.customerId?.name || '';
-          const mobile = inv.customerId?.mobile || '';
-          const plate = inv.vehicleId?.vehicleNumber || '';
-          return (
-            invNo.toLowerCase().includes(search.toLowerCase()) ||
-            name.toLowerCase().includes(search.toLowerCase()) ||
-            mobile.includes(search) ||
-            plate.toLowerCase().includes(search.toLowerCase())
-          );
-        });
-        setInvoices(filtered);
+        setRawInvoices(data);
 
         // Update selectedInvoice if it exists
         if (selectedInvoice) {
@@ -68,7 +70,7 @@ export default function Invoices({ token, user, setActiveTab }) {
     if (viewMode === 'list') {
       fetchInvoices();
     }
-  }, [search, statusFilter, viewMode]);
+  }, [statusFilter, viewMode]);
 
   const handleSaved = () => {
     setViewMode('list');

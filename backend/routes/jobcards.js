@@ -73,6 +73,7 @@ router.get('/', auth, async (req, res) => {
     }
 
     const jobCards = await JobCard.find(query)
+      .select('jobCardNo status vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails')
       .populate('customerId')
       .populate('vehicleId')
       .populate('serviceAdvisorId', 'name')

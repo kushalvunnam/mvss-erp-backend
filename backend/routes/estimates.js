@@ -149,6 +149,7 @@ router.get('/', auth, async (req, res) => {
     if (jobCardId) query.jobCardId = jobCardId;
 
     const estimates = await Estimate.find(query)
+      .select('estimateNo jobCardId totals status date validUntil amountInWords createdAt')
       .populate({
         path: 'jobCardId',
         populate: [{ path: 'customerId' }, { path: 'vehicleId' }]

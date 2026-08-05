@@ -150,6 +150,7 @@ const invoiceSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'JobCard',
     required: true,
+    index: true,
   },
   estimateId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -159,11 +160,13 @@ const invoiceSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer',
     required: true,
+    index: true,
   },
   vehicleId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vehicle',
     required: true,
+    index: true,
   },
   date: {
     type: Date,

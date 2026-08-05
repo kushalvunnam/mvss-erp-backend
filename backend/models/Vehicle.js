@@ -13,6 +13,7 @@ const vehicleSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: '',
+    index: true,
   },
   engineNumber: {
     type: String,
@@ -70,6 +71,7 @@ const vehicleSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer',
     required: true,
+    index: true,
   }
 }, {
   timestamps: true,
