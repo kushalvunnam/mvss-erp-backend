@@ -686,7 +686,7 @@ export default function Inventory({ token, user }) {
 
       {/* Restock modal */}
       {showRestockModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-[99999] p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-sm shadow-2xl p-6 overflow-y-auto max-h-[90vh] animate-fade-in text-xs font-semibold">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-sm font-black text-slate-850 dark:text-white uppercase tracking-wider">
@@ -805,7 +805,7 @@ export default function Inventory({ token, user }) {
       />
       {/* Reduce stock modal */}
       {showReduceModal && (
-        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-[99999] p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-sm shadow-2xl p-6 overflow-y-auto max-h-[90vh] animate-fade-in text-xs font-semibold">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-sm font-black text-slate-850 dark:text-white uppercase tracking-wider">
@@ -878,7 +878,7 @@ export default function Inventory({ token, user }) {
 
       {/* Stock History Logs Modal */}
       {showHistoryModal && (
-        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-[99999] p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl p-6 overflow-y-auto max-h-[90vh] animate-fade-in text-xs font-semibold">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-sm font-black text-slate-850 dark:text-white uppercase tracking-wider">
@@ -924,7 +924,7 @@ export default function Inventory({ token, user }) {
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && deleteTarget && (
-        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-xs flex justify-center items-center z-[99999] p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-sm shadow-2xl p-6 overflow-y-auto max-h-[90vh] animate-fade-in text-xs font-semibold">
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3 text-red-600 dark:text-red-400">

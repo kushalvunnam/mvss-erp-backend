@@ -2260,7 +2260,7 @@ export default function PurchaseReport({ token, user }) {
       {/* MODAL 1: VIEW PURCHASE VOUCHER                                            */}
       {/* ========================================================================= */}
       {selectedVoucher && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 print:p-0 print:bg-white print:static">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] print:p-0 print:bg-white print:static">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden shadow-2xl space-y-6 p-6 print:shadow-none print:border-none">
             {/* Voucher Actions Bar */}
             <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 print:hidden">
@@ -2425,7 +2425,7 @@ export default function PurchaseReport({ token, user }) {
       {/* MODAL 2: UPDATE PAYMENT STATUS                                             */}
       {/* ========================================================================= */}
       {paymentModalPurchase && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999]">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md overflow-hidden shadow-2xl p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
