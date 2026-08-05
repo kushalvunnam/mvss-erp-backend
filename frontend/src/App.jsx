@@ -28,6 +28,8 @@ import PurchaseReport from './pages/PurchaseReport';
 import Backlogs from './pages/Backlogs';
 import Expenses from './pages/Expenses';
 import ExternalRepairs from './pages/ExternalRepairs';
+import ServiceHistory from './pages/ServiceHistory';
+import Insurance from './pages/Insurance';
 
 const PageSkeletonLoader = () => (
   <div className="p-6 space-y-4 animate-pulse select-none">
@@ -1916,6 +1918,8 @@ function ERPShell({
     else if (path === '/reports') setActiveTab('reports');
     else if (path === '/audit-logs') setActiveTab('auditlogs');
     else if (path === '/gate-pass') setActiveTab('gatepass');
+    else if (path === '/servicehistory') setActiveTab('servicehistory');
+    else if (path === '/insurance') setActiveTab('insurance');
   }, [location, setActiveTab]);
 
   const userRole = user?.role || 'Guest';
@@ -1943,6 +1947,8 @@ function ERPShell({
     if (cleanPath === '/reports') return 'reports';
     if (cleanPath === '/audit-logs') return 'auditlogs';
     if (cleanPath === '/gate-pass') return 'gatepass';
+    if (cleanPath === '/servicehistory') return 'servicehistory';
+    if (cleanPath === '/insurance') return 'insurance';
     return '';
   };
 
@@ -2094,6 +2100,8 @@ function ERPShell({
                 <Route path="/reports" element={<Reports token={token} user={user} />} />
                 <Route path="/audit-logs" element={<AuditLogs token={token} />} />
                 <Route path="/gate-pass" element={<GatePasses token={token} user={user} />} />
+                <Route path="/servicehistory" element={<ServiceHistory token={token} />} />
+                <Route path="/insurance" element={<Insurance token={token} />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </Suspense>

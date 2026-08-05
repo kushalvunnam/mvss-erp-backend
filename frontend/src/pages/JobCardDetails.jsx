@@ -725,7 +725,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <p className="font-semibold">Chassis No: <span className="font-mono">{jc.vehicleId?.chassisNumber || 'N/A'}</span></p>
               <p className="font-semibold">Engine No: <span className="font-mono">{jc.vehicleId?.engineNumber || 'N/A'}</span></p>
               <p className="font-bold text-slate-900 dark:text-white mb-2">Odometer: {jc.odometerReading.toLocaleString()} km</p>
-              <p className="font-semibold">Service Type: {jc.serviceType || 'General Servicing'}</p>
+              <p className="font-semibold">Service Type(s): {jc.serviceTypes && jc.serviceTypes.length > 0 ? jc.serviceTypes.join(', ') : (jc.serviceType || 'General Servicing')}</p>
               {jc.workCategory && (
                 <p className="font-semibold">
                   Customer Type: <span className="font-bold text-slate-900 dark:text-white">

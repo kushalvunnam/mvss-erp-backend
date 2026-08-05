@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config';
 import { 
   ShoppingBag, 
@@ -115,6 +115,66 @@ export default function PurchaseReport({ token, user }) {
   const [purchaseSuccess, setPurchaseSuccess] = useState('');
   const [purchaseFormError, setPurchaseFormError] = useState('');
   const [invoiceNoDuplicate, setInvoiceNoDuplicate] = useState(false);
+
+  const invoiceNoRef = useRef(null);
+
+  // Auto-focus Invoice No. field on tab change or duplicate error detection
+  useEffect(() => {
+    if (activeTab === 'entry') {
+      const timer = setTimeout(() => {
+        invoiceNoRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (invoiceNoDuplicate) {
+      invoiceNoRef.current?.focus();
+    }
+  }, [invoiceNoDuplicate]);
+
+  // Reactive background check for duplicate Invoice No.
+  useEffect(() => {
+    const checkDuplicate = async () => {
+      if (!purchaseHeader.vendorId || !purchaseHeader.invoiceNo || !String(purchaseHeader.invoiceNo).trim()) {
+        setInvoiceNoDuplicate(false);
+        if (purchaseFormError === 'Invoice No. already exists for this vendor.') {
+          setPurchaseFormError('');
+        }
+        return;
+      }
+      
+      try {
+        const cleanInv = String(purchaseHeader.invoiceNo).trim().replace(/\s+/g, ' ');
+        const url = `${API_BASE_URL}/purchases/check-duplicate?vendorId=${purchaseHeader.vendorId}&invoiceNo=${encodeURIComponent(cleanInv)}` + (editPurchaseId ? `&excludeId=${editPurchaseId}` : '');
+        
+        const checkRes = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (checkRes.status === 409) {
+          setInvoiceNoDuplicate(true);
+          setPurchaseFormError('Invoice No. already exists for this vendor.');
+        } else {
+          setInvoiceNoDuplicate(false);
+          if (purchaseFormError === 'Invoice No. already exists for this vendor.') {
+            setPurchaseFormError('');
+          }
+        }
+      } catch (err) {
+        console.warn('Reactive duplicate check failed:', err);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      checkDuplicate();
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [purchaseHeader.invoiceNo, purchaseHeader.vendorId, token, editPurchaseId]);
 
   // Helper for 2-decimal rounding
   const round2 = (num) => Math.round(((Number(num) || 0) + Number.EPSILON) * 100) / 100;
@@ -612,6 +672,32 @@ export default function PurchaseReport({ token, user }) {
     setActiveTab('history');
   };
 
+  const handleClearForm = () => {
+    setPurchaseHeader({
+      vendorId: '',
+      invoiceNo: '',
+      invoiceDate: new Date().toISOString().slice(0, 10),
+      paymentStatus: 'Credit',
+      amountPaid: '',
+      notes: '',
+      updatePurchasePrice: true,
+      updateMRP: true,
+      billingType: 'Intra-State'
+    });
+    setPurchaseItems([createEmptyRow()]);
+    setInvoiceNoDuplicate(false);
+    setPurchaseFormError('');
+    setPurchaseSuccess('');
+  };
+
+  const handleCancel = () => {
+    if (window.confirm("Discard this purchase entry?")) {
+      handleClearForm();
+      setEditPurchaseId(null);
+      setActiveTab('history');
+    }
+  };
+
   // Handle Form Submit
   const handlePurchaseSubmit = async (e) => {
     e.preventDefault();
@@ -1091,6 +1177,7 @@ export default function PurchaseReport({ token, user }) {
                   Purchase Invoice / Bill No.
                 </label>
                 <input
+                  ref={invoiceNoRef}
                   type="text"
                   placeholder="e.g. INV-99824"
                   value={purchaseHeader.invoiceNo}
@@ -1682,23 +1769,31 @@ export default function PurchaseReport({ token, user }) {
                 <span className="text-[10px] font-bold text-slate-400">Items: {purchaseItems.length} | Qty: {summaryTotals.totalQty} Pcs</span>
               </div>
 
-              {editPurchaseId && (
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={handleCancelEdit}
-                  className="w-full sm:w-auto px-5 py-3.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                  onClick={handleClearForm}
+                  className="w-full sm:w-auto px-5 py-3.5 bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
                 >
-                  Cancel Edit
+                  Clear Form
                 </button>
-              )}
+                
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="w-full sm:w-auto px-5 py-3.5 bg-slate-750 hover:bg-slate-650 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                >
+                  Cancel
+                </button>
 
-              <button
-                type="submit"
-                disabled={purchaseSubmitting}
-                className="w-full sm:w-auto px-7 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg hover:shadow-indigo-500/25 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {purchaseSubmitting ? 'Saving Purchase...' : (editPurchaseId ? 'Update Purchase' : 'Save Purchase Entry')}
-              </button>
+                <button
+                  type="submit"
+                  disabled={purchaseSubmitting || invoiceNoDuplicate}
+                  className="w-full sm:w-auto px-7 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg hover:shadow-indigo-500/25 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {purchaseSubmitting ? 'Saving Purchase...' : (editPurchaseId ? 'Update Purchase' : 'Save Purchase Entry')}
+                </button>
+              </div>
             </div>
           </div>
         </form>

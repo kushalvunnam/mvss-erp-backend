@@ -43,6 +43,8 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
     { id: 'externalrepairs', name: 'External Repairs', icon: Wrench, roles: ['Admin', 'Accounts', 'Service', 'Body Shop'] },
     { id: 'employees', name: 'Employees', icon: Users, roles: ['Admin'] },
     { id: 'claims', name: 'Insurance Claims', icon: ShieldCheck, roles: ['Admin', 'Service'] },
+    { id: 'servicehistory', name: 'General Service History', icon: History, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
+    { id: 'insurance', name: 'Insurance Module', icon: ShieldCheck, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service'] },
     { id: 'auditlogs', name: 'Audit Logs', icon: History, roles: ['Admin'] },
     { id: 'gatepass', name: 'Gate Pass', icon: Key, roles: ['Admin', 'Service'] }

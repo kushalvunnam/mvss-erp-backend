@@ -277,7 +277,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                   <div className="mt-3.5 space-y-1 text-xs text-slate-400 font-medium">
                     <p>Owner: <strong className="text-slate-700 dark:text-slate-300">{jc.customerId?.name}</strong></p>
                     <p>Odo: <strong className="text-slate-700 dark:text-slate-300">{jc.odometerReading.toLocaleString()} km</strong></p>
-                    <p>Service: <strong className="text-slate-700 dark:text-slate-300">{jc.serviceType}</strong></p>
+                    <p>Service(s): <strong className="text-slate-700 dark:text-slate-300">{jc.serviceTypes && jc.serviceTypes.length > 0 ? jc.serviceTypes.join(', ') : jc.serviceType}</strong></p>
                   </div>
                 </div>
 

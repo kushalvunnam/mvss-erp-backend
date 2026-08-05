@@ -37,6 +37,13 @@ const salarySchema = new mongoose.Schema({
   specialAllowance: { type: Number, default: 0 },
   otherAllowance: { type: Number, default: 0 },
   otherAllowanceDescription: { type: String, default: '' },
+  epfPercent: { type: Number, default: 0 },
+  epfAmount: { type: Number, default: 0 },
+  professionalTax: { type: Number, default: 0 },
+  additionalDeductions: [{
+    name: { type: String, required: true },
+    amount: { type: Number, required: true }
+  }],
   netSalary: { type: Number, required: true },
   generatedAt: { type: Date, default: Date.now }
 });

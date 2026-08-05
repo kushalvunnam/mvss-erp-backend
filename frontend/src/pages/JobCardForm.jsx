@@ -276,6 +276,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
     insuranceName: '',
     claimNo: '',
     serviceType: 'General Servicing',
+    serviceTypes: ['General Servicing'],
     workCategory: 'RR',
     jobType: 'Cash Job',
     serviceAdvisorName: '',
@@ -453,6 +454,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                 insuranceName: jc.insuranceName || '',
                 claimNo: jc.claimNo || '',
                 serviceType: jc.serviceType || 'General Servicing',
+                serviceTypes: jc.serviceTypes && jc.serviceTypes.length > 0 ? jc.serviceTypes : (jc.serviceType ? [jc.serviceType] : ['General Servicing']),
                 workCategory: jc.workCategory || 'RR',
                 jobType: jc.jobType || 'Cash Job',
                 serviceAdvisorName: jc.serviceAdvisorName || '',
@@ -894,19 +896,35 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Service Type</label>
-                  <select
-                    value={formData.serviceType}
-                    onChange={(e) => setFormData({ ...formData, serviceType: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-bold focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="General Servicing">General Servicing</option>
-                    <option value="Paid Service">Paid Service</option>
-                    <option value="Accident Repair">Accident Repair</option>
-                    <option value="Warranty Work">Warranty Work</option>
-                    <option value="Water Wash">Water Wash</option>
-                    <option value="Other">Other</option>
-                  </select>
+                  <label className="block text-xs font-semibold text-slate-500 mb-2">Service Type(s) *</label>
+                  <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                    {['General Servicing', 'Paid Service', 'Accident Repair', 'Warranty Work', 'Water Wash', 'Other'].map(type => {
+                      const isChecked = formData.serviceTypes?.includes(type) || false;
+                      return (
+                        <label key={type} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              let nextTypes = [...(formData.serviceTypes || [])];
+                              if (nextTypes.includes(type)) {
+                                nextTypes = nextTypes.filter(t => t !== type);
+                              } else {
+                                nextTypes.push(type);
+                              }
+                              setFormData({
+                                ...formData,
+                                serviceTypes: nextTypes,
+                                serviceType: nextTypes[0] || 'General Servicing'
+                              });
+                            }}
+                            className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                          />
+                          {type}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

@@ -299,7 +299,7 @@ router.get('/:id/pdf', auth, async (req, res) => {
 
     await logAction(req.user, 'REPORT_EXPORTED', `Exported PDF for Estimate ${estimate.estimateNo}`, req);
 
-    generateEstimatePDF(estimate, customer, vehicle, res);
+    generateEstimatePDF(estimate, customer, vehicle, res, jobCard);
   } catch (error) {
     res.status(500).send({ error: 'Failed to generate PDF: ' + error.message });
   }

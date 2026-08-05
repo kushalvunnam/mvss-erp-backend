@@ -294,7 +294,7 @@ router.post('/:id/attendance', async (req, res) => {
 // 5. Generate monthly salary statement
 router.post('/:id/salary', async (req, res) => {
   try {
-    const { monthYear, basicSalary, advances, deductions, specialAllowance, otherAllowance, otherAllowanceDescription, deductionsDescription } = req.body;
+    const { monthYear, basicSalary, advances, deductions, specialAllowance, otherAllowance, otherAllowanceDescription, deductionsDescription, epfPercent, professionalTax, additionalDeductions } = req.body;
     const employee = await Employee.findById(req.params.id);
     if (!employee) return res.status(404).send({ error: 'Employee not found.' });
 
@@ -361,11 +361,21 @@ router.post('/:id/salary', async (req, res) => {
     const other = Number(otherAllowance) || 0;
     const basic = Number(basicSalary) || 0;
     const adv = Number(advances) || 0;
-    const extraDeduct = Number(deductions) || 0;
+
+    const epfPercentVal = Number(epfPercent) || 0;
+    const epfAmountVal = Math.round(basic * (epfPercentVal / 100));
+    const ptAmountVal = Number(professionalTax) || 0;
+
+    const extraDeductionsArray = Array.isArray(additionalDeductions) ? additionalDeductions : [];
+    const additionalDeductionsSum = extraDeductionsArray.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
 
     // Deduct salary per day of excessLeaves (assumes 30 days month)
     const leaveDeduction = (basic / 30) * excessLeaves;
-    const netSalary = Math.round(Math.max(0, basic + special + other - adv - extraDeduct - leaveDeduction));
+
+    // Net Salary calculation including EPF, PT, Leave, Advance and all additional deductions
+    const netSalary = Math.round(Math.max(0, basic + special + other - adv - leaveDeduction - epfAmountVal - ptAmountVal - additionalDeductionsSum));
+
+    const legacyDeductionsDesc = extraDeductionsArray.map(d => `${d.name}: ₹${d.amount}`).join(', ');
 
     // Remove existing slip for the month if exists
     employee.salaries = employee.salaries.filter(s => s.monthYear !== monthYear);
@@ -375,11 +385,15 @@ router.post('/:id/salary', async (req, res) => {
       basicSalary: basic,
       leaves: leavesCount,
       advances: adv,
-      deductions: extraDeduct,
-      deductionsDescription: deductionsDescription || '',
+      deductions: additionalDeductionsSum, // Keep dynamic extra deductions sum in deductions
+      deductionsDescription: legacyDeductionsDesc || deductionsDescription || '',
       specialAllowance: special,
       otherAllowance: other,
       otherAllowanceDescription,
+      epfPercent: epfPercentVal,
+      epfAmount: epfAmountVal,
+      professionalTax: ptAmountVal,
+      additionalDeductions: extraDeductionsArray,
       netSalary
     });
 

@@ -64,7 +64,7 @@ const mockInvoice = {
 async function testPDFGeneration() {
   console.log('Generating Estimate PDF...');
   const estStream = fs.createWriteStream(path.join(__dirname, 'test_estimate.pdf'));
-  generateEstimatePDF(mockEstimate, mockCustomer, mockVehicle, estStream);
+  generateEstimatePDF(mockEstimate, mockCustomer, mockVehicle, estStream, { jobCardNo: 'JC-MOCK-123' });
   
   await new Promise((resolve) => estStream.on('finish', resolve));
   console.log('✓ Estimate PDF generated successfully at:', path.join(__dirname, 'test_estimate.pdf'));

@@ -63,6 +63,10 @@ const JobCardSchema = new mongoose.Schema({
     enum: ['General Servicing', 'Paid Service', 'Accident Repair', 'Warranty Work', 'Water Wash', 'Other'],
     default: 'General Servicing',
   },
+  serviceTypes: {
+    type: [String],
+    default: ['General Servicing']
+  },
   workCategory: {
     type: String,
     enum: ['RR', 'PMS', 'B/P', 'Insurance Jobs', 'Corporate', 'General Service'],
@@ -314,6 +318,15 @@ const JobCardSchema = new mongoose.Schema({
   timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true }
+});
+
+JobCardSchema.pre('save', function(next) {
+  if (this.serviceTypes && this.serviceTypes.length > 0) {
+    this.serviceType = this.serviceTypes[0];
+  } else if (this.serviceType) {
+    this.serviceTypes = [this.serviceType];
+  }
+  next();
 });
 
 module.exports = mongoose.model('JobCard', JobCardSchema);

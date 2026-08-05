@@ -35,6 +35,103 @@ const generateJobCardNo = async () => {
 
 
 
+// GET complete service history with search across multiple collections
+router.get('/service-history', auth, async (req, res) => {
+  try {
+    const { search } = req.query;
+    let query = {};
+
+    if (search && search.trim() !== '') {
+      const searchRegex = new RegExp(search.trim(), 'i');
+
+      // Find customers matching search criteria
+      const customers = await Customer.find({
+        $or: [
+          { name: searchRegex },
+          { mobile: searchRegex }
+        ]
+      }, { _id: 1 });
+      const customerIds = customers.map(c => c._id);
+
+      // Find vehicles matching search criteria
+      const vehicles = await Vehicle.find({
+        $or: [
+          { vehicleNumber: searchRegex },
+          { chassisNo: searchRegex }
+        ]
+      }, { _id: 1 });
+      const vehicleIds = vehicles.map(v => v._id);
+
+      // Combine matches
+      query.$or = [
+        { customerId: { $in: customerIds } },
+        { vehicleId: { $in: vehicleIds } },
+        { jobCardNo: searchRegex },
+        { vehicleNo: searchRegex }
+      ];
+    }
+
+    const Estimate = require('../models/Estimate');
+    const Invoice = require('../models/Invoice');
+
+    const jobCards = await JobCard.find(query)
+      .populate('customerId')
+      .populate('vehicleId')
+      .sort({ createdAt: -1 });
+
+    const historyList = [];
+    for (const jc of jobCards) {
+      const estimate = await Estimate.findOne({ jobCardId: jc._id });
+      const invoice = await Invoice.findOne({ jobCardId: jc._id });
+
+      const servicesPerformed = [];
+      if (jc.serviceTypes && jc.serviceTypes.length > 0) {
+        servicesPerformed.push(...jc.serviceTypes);
+      } else if (jc.serviceType) {
+        servicesPerformed.push(jc.serviceType);
+      }
+
+      if (estimate && estimate.labour) {
+        estimate.labour.forEach(l => {
+          if (l.description && !servicesPerformed.includes(l.description)) {
+            servicesPerformed.push(l.description);
+          }
+        });
+      }
+
+      const partsReplaced = [];
+      if (estimate && estimate.parts) {
+        estimate.parts.forEach(p => {
+          if (p.name) {
+            partsReplaced.push(`${p.name} (Qty: ${p.qty || 1})`);
+          }
+        });
+      }
+
+      historyList.push({
+        _id: jc._id,
+        visitDate: jc.date || jc.createdAt,
+        jobCardNo: jc.jobCardNo,
+        odometer: jc.odometerReading || 0,
+        servicesPerformed,
+        partsReplaced,
+        technician: jc.technicianName || 'N/A',
+        invoiceAmount: invoice ? (invoice.totals?.grandTotal || invoice.grandTotal || 0) : 0,
+        status: jc.status,
+        customerName: jc.customerId?.name || jc.customerName || 'N/A',
+        customerMobile: jc.customerId?.mobile || 'N/A',
+        vehicleNumber: jc.vehicleId?.vehicleNumber || jc.vehicleNo || 'N/A',
+        chassisNumber: jc.vehicleId?.chassisNo || 'N/A',
+        model: jc.vehicleId?.model || jc.vehicleModel || 'N/A'
+      });
+    }
+
+    res.send(historyList);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to retrieve service history: ' + error.message });
+  }
+});
+
 // List all job cards with search & filters
 router.get('/', auth, async (req, res) => {
   try {
