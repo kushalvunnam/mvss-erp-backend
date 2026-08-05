@@ -862,14 +862,13 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
       const qty = part.qty || 1;
       const rate = part.rate || 0;
       const amount = part.taxableValue !== undefined ? part.taxableValue : (qty * rate);
-      const hasGst = part.gstPercent !== undefined && part.gstPercent !== null && part.gstPercent !== '';
-      const gstPercent = hasGst ? Number(part.gstPercent) : 18;
-      const gstAmount = amount * (gstPercent / 100);
-      const total = amount + gstAmount;
+      const gstPercent = (part.gstPercent !== undefined && part.gstPercent !== null && part.gstPercent !== '') ? Number(part.gstPercent) : 18;
+      const gstAmount = part.gstAmount !== undefined ? part.gstAmount : (amount * (gstPercent / 100));
+      const total = part.total !== undefined ? part.total : (amount + gstAmount);
 
-      const cgstAmt = gstMode === 'cgst_sgst' ? (gstAmount / 2) : 0;
-      const sgstAmt = gstMode === 'cgst_sgst' ? (gstAmount / 2) : 0;
-      const igstAmt = gstMode === 'igst' ? gstAmount : 0;
+      const cgstAmt = part.cgstAmount !== undefined ? part.cgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const sgstAmt = part.sgstAmount !== undefined ? part.sgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const igstAmt = part.igstAmount !== undefined ? part.igstAmount : (isInterstate ? gstAmount : 0);
       
       partsTaxableSum += amount;
       partsCgstSum += cgstAmt;
@@ -877,12 +876,12 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
       partsIgstSum += igstAmt;
       partsTotalSum += total;
 
-      const cgstRateStr = hasGst ? `${(gstPercent / 2).toFixed(1)}%` : '';
-      const cgstAmtStr = hasGst ? cgstAmt.toFixed(2) : '';
-      const sgstRateStr = hasGst ? `${(gstPercent / 2).toFixed(1)}%` : '';
-      const sgstAmtStr = hasGst ? sgstAmt.toFixed(2) : '';
-      const igstRateStr = hasGst ? `${gstPercent.toFixed(1)}%` : '';
-      const igstAmtStr = hasGst ? igstAmt.toFixed(2) : '';
+      const cgstRateStr = isInterstate ? '0%' : `${(gstPercent / 2).toFixed(1)}%`;
+      const cgstAmtStr = cgstAmt.toFixed(2);
+      const sgstRateStr = isInterstate ? '0%' : `${(gstPercent / 2).toFixed(1)}%`;
+      const sgstAmtStr = sgstAmt.toFixed(2);
+      const igstRateStr = isInterstate ? `${gstPercent.toFixed(1)}%` : '0%';
+      const igstAmtStr = igstAmt.toFixed(2);
 
       drawTableRow(
         doc,
@@ -937,14 +936,13 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
       const qty = item.qty || 1;
       const rate = item.rate || 0;
       const amount = item.taxableValue !== undefined ? item.taxableValue : (qty * rate);
-      const hasGst = item.gstPercent !== undefined && item.gstPercent !== null && item.gstPercent !== '';
-      const gstPercent = hasGst ? Number(item.gstPercent) : 18;
-      const gstAmount = amount * (gstPercent / 100);
-      const total = amount + gstAmount;
+      const gstPercent = (item.gstPercent !== undefined && item.gstPercent !== null && item.gstPercent !== '') ? Number(item.gstPercent) : 18;
+      const gstAmount = item.gstAmount !== undefined ? item.gstAmount : (amount * (gstPercent / 100));
+      const total = item.total !== undefined ? item.total : (amount + gstAmount);
 
-      const cgstAmt = gstMode === 'cgst_sgst' ? (gstAmount / 2) : 0;
-      const sgstAmt = gstMode === 'cgst_sgst' ? (gstAmount / 2) : 0;
-      const igstAmt = gstMode === 'igst' ? gstAmount : 0;
+      const cgstAmt = item.cgstAmount !== undefined ? item.cgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const sgstAmt = item.sgstAmount !== undefined ? item.sgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const igstAmt = item.igstAmount !== undefined ? item.igstAmount : (isInterstate ? gstAmount : 0);
 
       labourTaxableSum += amount;
       labourCgstSum += cgstAmt;
@@ -952,12 +950,12 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
       labourIgstSum += igstAmt;
       labourTotalSum += total;
 
-      const cgstRateStr = hasGst ? `${(gstPercent / 2).toFixed(1)}%` : '';
-      const cgstAmtStr = hasGst ? cgstAmt.toFixed(2) : '';
-      const sgstRateStr = hasGst ? `${(gstPercent / 2).toFixed(1)}%` : '';
-      const sgstAmtStr = hasGst ? sgstAmt.toFixed(2) : '';
-      const igstRateStr = hasGst ? `${gstPercent.toFixed(1)}%` : '';
-      const igstAmtStr = hasGst ? igstAmt.toFixed(2) : '';
+      const cgstRateStr = isInterstate ? '0%' : `${(gstPercent / 2).toFixed(1)}%`;
+      const cgstAmtStr = cgstAmt.toFixed(2);
+      const sgstRateStr = isInterstate ? '0%' : `${(gstPercent / 2).toFixed(1)}%`;
+      const sgstAmtStr = sgstAmt.toFixed(2);
+      const igstRateStr = isInterstate ? `${gstPercent.toFixed(1)}%` : '0%';
+      const igstAmtStr = igstAmt.toFixed(2);
 
       drawTableRow(
         doc,
