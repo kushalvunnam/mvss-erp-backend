@@ -722,7 +722,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       const row = { ...list[idx] };
       const pricing = calculatePricing({
         sellingPrice: parseFloat(row.rate) || 0,
-        quantity: 1,
+        quantity: parseFloat(row.qty) || 1,
         discountPercent: parseFloat(row.discountPercent) || 0,
         discountAmount: parseFloat(row.discountAmount) || 0,
         discountType: row.discountType || 'Percent',
@@ -739,6 +739,47 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       list[idx] = row;
     }
     setLabourList(list);
+  };
+
+  const handleTotalChange = (e, list, setter, idx) => {
+    setManualOverride(false);
+    const input = e.target;
+    const originalValue = input.value;
+    const processedValue = cleanNumberInput(originalValue, true);
+
+    const updatedList = [...list];
+    let row = { ...updatedList[idx] };
+
+    if (processedValue !== '') {
+      const totalNum = parseFloat(processedValue);
+      if (!isNaN(totalNum)) {
+        const qty = Math.max(1, parseFloat(row.qty) || 1);
+        const gstP = parseFloat(row.gstPercent) || 0;
+        
+        const pricing = calculatePricing({
+          sellingPrice: parseFloat(row.rate) || 0,
+          quantity: qty,
+          discountPercent: parseFloat(row.discountPercent) || 0,
+          discountAmount: parseFloat(row.discountAmount) || 0,
+          discountType: row.discountType || 'Percent',
+          gstPercent: gstP,
+          mrp: parseFloat(row.mrp) || 0,
+          manualFinalTotal: totalNum
+        });
+
+        row.mrp = pricing.mrp.toFixed(2);
+        row.rate = pricing.unitBasic.toFixed(2);
+        row.discountPercent = pricing.discountPercent.toFixed(2);
+        row.discountAmount = pricing.discountAmount.toFixed(2);
+        row.discount = pricing.discountAmount.toFixed(2);
+        row.taxableAmount = pricing.taxableAmount.toFixed(2);
+      }
+    } else {
+      row.totalCustom = '';
+    }
+
+    updatedList[idx] = row;
+    setter(updatedList);
   };
 
   const handleSave = async () => {
@@ -1159,158 +1200,185 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             </button>
           </div>
 
-          <div className="space-y-2">
-            {labourList.map((lab, idx) => (
-              <div key={idx} className="flex flex-wrap sm:flex-nowrap gap-2.5 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
-                <div className="w-full sm:w-44">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Service</label>
-                  <select
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!val) return;
-                      const preset = STANDARD_SERVICES.find(s => s.description === val);
-                      if (preset) {
-                        handleLabourRowValue(idx, 'description', preset.description);
-                        handleLabourRowValue(idx, 'rate', preset.rate);
-                        handleLabourRowValue(idx, 'gstPercent', preset.gstPercent);
-                      }
-                    }}
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-bold focus:outline-none"
-                  >
-                    <option value="">-- Custom Preset --</option>
-                    {STANDARD_SERVICES.map(s => (
-                      <option key={s.description} value={s.description}>{s.description}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Service Description (Editable)</label>
-                  <input
-                    type="text"
-                    required
-                    value={lab.description}
-                    onChange={(e) => handleLabourRowValue(idx, 'description', e.target.value)}
-                    placeholder="e.g. Engine tuning or Front bumper painting"
-                    className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  />
-                </div>
-                    <div className="w-24">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Labour Cost (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={lab.rate || ''}
-                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'rate', e.target.value)}
-                    placeholder="Cost"
-                    className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-16">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
-                  <select
-                    value={lab.discountType || 'Percent'}
-                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountType', e.target.value)}
-                    className="w-full h-[28px] px-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
-                  >
-                    <option value="Percent">Percent (%)</option>
-                    <option value="Fixed">Flat (₹)</option>
-                  </select>
-                </div>
-
-                <div className="w-14">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc %</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={lab.discountPercent !== undefined ? lab.discountPercent : ''}
-                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountPercent', e.target.value)}
-                    placeholder="0"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-20">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Amt (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={lab.discountAmount !== undefined ? lab.discountAmount : ''}
-                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountAmount', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div className="w-20">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={lab.taxableAmount !== undefined ? lab.taxableAmount : ''}
-                    onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'taxableAmount', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
-                  />
-                </div>
-
-                <div className="w-36">
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">GST %</label>
-                  <div className="flex gap-1 items-center">
+          <div className="overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+            <div className="min-w-[1600px] space-y-2 pr-2">
+              {labourList.map((lab, idx) => (
+                <div key={idx} className="flex gap-3 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
+                  <div className="w-56 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Service</label>
                     <select
-                      value={[0, 3, 5, 12, 18, 28].includes(Number(lab.gstPercent)) ? Number(lab.gstPercent) : 'custom'}
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (val === 'custom') {
-                          handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', 'custom');
-                        } else {
-                          handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', val);
+                        if (!val) return;
+                        const preset = STANDARD_SERVICES.find(s => s.description === val);
+                        if (preset) {
+                          handleLabourRowValue(idx, 'description', preset.description);
+                          handleLabourRowValue(idx, 'rate', preset.rate);
+                          handleLabourRowValue(idx, 'gstPercent', preset.gstPercent);
                         }
                       }}
-                      disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                      className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-bold focus:outline-none"
                     >
-                      <option value={0}>0%</option>
-                      <option value={3}>3%</option>
-                      <option value={5}>5%</option>
-                      <option value={12}>12%</option>
-                      <option value={18}>18%</option>
-                      <option value={28}>28%</option>
-                      <option value="custom">Custom...</option>
+                      <option value="">-- Custom Preset --</option>
+                      {STANDARD_SERVICES.map(s => (
+                        <option key={s.description} value={s.description}>{s.description}</option>
+                      ))}
                     </select>
-                    {![0, 3, 5, 12, 18, 28].includes(Number(lab.gstPercent)) && (
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={lab.gstPercent === 'custom' ? '' : lab.gstPercent}
-                        onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', e.target.value)}
+                  </div>
+
+                  <div className="w-96 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Service Description (Editable)</label>
+                    <input
+                      type="text"
+                      required
+                      value={lab.description}
+                      onChange={(e) => handleLabourRowValue(idx, 'description', e.target.value)}
+                      placeholder="e.g. Engine tuning or Front bumper painting"
+                      className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="w-36 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Labour Cost (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={lab.rate || ''}
+                      onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'rate', e.target.value)}
+                      placeholder="Cost"
+                      className="w-full px-3.5 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-20 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Qty</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={lab.qty !== undefined && lab.qty !== null ? lab.qty : '1'}
+                      onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'qty', e.target.value)}
+                      placeholder="Qty"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-28 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Type</label>
+                    <select
+                      value={lab.discountType || 'Percent'}
+                      onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountType', e.target.value)}
+                      className="w-full h-[28px] px-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none"
+                    >
+                      <option value="Percent">Percent (%)</option>
+                      <option value="Fixed">Flat (₹)</option>
+                    </select>
+                  </div>
+
+                  <div className="w-20 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc %</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={lab.discountPercent !== undefined ? lab.discountPercent : ''}
+                      onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountPercent', e.target.value)}
+                      placeholder="0"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-28 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Disc Amt (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={lab.discountAmount !== undefined ? lab.discountAmount : ''}
+                      onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'discountAmount', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="w-32 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Taxable (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={lab.taxableAmount !== undefined ? lab.taxableAmount : ''}
+                      onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'taxableAmount', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right"
+                    />
+                  </div>
+
+                  <div className="w-40 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">GST %</label>
+                    <div className="flex gap-1 items-center">
+                      <select
+                        value={[0, 3, 5, 12, 18, 28].includes(Number(lab.gstPercent)) ? Number(lab.gstPercent) : 'custom'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === 'custom') {
+                            handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', 'custom');
+                          } else {
+                            handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', val);
+                          }
+                        }}
                         disabled={!['Admin', 'Accounts'].includes(user?.role)}
-                        className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
-                      />
-                    )}
+                        className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none flex-1"
+                      >
+                        <option value={0}>0%</option>
+                        <option value={3}>3%</option>
+                        <option value={5}>5%</option>
+                        <option value={12}>12%</option>
+                        <option value={18}>18%</option>
+                        <option value={28}>28%</option>
+                        <option value="custom">Custom...</option>
+                      </select>
+                      {![0, 3, 5, 12, 18, 28].includes(Number(lab.gstPercent)) && (
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={lab.gstPercent === 'custom' ? '' : lab.gstPercent}
+                          onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', e.target.value)}
+                          disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                          className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="w-36 shrink-0">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Total (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={(() => {
+                        const taxable = parseFloat(lab.taxableAmount) || 0;
+                        const gstPercent = parseFloat(lab.gstPercent) || 0;
+                        const rowTotal = Math.round((taxable * (1 + gstPercent / 100)) * 100) / 100;
+                        return rowTotal ? rowTotal.toString() : '';
+                      })()}
+                      onChange={(e) => handleTotalChange(e, labourList, setLabourList, idx)}
+                      placeholder="Total"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="w-12 shrink-0 pb-1 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveLabourRow(idx)}
+                      className="text-red-500 hover:text-red-700 p-2 rounded-lg border border-slate-200/40 hover:bg-red-50 dark:hover:bg-red-950/20"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-
-                <div className="w-28 text-right pr-2">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Total (₹)</span>
-                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 h-[28px] flex items-center justify-end font-mono">
-                    {Math.round((parseFloat(lab.taxableAmount || 0) * (1 + (parseFloat(lab.gstPercent) || 0) / 100)) * 100) / 100}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleRemoveLabourRow(idx)}
-                  className="text-red-500 hover:text-red-700 p-2 rounded-lg border border-slate-200/40 hover:bg-red-50 dark:hover:bg-red-950/20"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
 
