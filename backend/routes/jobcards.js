@@ -110,7 +110,16 @@ router.get('/service-history', auth, async (req, res) => {
     });
     const vehicleIds = vehicles.map(v => v._id);
 
+    const ExternalRepair = require('../models/ExternalRepair');
+    const externalRepairs = await ExternalRepair.find({ status: { $ne: 'Cancelled' } }).select('jobCardId');
+    const externalJcIds = externalRepairs.map(er => er.jobCardId).filter(Boolean);
+
     const jobCards = await JobCard.find({
+      status: { $in: ['Delivered', 'Closed'] },
+      workCategory: { $in: ['PMS', 'General Service', 'RR', 'Corporate'] },
+      jobType: { $nin: ['Insurance Job'] },
+      serviceType: { $in: ['General Servicing', 'Paid Service'] },
+      _id: { $nin: externalJcIds },
       $or: [
         { jobCardNo: { $regex: term, $options: 'i' } },
         { customerId: { $in: customerIds } },
