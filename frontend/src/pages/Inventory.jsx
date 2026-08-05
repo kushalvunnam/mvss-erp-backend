@@ -656,6 +656,7 @@ export default function Inventory({ token, user }) {
       </div>
             {/* Upgraded Add Part Billing Modal */}
       <PartsMasterBillingModal
+        key={showAddModal ? "add-open" : "add-closed"}
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         user={user}
@@ -771,6 +772,7 @@ export default function Inventory({ token, user }) {
 
       {/* Upgraded Edit Part Billing Modal */}
       <PartsMasterBillingModal
+        key={showEditModal ? `edit-${editForm?._id || 'none'}` : "edit-closed"}
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
         initialData={editForm}
