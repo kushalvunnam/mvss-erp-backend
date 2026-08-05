@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '../config';
 import { Search, Plus, Edit2, Trash2, Shield, Calendar, Phone, User, Landmark, DollarSign, AlertTriangle, Clock, X, Check, SearchCode } from 'lucide-react';
 import { getCachedData, setCachedData } from '../utils/apiCache';
@@ -459,7 +460,7 @@ export default function Insurance({ token }) {
       </div>
 
       {/* Modal Dialog Form */}
-      {showModal && (
+      {showModal && createPortal(
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh] min-h-0">
             
@@ -700,7 +701,8 @@ export default function Insurance({ token }) {
 
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>
