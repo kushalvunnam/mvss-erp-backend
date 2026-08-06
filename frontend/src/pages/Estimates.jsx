@@ -572,7 +572,7 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   };
 
-  const isAdvisorOrAdmin = user?.role === 'Admin' || user?.role === 'Service' || user?.role === 'Spares' || user?.role === 'Accounts Executive';
+  const isAdvisorOrAdmin = ['Admin', 'Service', 'Spares', 'Accounts', 'Accounts Executive'].includes(user?.role);
 
   return (
     <div className="space-y-4 animate-fade-in p-1">
@@ -724,7 +724,7 @@ export default function Estimates({ token, user, setActiveTab }) {
                             >
                               <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             </button>
-                            {['Admin', 'Accounts Executive'].includes(user?.role) && (
+                            {['Admin', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
                               <button
                                 onClick={(e) => handleDeleteEstimate(est._id, e)}
                                 className="text-slate-400 hover:text-red-650 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850"

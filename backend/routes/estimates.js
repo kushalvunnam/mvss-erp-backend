@@ -408,7 +408,7 @@ router.post('/:id/parts/return', auth, restrictTo('Admin', 'Spares', 'Service', 
 });
 
 // DELETE: Delete an Estimate permanently (Admin only)
-router.delete('/:id', auth, restrictTo('Admin', 'Accounts Executive'), async (req, res) => {
+router.delete('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const estimate = await Estimate.findById(req.params.id);
     if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });

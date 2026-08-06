@@ -65,7 +65,7 @@ const tabPermissions = {
   customers: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
   vehicles: ['Admin', 'Service', 'Body Shop', 'Reception'],
   jobcards: ['Admin', 'Service', 'Body Shop', 'Reception'],
-  estimates: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'],
+  estimates: ['Admin', 'Service', 'Body Shop', 'Accounts', 'Accounts Executive'],
   invoices: ['Admin', 'Accounts', 'Accounts Executive'],
   inventory: ['Admin', 'Spares'],
   vendors: ['Admin', 'Spares'],
@@ -1842,9 +1842,8 @@ function ProtectedRoute({ children, token, user }) {
 
 function getRedirectPath(role) {
   if (role === 'Spares') return '/inventory';
-  if (role === 'Accounts') return '/customers';
   if (role === 'Body Shop') return '/job-cards';
-  return '/dashboard'; // Default to dashboard for Admin, Service, Reception
+  return '/dashboard'; // Default to dashboard for Admin, Service, Reception, Accounts, Accounts Executive
 }
 
 function LoginWrapper({ token, user, onLoginSuccess }) {
@@ -1961,7 +1960,7 @@ function ERPShell({
     { id: 'customers', name: 'Customers', icon: Users, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'vehicles', name: 'Vehicles', icon: Car, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
     { id: 'jobcards', name: 'Job Cards', icon: FileText, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
-    { id: 'estimates', name: 'Estimates', icon: FileCheck, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] },
+    { id: 'estimates', name: 'Estimates', icon: FileCheck, roles: ['Admin', 'Service', 'Body Shop', 'Accounts', 'Accounts Executive'] },
     { id: 'invoices', name: 'Invoices', icon: Receipt, roles: ['Admin', 'Accounts', 'Accounts Executive'] },
     { id: 'inventory', name: 'Inventory', icon: Package, roles: ['Admin', 'Spares'] },
     { id: 'purchases', name: 'Purchases', icon: ShoppingBag, roles: ['Admin', 'Spares'] },
