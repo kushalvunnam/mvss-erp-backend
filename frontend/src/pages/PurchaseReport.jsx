@@ -1505,7 +1505,7 @@ export default function PurchaseReport({ token, user }) {
                                   handleRowChange(row.id, 'gstPercent', Number(val));
                                 }
                               }}
-                              disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
+                              disabled={!['Admin', 'Accounts', 'Spares', 'Accounts Executive'].includes(user?.role)}
                               className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-2 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none flex-1"
                             >
                               <option value={0}>0%</option>
@@ -1525,7 +1525,7 @@ export default function PurchaseReport({ token, user }) {
                                 placeholder="0.00"
                                 value={row.gstPercent === 'custom' ? '' : row.gstPercent}
                                 onChange={(e) => handleRowChange(row.id, 'gstPercent', e.target.value)}
-                                disabled={!['Admin', 'Accounts', 'Spares'].includes(user?.role)}
+                                disabled={!['Admin', 'Accounts', 'Spares', 'Accounts Executive'].includes(user?.role)}
                                 className="w-16 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-2 py-2.5 font-mono font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                               />
                             )}
@@ -1934,7 +1934,7 @@ export default function PurchaseReport({ token, user }) {
                                   <Eye className="w-4 h-4" />
                                 </button>
 
-                                {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager'].includes(user?.role) && (
+                                {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts Executive'].includes(user?.role) && (
                                   <button
                                     type="button"
                                     onClick={() => handleStartEdit(p)}

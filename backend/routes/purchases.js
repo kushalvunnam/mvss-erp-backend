@@ -18,7 +18,7 @@ const { getNextSequence } = require('../utils/documentNumbering');
 const generatePurchaseNo = async () => {
   return await getNextSequence('PUR', 'Purchase');
 };
-router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive'));
+router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'));
 
 // List all purchases with search & vendor filter
 router.get('/', async (req, res) => {
