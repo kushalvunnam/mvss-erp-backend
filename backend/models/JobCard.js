@@ -263,8 +263,17 @@ const JobCardSchema = new mongoose.Schema({
   }],
   paymentStatus: {
     type: String,
-    enum: ['Pending', 'Partially Paid', 'Fully Paid'],
+    enum: ['Pending', 'Partially Paid', 'Fully Paid', 'Settled (Waived Off)'],
     default: 'Pending'
+  },
+  waiver: {
+    originalBillAmount: { type: Number, default: 0 },
+    amountReceived: { type: Number, default: 0 },
+    waivedAmount: { type: Number, default: 0 },
+    finalCollectedAmount: { type: Number, default: 0 },
+    approvedBy: { type: String, default: '' },
+    waivedAt: { type: Date },
+    reason: { type: String, default: '' }
   },
 
   billingSummary: {

@@ -186,6 +186,8 @@ const purchaseSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+purchaseSchema.index({ invoiceNo: 1 });
+purchaseSchema.index({ vendorName: 1 });
 purchaseSchema.index({ vendorId: 1, invoiceNo: 1 }, { unique: true });
 
 module.exports = mongoose.model('Purchase', purchaseSchema);

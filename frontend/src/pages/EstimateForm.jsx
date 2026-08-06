@@ -254,6 +254,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     row.discountAmount = pricing.discountAmount.toFixed(2);
     row.discount = pricing.discountAmount.toFixed(2);
     row.taxableAmount = pricing.taxableAmount.toFixed(2);
+    row.total = pricing.finalTotalAmount.toFixed(2);
 
     // Preserve the typed value to prevent cursor jumping
     row[field] = value;
@@ -320,6 +321,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 discountType: 'Fixed',
                 gstPercent: gst.toString(),
                 taxableAmount: pricing.taxableAmount.toFixed(2),
+                total: pricing.finalTotalAmount.toFixed(2),
                 status: p.status || 'Pending'
               };
             }));
@@ -346,7 +348,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 discountPercent: pricing.discountPercent.toFixed(2),
                 discountType: 'Fixed',
                 gstPercent: gst.toString(),
-                taxableAmount: pricing.taxableAmount.toFixed(2)
+                taxableAmount: pricing.taxableAmount.toFixed(2),
+                total: pricing.finalTotalAmount.toFixed(2)
               };
             }));
           }
@@ -495,6 +498,12 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       if (matchedInventoryPart) {
         if (!matchedPartIds.has(matchedInventoryPart._id)) {
           matchedPartIds.add(matchedInventoryPart._id);
+          const pricing = calculatePricing({
+            sellingPrice: matchedInventoryPart.sellingPrice || 0,
+            quantity: 1,
+            gstPercent: matchedInventoryPart.gstPercent || 18,
+            mrp: matchedInventoryPart.mrp || 0
+          });
           suggestedParts.push({
             partId: matchedInventoryPart._id,
             name: matchedInventoryPart.partName,
@@ -502,9 +511,15 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             hsnCode: matchedInventoryPart.hsnCode || '',
             unit: matchedInventoryPart.unit || 'Pcs',
             qty: '1',
-            rate: (matchedInventoryPart.sellingPrice || 0).toString(),
-            discount: '0',
+            mrp: pricing.mrp.toFixed(2),
+            rate: pricing.unitBasic.toFixed(2),
+            discount: '0.00',
+            discountPercent: '0.00',
+            discountAmount: '0.00',
+            discountType: 'Percent',
             gstPercent: (matchedInventoryPart.gstPercent || 18).toString(),
+            taxableAmount: pricing.taxableAmount.toFixed(2),
+            total: pricing.finalTotalAmount.toFixed(2),
             status: 'Pending'
           });
         }
@@ -512,26 +527,36 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         const name = rule.labourName;
         if (!matchedLabourNames.has(name)) {
           matchedLabourNames.add(name);
-          
           const standardMatch = STANDARD_SERVICES.find(s => 
             s.description.toLowerCase().includes(name.toLowerCase()) || 
             name.toLowerCase().includes(s.description.toLowerCase())
           );
           const rate = standardMatch ? standardMatch.rate : rule.defaultLabourRate;
           const gstPercent = standardMatch ? standardMatch.gstPercent : 18;
-
+          const pricing = calculatePricing({
+            sellingPrice: rate,
+            quantity: 1,
+            gstPercent: gstPercent
+          });
           suggestedLabour.push({
             description: name,
-            rate: rate.toString(),
-            discount: '0',
-            gstPercent: gstPercent.toString()
+            qty: '1',
+            rate: pricing.unitBasic.toFixed(2),
+            mrp: pricing.mrp.toFixed(2),
+            discount: '0.00',
+            discountPercent: '0.00',
+            discountAmount: '0.00',
+            discountType: 'Percent',
+            gstPercent: gstPercent.toString(),
+            taxableAmount: pricing.taxableAmount.toFixed(2),
+            total: pricing.finalTotalAmount.toFixed(2)
           });
         }
       }
     });
 
     setPartsList(suggestedParts);
-    setLabourList(suggestedLabour.length > 0 ? suggestedLabour : [{ description: '', rate: '', gstPercent: '18' }]);
+    setLabourList(suggestedLabour.length > 0 ? suggestedLabour : [{ description: '', rate: '0.00', gstPercent: '18', total: '0.00', taxableAmount: '0.00' }]);
   }, [selectedJcId, jobCards, inventory, editId]);
 
   // Handle live recalculation
@@ -644,7 +669,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Parts rows operations
   const handleAddPartRow = () => {
     setManualOverride(false);
-    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '', status: 'Pending' }]);
+    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '', total: '', status: 'Pending' }]);
   };
 
   const handleRemovePartRow = (idx) => {
@@ -689,6 +714,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     rawRow.discountAmount = pricing.discountAmount.toFixed(2);
     rawRow.discount = pricing.discountAmount.toFixed(2);
     rawRow.taxableAmount = pricing.taxableAmount.toFixed(2);
+    rawRow.total = pricing.finalTotalAmount.toFixed(2);
 
     list[idx] = rawRow;
     setPartsList(list);
@@ -704,7 +730,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Labour rows operations
   const handleAddLabourRow = () => {
     setManualOverride(false);
-    setLabourList([...labourList, { description: '', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '' }]);
+    setLabourList([...labourList, { description: '', qty: '1', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '', total: '' }]);
   };
 
   const handleRemoveLabourRow = (idx) => {
@@ -738,6 +764,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       row.discountAmount = pricing.discountAmount.toFixed(2);
       row.discount = pricing.discountAmount.toFixed(2);
       row.taxableAmount = pricing.taxableAmount.toFixed(2);
+      row.total = pricing.finalTotalAmount.toFixed(2);
       list[idx] = row;
     }
     setLabourList(list);
@@ -775,9 +802,15 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         row.discountAmount = pricing.discountAmount.toFixed(2);
         row.discount = pricing.discountAmount.toFixed(2);
         row.taxableAmount = pricing.taxableAmount.toFixed(2);
+        row.total = processedValue;
       }
     } else {
-      row.totalCustom = '';
+      row.total = '';
+      row.taxableAmount = '';
+      row.rate = '';
+      row.discountAmount = '';
+      row.discountPercent = '';
+      row.mrp = '';
     }
 
     updatedList[idx] = row;
@@ -802,6 +835,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
           qty: Math.max(1, Number(p.qty) || 1), // Mongoose requires min: 1
           rate: Number(p.rate) || 0,
           discount: Number(p.discount) || 0,
+          total: Number(p.total) || 0,
           gstPercent: (p.gstPercent !== undefined && p.gstPercent !== null && p.gstPercent !== '') ? Number(p.gstPercent) : 18,
           status: p.status || 'Pending'
         };
@@ -819,6 +853,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         description: l.description.trim(),
         rate: Number(l.rate) || 0,
         discount: Number(l.discount) || 0,
+        total: Number(l.total) || 0,
         gstPercent: (l.gstPercent !== undefined && l.gstPercent !== null && l.gstPercent !== '') ? Number(l.gstPercent) : 18
       }));
 
@@ -1185,15 +1220,10 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={(() => {
-                        const taxable = parseFloat(part.taxableAmount) || 0;
-                        const gstPercent = parseFloat(part.gstPercent) || 0;
-                        const rowTotal = Math.round((taxable * (1 + gstPercent / 100)) * 100) / 100;
-                        return rowTotal ? rowTotal.toString() : '';
-                      })()}
+                      value={part.total || ''}
                       onChange={(e) => handleTotalChange(e, partsList, setPartsList, idx)}
                       placeholder="Total"
-                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"
                     />
                   </div>
 
@@ -1383,12 +1413,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={(() => {
-                        const taxable = parseFloat(lab.taxableAmount) || 0;
-                        const gstPercent = parseFloat(lab.gstPercent) || 0;
-                        const rowTotal = Math.round((taxable * (1 + gstPercent / 100)) * 100) / 100;
-                        return rowTotal ? rowTotal.toString() : '';
-                      })()}
+                      value={lab.total || ''}
                       onChange={(e) => handleTotalChange(e, labourList, setLabourList, idx)}
                       placeholder="Total"
                       className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"

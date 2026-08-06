@@ -5,6 +5,7 @@ const customerSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
+    index: true,
   },
   mobile: {
     type: String,

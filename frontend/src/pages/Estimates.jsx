@@ -5,15 +5,29 @@ import EstimateForm from './EstimateForm';
 
 export default function Estimates({ token, user, setActiveTab }) {
   const [estimates, setEstimates] = useState([]);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit'
   const [selectedEstId, setSelectedEstId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [pdfType, setPdfType] = useState('gst');
 
+  // Debounce search state
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
   const fetchEstimates = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/estimates?status=${statusFilter}`, {
+      let url = `${API_BASE_URL}/estimates?status=${statusFilter}`;
+      if (debouncedSearch.trim() !== '') {
+        url += `&search=${encodeURIComponent(debouncedSearch.trim())}`;
+      }
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -29,7 +43,7 @@ export default function Estimates({ token, user, setActiveTab }) {
     if (viewMode === 'list') {
       fetchEstimates();
     }
-  }, [statusFilter, viewMode]);
+  }, [statusFilter, viewMode, debouncedSearch]);
 
   const updateStatus = async (id, newStatus, e) => {
     e.stopPropagation(); // prevent row click
@@ -567,7 +581,7 @@ export default function Estimates({ token, user, setActiveTab }) {
         } catch (err) {
           console.error('Customer PDF download failed:', err);
           alert('Error downloading Customer PDF: ' + err.message);
-        }
+}
       })();
     }
   };
@@ -593,25 +607,37 @@ export default function Estimates({ token, user, setActiveTab }) {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 p-3 rounded-2xl">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-350 text-xs font-bold focus:outline-none"
-        >
-          <option value="">All Estimate Statuses</option>
-          <option value="Draft">Draft</option>
-          <option value="Sent">Sent</option>
-          <option value="Approved">Approved</option>
-          <option value="Rejected">Rejected</option>
-          <option value="Revised">Revised</option>
-        </select>
+        <div className="flex flex-wrap gap-3 items-center flex-1">
+          <div className="relative min-w-[250px] flex-1 max-w-md">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by estimate number, customer, vehicle registration..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 placeholder-slate-400 text-xs font-semibold focus:outline-none"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-4 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-350 text-xs font-bold focus:outline-none"
+          >
+            <option value="">All Estimate Statuses</option>
+            <option value="Draft">Draft</option>
+            <option value="Sent">Sent</option>
+            <option value="Approved">Approved</option>
+            <option value="Rejected">Rejected</option>
+            <option value="Revised">Revised</option>
+          </select>
+        </div>
         
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-slate-500 tracking-wider">PDF Type:</span>
           <select
             value={pdfType}
             onChange={(e) => setPdfType(e.target.value)}
-            className="px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-350 text-xs font-bold focus:outline-none"
+            className="px-4 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-350 text-xs font-bold focus:outline-none"
           >
             <option value="gst">GST Estimate</option>
             <option value="customer">Customer Estimate</option>

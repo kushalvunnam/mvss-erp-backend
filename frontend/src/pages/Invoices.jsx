@@ -6,8 +6,9 @@ import InvoiceForm from './InvoiceForm';
 import { getCachedData, setCachedData, invalidateCache } from '../utils/apiCache';
 
 export default function Invoices({ token, user, setActiveTab }) {
-  const [rawInvoices, setRawInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices?status=`) || []);
+  const [rawInvoices, setRawInvoices] = useState([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit'
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
@@ -19,24 +20,23 @@ export default function Invoices({ token, user, setActiveTab }) {
   const [shareEmail, setShareEmail] = useState('');
   const [shareSuccess, setShareSuccess] = useState(false);
 
+  // Debounce search state
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
   const invoices = useMemo(() => {
-    return rawInvoices.filter(inv => {
-      const invNo = inv.invoiceNo || '';
-      const name = inv.customerId?.name || '';
-      const mobile = inv.customerId?.mobile || '';
-      const plate = inv.vehicleId?.vehicleNumber || '';
-      const term = search.toLowerCase();
-      return (
-        invNo.toLowerCase().includes(term) ||
-        name.toLowerCase().includes(term) ||
-        mobile.includes(term) ||
-        plate.toLowerCase().includes(term)
-      );
-    });
-  }, [rawInvoices, search]);
+    return rawInvoices;
+  }, [rawInvoices]);
 
   const fetchInvoices = async () => {
-    const url = `${API_BASE_URL}/invoices?status=${statusFilter}`;
+    let url = `${API_BASE_URL}/invoices?status=${statusFilter}`;
+    if (debouncedSearch.trim() !== '') {
+      url += `&search=${encodeURIComponent(debouncedSearch.trim())}`;
+    }
     const cached = getCachedData(url);
     if (cached && rawInvoices.length === 0) {
       setRawInvoices(cached);
@@ -71,7 +71,7 @@ export default function Invoices({ token, user, setActiveTab }) {
     if (viewMode === 'list') {
       fetchInvoices();
     }
-  }, [statusFilter, viewMode]);
+  }, [statusFilter, viewMode, debouncedSearch]);
 
   const handleSaved = () => {
     setViewMode('list');

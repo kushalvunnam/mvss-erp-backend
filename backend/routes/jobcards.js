@@ -158,9 +158,29 @@ router.get('/service-history', auth, async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    const history = await Promise.all(jobCards.map(async (jc) => {
-      const invoice = await Invoice.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 }).lean();
-      const estimate = invoice ? null : await Estimate.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 }).lean();
+    const jcIds = jobCards.map(jc => jc._id);
+    const [invoices, estimates] = await Promise.all([
+      Invoice.find({ jobCardId: { $in: jcIds } }).sort({ createdAt: -1 }).lean(),
+      Estimate.find({ jobCardId: { $in: jcIds } }).sort({ createdAt: -1 }).lean()
+    ]);
+
+    const invoiceMap = {};
+    invoices.forEach(inv => {
+      if (!invoiceMap[inv.jobCardId.toString()]) {
+        invoiceMap[inv.jobCardId.toString()] = inv;
+      }
+    });
+
+    const estimateMap = {};
+    estimates.forEach(est => {
+      if (!estimateMap[est.jobCardId.toString()]) {
+        estimateMap[est.jobCardId.toString()] = est;
+      }
+    });
+
+    const history = jobCards.map((jc) => {
+      const invoice = invoiceMap[jc._id.toString()] || null;
+      const estimate = invoice ? null : (estimateMap[jc._id.toString()] || null);
       const source = invoice || estimate;
 
       const servicesPerformed = source && Array.isArray(source.labour)
@@ -194,7 +214,7 @@ router.get('/service-history', auth, async (req, res) => {
         partsReplaced,
         serviceCategory: 'PMS / General Service'
       };
-    }));
+    });
 
     res.send(history);
   } catch (error) {
@@ -560,9 +580,15 @@ const updateJobCardPaymentStatus = async (jobCard) => {
   const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + p.amount, 0);
   const totalReceived = totalAdvance + totalFinal;
 
-  const pendingAmount = Math.max(0, finalBillAmount - totalReceived);
+  let pendingAmount = Math.max(0, finalBillAmount - totalReceived);
 
-  if (finalBillAmount > 0) {
+  if (jobCard.waiver && jobCard.waiver.waivedAmount > 0) {
+    pendingAmount = Math.max(0, pendingAmount - jobCard.waiver.waivedAmount);
+  }
+
+  if (jobCard.waiver && jobCard.waiver.waivedAmount > 0 && pendingAmount <= 0.05) {
+    jobCard.paymentStatus = 'Settled (Waived Off)';
+  } else if (finalBillAmount > 0) {
     if (pendingAmount <= 0.05) {
       jobCard.paymentStatus = 'Fully Paid';
     } else if (totalReceived > 0) {
@@ -572,6 +598,17 @@ const updateJobCardPaymentStatus = async (jobCard) => {
     }
   } else {
     jobCard.paymentStatus = totalReceived > 0 ? 'Partially Paid' : 'Pending';
+  }
+
+  if (invoice) {
+    const isWaiverPaid = (jobCard.waiver && jobCard.waiver.waivedAmount > 0 && pendingAmount <= 0.05);
+    const newStatus = (pendingAmount <= 0.05 || isWaiverPaid) ? 'Paid' : (totalReceived > 0 ? 'Partially Paid' : 'Unpaid');
+    if (invoice.amountPaid !== totalReceived || invoice.balanceDue !== pendingAmount || invoice.paymentStatus !== newStatus) {
+      invoice.amountPaid = totalReceived;
+      invoice.balanceDue = pendingAmount;
+      invoice.paymentStatus = newStatus;
+      await invoice.save();
+    }
   }
 };
 
@@ -665,6 +702,60 @@ router.delete('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 
     res.send(jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to delete final payment: ' + error.message });
+  }
+});
+
+// Settle / Waive off remaining balance of a Job Card
+router.post('/:id/waive-off', auth, restrictTo('Super Admin', 'Admin', 'Accounts Executive', 'Accounts'), async (req, res) => {
+  try {
+    const { waivedAmount, reason } = req.body;
+    if (waivedAmount === undefined || Number(waivedAmount) <= 0) {
+      return res.status(400).send({ error: 'Valid waived amount is required.' });
+    }
+    if (!reason || !reason.trim()) {
+      return res.status(400).send({ error: 'Waiver reason is required.' });
+    }
+
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    const Invoice = require('../models/Invoice');
+    let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
+    if (!invoice) {
+      invoice = await Invoice.findOne({ jobCardId: jobCard._id });
+    }
+
+    const finalBillAmount = invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jobCard.billingSummary?.grandTotal || 0);
+
+    const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + p.amount, 0);
+    const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + p.amount, 0);
+    const totalReceived = totalAdvance + totalFinal;
+
+    const finalCollectedAmount = totalReceived;
+
+    jobCard.waiver = {
+      originalBillAmount: finalBillAmount,
+      amountReceived: totalReceived,
+      waivedAmount: Number(waivedAmount),
+      finalCollectedAmount: finalCollectedAmount,
+      approvedBy: req.user ? req.user.name : 'System Admin',
+      waivedAt: new Date(),
+      reason: reason.trim()
+    };
+
+    await updateJobCardPaymentStatus(jobCard);
+    await jobCard.save();
+
+    await logAction(
+      req.user,
+      'JOBCARD_BALANCE_WAIVE_OFF',
+      `Waived off ₹${waivedAmount} for Job Card ${jobCard.jobCardNo}. Reason: ${reason}`,
+      req
+    );
+
+    res.send(jobCard);
+  } catch (error) {
+    res.status(400).send({ error: 'Failed to record waiver: ' + error.message });
   }
 });
 

@@ -267,4 +267,10 @@ inventorySchema.post('save', async function(doc) {
   }
 });
 
+inventorySchema.index({ partName: 1 });
+inventorySchema.index({ brand: 1 });
+inventorySchema.index({ category: 1 });
+inventorySchema.index({ type: 1 });
+inventorySchema.index({ vendorName: 1 });
+
 module.exports = mongoose.model('Inventory', inventorySchema);

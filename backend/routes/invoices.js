@@ -186,16 +186,47 @@ router.use(auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'));
 // List invoices
 router.get('/', async (req, res) => {
   try {
-    const { status, paymentStatus } = req.query;
+    const { status, paymentStatus, search } = req.query;
     let query = {};
     if (status) query.status = status;
     if (paymentStatus) query.paymentStatus = paymentStatus;
+
+    if (search && search.trim() !== '') {
+      const term = search.trim();
+      const Customer = require('../models/Customer');
+      const Vehicle = require('../models/Vehicle');
+
+      const [customers, vehicles] = await Promise.all([
+        Customer.find({
+          $or: [
+            { name: { $regex: term, $options: 'i' } },
+            { mobile: { $regex: term, $options: 'i' } }
+          ]
+        }).select('_id').lean(),
+        Vehicle.find({
+          $or: [
+            { vehicleNumber: { $regex: term, $options: 'i' } },
+            { chassisNumber: { $regex: term, $options: 'i' } }
+          ]
+        }).select('_id').lean()
+      ]);
+
+      const customerIds = customers.map(c => c._id);
+      const vehicleIds = vehicles.map(v => v._id);
+
+      query.$or = [
+        { invoiceNo: { $regex: term, $options: 'i' } },
+        { customerId: { $in: customerIds } },
+        { vehicleId: { $in: vehicleIds } }
+      ];
+    }
 
     const invoices = await Invoice.find(query)
       .select('invoiceNo jobCardId customerId vehicleId totals invoiceType paymentStatus paymentMethod amountPaid advanceReceived balanceDue isSent sentStatus status date createdAt')
       .populate('customerId')
       .populate('vehicleId')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.send(invoices);
   } catch (error) {

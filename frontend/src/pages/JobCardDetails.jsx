@@ -70,6 +70,11 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const [advanceRemarks, setAdvanceRemarks] = useState('');
   const [addingAdvance, setAddingAdvance] = useState(false);
 
+  const [showWaiverModal, setShowWaiverModal] = useState(false);
+  const [waiverAmount, setWaiverAmount] = useState('');
+  const [waiverReason, setWaiverReason] = useState('');
+  const [waiving, setWaiving] = useState(false);
+
   const handleAddAdvance = async (e) => {
     e.preventDefault();
     if (!advanceAmount || parseFloat(advanceAmount) <= 0) {
@@ -194,6 +199,51 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     }
   };
 
+  const handleRecordWaiver = async (e) => {
+    if (e) e.preventDefault();
+    if (!waiverAmount || parseFloat(waiverAmount) <= 0) {
+      alert('Please enter a valid waiver amount.');
+      return;
+    }
+    if (!waiverReason || !waiverReason.trim()) {
+      alert('Please enter a waiver reason.');
+      return;
+    }
+    const pending = getPendingAmount();
+    if (parseFloat(waiverAmount) > pending) {
+      alert(`Waiver amount cannot exceed the pending balance of ₹${pending.toLocaleString('en-IN')}`);
+      return;
+    }
+    setWaiving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/waive-off`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          waivedAmount: parseFloat(waiverAmount),
+          reason: waiverReason.trim()
+        })
+      });
+      if (res.ok) {
+        setShowWaiverModal(false);
+        setWaiverAmount('');
+        setWaiverReason('');
+        refreshPaymentData();
+      } else {
+        const errObj = await res.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to record balance waiver.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the server.');
+    } finally {
+      setWaiving(false);
+    }
+  };
+
   const handleDeleteFinalPayment = async (paymentId) => {
     if (!window.confirm('Are you sure you want to delete this final payment record?')) return;
     try {
@@ -232,7 +282,11 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const getBalancePayable = () => {
-    return Math.max(0, getFinalBillAmount() - getTotalAdvanceReceived());
+    let bp = Math.max(0, getFinalBillAmount() - getTotalAdvanceReceived());
+    if (jc?.waiver && jc.waiver.waivedAmount > 0) {
+      bp = Math.max(0, bp - jc.waiver.waivedAmount);
+    }
+    return bp;
   };
 
   const getTotalFinalPayments = () => {
@@ -240,7 +294,8 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const getPendingAmount = () => {
-    return Math.max(0, getBalancePayable() - getTotalFinalPayments());
+    let pending = Math.max(0, getBalancePayable() - getTotalFinalPayments());
+    return Math.max(0, pending);
   };
 
   const getTotalReceived = () => {
@@ -277,6 +332,20 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           remarks: p.remarks,
           isAdvance: false
         });
+      });
+    }
+    if (jc?.waiver && jc.waiver.waivedAmount > 0) {
+      history.push({
+        id: 'waiver-' + jc._id,
+        type: 'Balance Waiver',
+        date: jc.waiver.waivedAt || new Date(),
+        mode: 'Waived Off',
+        amount: jc.waiver.waivedAmount,
+        txnId: 'WAIVER',
+        recordedBy: jc.waiver.approvedBy || 'System',
+        remarks: jc.waiver.reason,
+        isAdvance: false,
+        isWaiver: true
       });
     }
     return history.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1114,7 +1183,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                         )}
                       </div>
                     </div>
-                    {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'].includes(user?.role) && (
+                    {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
                       <button
                         type="button"
                         onClick={() => handleDeleteAdvance(payment._id)}
@@ -1132,7 +1201,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             </div>
 
             {/* Record Form */}
-            {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'].includes(user?.role) && (
+            {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
               <form onSubmit={handleAddAdvance} className="bg-slate-50 dark:bg-slate-950/10 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl space-y-3">
                 <span className="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b pb-1.5">Record New Deposit</span>
                 
@@ -1242,100 +1311,125 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {/* Form to Receive Payment */}
             <div className="lg:col-span-2">
-              {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'].includes(user?.role) && (
-                <form onSubmit={handleAddFinalPayment} className="bg-slate-50 dark:bg-slate-950/10 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl space-y-3">
-                  <span className="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b pb-1.5">Receive Final / Balance Payment</span>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Final Bill Amount (Auto)</label>
-                      <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-650 dark:text-slate-350">
-                        ₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Total Advance (Read-Only)</label>
-                      <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-650 dark:text-slate-350">
-                        ₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Balance Payable (Auto)</label>
-                      <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-750 dark:text-slate-250">
-                        ₹{getBalancePayable().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
+              {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
+                getPendingAmount() <= 0.05 ? (
+                  <div className="bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-200 dark:border-emerald-800 p-4 rounded-2xl text-center space-y-2">
+                    <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
+                    <h5 className="text-xs font-bold text-emerald-800 dark:text-emerald-450 uppercase tracking-wide">Balance Settled</h5>
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-500 font-medium">This Job Card's balance has been fully settled/paid or waived off.</p>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Amount Received (₹)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Amount"
-                        value={finalAmount}
-                        onChange={(e) => setFinalAmount(e.target.value)}
-                        required
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
-                      />
+                ) : (
+                  <form onSubmit={handleAddFinalPayment} className="bg-slate-50 dark:bg-slate-950/10 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl space-y-3">
+                    <span className="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b pb-1.5">Receive Final / Balance Payment</span>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Final Bill Amount (Auto)</label>
+                        <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-650 dark:text-slate-350">
+                          ₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Total Advance (Read-Only)</label>
+                        <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-650 dark:text-slate-350">
+                          ₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Balance Payable (Auto)</label>
+                        <div className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black text-slate-750 dark:text-slate-250">
+                          ₹{getBalancePayable().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Payment Type</label>
-                      <select
-                        value={finalPaymentType}
-                        onChange={(e) => setFinalPaymentType(e.target.value)}
-                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Amount Received (₹)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Amount"
+                          value={finalAmount}
+                          onChange={(e) => setFinalAmount(e.target.value)}
+                          required={getPendingAmount() > 0}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-black focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Payment Type</label>
+                        <select
+                          value={finalPaymentType}
+                          onChange={(e) => setFinalPaymentType(e.target.value)}
+                          className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
+                        >
+                          <option value="Cash">Cash</option>
+                          <option value="Online">Online</option>
+                          <option value="Card Swipe">Card Swipe</option>
+                          <option value="Scanner Payment">Scanner Payment</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Transaction ID</label>
+                        <input
+                          type="text"
+                          placeholder="Txn ID"
+                          value={finalTransactionId}
+                          onChange={(e) => setFinalTransactionId(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Reference Number</label>
+                        <input
+                          type="text"
+                          placeholder="Ref No / Auth Code"
+                          value={finalReferenceNumber}
+                          onChange={(e) => setFinalReferenceNumber(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Remarks</label>
+                        <input
+                          type="text"
+                          placeholder="Remarks..."
+                          value={finalRemarks}
+                          onChange={(e) => setFinalRemarks(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 pt-1.5">
+                      <button
+                        type="submit"
+                        disabled={addingFinal}
+                        className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5"
                       >
-                        <option value="Cash">Cash</option>
-                        <option value="Online">Online</option>
-                        <option value="Card Swipe">Card Swipe</option>
-                        <option value="Scanner Payment">Scanner Payment</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Transaction ID</label>
-                      <input
-                        type="text"
-                        placeholder="Txn ID"
-                        value={finalTransactionId}
-                        onChange={(e) => setFinalTransactionId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
+                        <CheckCircle className="w-4 h-4" /> {addingFinal ? 'Processing...' : 'Receive Payment'}
+                      </button>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Reference Number</label>
-                      <input
-                        type="text"
-                        placeholder="Ref No / Auth Code"
-                        value={finalReferenceNumber}
-                        onChange={(e) => setFinalReferenceNumber(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
+                      {['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const pending = getPendingAmount();
+                            setWaiverAmount(pending > 0 ? pending.toFixed(2) : '');
+                            setWaiverReason('');
+                            setShowWaiverModal(true);
+                          }}
+                          className="py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5"
+                        >
+                          <AlertTriangle className="w-4 h-4" /> Waive Off Balance
+                        </button>
+                      )}
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">Remarks</label>
-                      <input
-                        type="text"
-                        placeholder="Remarks..."
-                        value={finalRemarks}
-                        onChange={(e) => setFinalRemarks(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={addingFinal}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
-                    <CheckCircle className="w-4 h-4" /> {addingFinal ? 'Processing...' : 'Receive Payment'}
-                  </button>
-                </form>
+                  </form>
+                )
               )}
             </div>
 
@@ -1349,7 +1443,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Advance Received</span>
-                  <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className="font-bold font-mono text-emerald-600 dark:text-emerald-450">₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Balance Received</span>
@@ -1357,8 +1451,14 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Total Received</span>
-                  <span className="font-extrabold font-mono text-emerald-600 dark:text-emerald-400">₹{getTotalReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className="font-extrabold font-mono text-emerald-600 dark:text-emerald-450">₹{getTotalReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
+                {jc?.waiver && jc.waiver.waivedAmount > 0 && (
+                  <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
+                    <span className="font-semibold text-slate-400">Waived Amount</span>
+                    <span className="font-bold font-mono text-purple-600 dark:text-purple-400">₹{jc.waiver.waivedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Pending Amount</span>
                   <span className="font-extrabold font-mono text-rose-600 dark:text-rose-450">₹{getPendingAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
@@ -1370,6 +1470,8 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-450 border-emerald-200/50' 
                       : jc?.paymentStatus === 'Partially Paid'
                       ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-450 border-amber-200/50'
+                      : jc?.paymentStatus === 'Settled (Waived Off)'
+                      ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-450 border-purple-200/50'
                       : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-450 border-rose-200/50'
                   }`}>
                     {jc?.paymentStatus || 'Pending'}
@@ -1404,8 +1506,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                           {new Date(p.date).toLocaleString('en-IN')}
                         </td>
                         <td className="py-3 px-3">
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                            p.isAdvance 
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${
+                            p.isWaiver
+                              ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-100/50'
+                              : p.isAdvance 
                               ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-100/50' 
                               : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-450 border border-emerald-100/50'
                           }`}>
@@ -1428,15 +1532,26 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                           {p.remarks || '-'}
                         </td>
                         <td className="py-3 px-3 text-center">
-                          {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'].includes(user?.role) && (
+                          {p.isWaiver ? (
                             <button
                               type="button"
-                              onClick={() => p.isAdvance ? handleDeleteAdvance(p.id) : handleDeleteFinalPayment(p.id)}
-                              className="text-red-500 hover:text-red-700 p-1 rounded-lg transition-colors hover:bg-red-500/10"
-                              title={`Delete ${p.type.toLowerCase()}`}
+                              disabled
+                              className="text-slate-350 dark:text-slate-650 p-1 rounded-lg cursor-not-allowed opacity-50"
+                              title="Waiver cannot be deleted directly"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
+                          ) : (
+                            ['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
+                              <button
+                                type="button"
+                                onClick={() => p.isAdvance ? handleDeleteAdvance(p.id) : handleDeleteFinalPayment(p.id)}
+                                className="text-red-500 hover:text-red-700 p-1 rounded-lg transition-colors hover:bg-red-500/10"
+                                title={`Delete ${p.type.toLowerCase()}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )
                           )}
                         </td>
                       </tr>
@@ -1596,6 +1711,78 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           </div>
         </div>
       )}
+
+      {showWaiverModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in print:hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 overflow-y-auto max-h-[90vh]">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-purple-500" /> Waive Off Remaining Balance
+            </h3>
+            
+            <div className="bg-slate-50 dark:bg-slate-950/20 p-3 rounded-xl space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-semibold">Original Bill Amount:</span>
+                <span className="font-bold font-mono text-slate-800 dark:text-white">₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-semibold">Total Received So Far:</span>
+                <span className="font-bold font-mono text-emerald-600 dark:text-emerald-450">₹{getTotalReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between border-t border-dashed border-slate-250 dark:border-slate-700 pt-1.5">
+                <span className="text-slate-500 font-bold">Pending Balance:</span>
+                <span className="font-bold font-mono text-rose-600 dark:text-rose-450">₹{(getFinalBillAmount() - getTotalReceived()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleRecordWaiver} className="space-y-4 text-xs font-semibold text-slate-600 dark:text-slate-400">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Waiver Amount (₹)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={(getFinalBillAmount() - getTotalReceived()).toFixed(2)}
+                  value={waiverAmount}
+                  onChange={(e) => setWaiverAmount(e.target.value)}
+                  placeholder="Enter amount to waive"
+                  required
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-800 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Waiver Reason</label>
+                <textarea
+                  rows="3"
+                  value={waiverReason}
+                  onChange={(e) => setWaiverReason(e.target.value)}
+                  placeholder="Please state why this balance is being waived off (mandatory)..."
+                  required
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 resize-none font-medium text-slate-800 dark:text-slate-250"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowWaiverModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={waiving}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-all shadow-md shadow-purple-600/10 disabled:opacity-50"
+                >
+                  {waiving ? 'Processing...' : 'Confirm Waiver'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Job Card Status History Timeline */}
       {jc && jc.statusHistory && jc.statusHistory.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs mt-6 select-none">

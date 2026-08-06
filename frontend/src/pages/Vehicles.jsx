@@ -10,6 +10,7 @@ export default function Vehicles({ token, user }) {
   const [customers, setCustomers] = useState([]);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [history, setHistory] = useState([]);
@@ -33,8 +34,16 @@ export default function Vehicles({ token, user }) {
     customerId: ''
   });
 
+  // Debounce search state
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
   const fetchVehicles = async () => {
-    const url = `${API_BASE_URL}/vehicles?search=${encodeURIComponent(search)}`;
+    const url = `${API_BASE_URL}/vehicles?search=${encodeURIComponent(debouncedSearch)}`;
     const cached = getCachedData(url);
     if (cached && vehicles.length === 0) setVehicles(cached);
 
@@ -77,10 +86,15 @@ export default function Vehicles({ token, user }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Fetch customers once on mount
+  useEffect(() => {
+    fetchCustomers();
+  }, []);
+
+  // Fetch vehicles when debouncedSearch changes
   useEffect(() => {
     fetchVehicles();
-    fetchCustomers();
-  }, [search]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     const globalFilter = localStorage.getItem('global_search_filter');

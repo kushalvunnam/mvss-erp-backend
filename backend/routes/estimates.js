@@ -45,25 +45,33 @@ const recalculateEstimate = (parts = [], labour = []) => {
 
   const processedParts = parts.map(part => {
     const qty = Number(part.qty) || 1;
-    const rate = Number(part.rate) || 0;
     const discount = Number(part.discount) || 0;
     const unit = part.unit || 'Pcs';
     const gstPercent = (part.gstPercent !== undefined && part.gstPercent !== null && part.gstPercent !== '') ? Number(part.gstPercent) : 18;
     
-    // Taxable Value = qty * rate - discount
-    const taxableValue = Math.round(((qty * rate) - discount) * 100) / 100;
-    const amount = taxableValue;
+    let total, taxableValue, gstAmount, cgstAmount, sgstAmount, igstAmount, rate;
     
-    // CGST, SGST, IGST (assume local billing CGST+SGST, since MVSS is local Telangana)
-    const cgstPercent = gstPercent / 2;
-    const sgstPercent = gstPercent / 2;
-    const cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
-    const sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
-    const igstAmount = 0;
-    const gstAmount = cgstAmount + sgstAmount;
-    
-    const total = taxableValue + gstAmount;
+    if (part.total && Number(part.total) > 0) {
+      total = Math.round(Number(part.total) * 100) / 100;
+      taxableValue = Math.round((total / (1 + (gstPercent / 100))) * 100) / 100;
+      gstAmount = Math.round((total - taxableValue) * 100) / 100;
+      cgstAmount = Math.round((gstAmount / 2) * 100) / 100;
+      sgstAmount = Math.round((gstAmount - cgstAmount) * 100) / 100;
+      igstAmount = 0;
+      rate = Math.round(((taxableValue + discount) / qty) * 100) / 100;
+    } else {
+      rate = Number(part.rate) || 0;
+      taxableValue = Math.round(((qty * rate) - discount) * 100) / 100;
+      const cgstPercent = gstPercent / 2;
+      const sgstPercent = gstPercent / 2;
+      cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
+      sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
+      igstAmount = 0;
+      gstAmount = cgstAmount + sgstAmount;
+      total = Math.round((taxableValue + gstAmount) * 100) / 100;
+    }
 
+    const amount = taxableValue;
     partsTotal += taxableValue;
     gstTotal += gstAmount;
 
@@ -90,22 +98,32 @@ const recalculateEstimate = (parts = [], labour = []) => {
   });
 
   const processedLabour = labour.map(lab => {
-    const rate = Number(lab.rate) || 0;
     const discount = Number(lab.discount) || 0;
     const gstPercent = (lab.gstPercent !== undefined && lab.gstPercent !== null && lab.gstPercent !== '') ? Number(lab.gstPercent) : 18;
     
-    const taxableValue = Math.round((rate - discount) * 100) / 100;
-    const amount = taxableValue;
+    let total, taxableValue, gstAmount, cgstAmount, sgstAmount, igstAmount, rate;
     
-    const cgstPercent = gstPercent / 2;
-    const sgstPercent = gstPercent / 2;
-    const cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
-    const sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
-    const igstAmount = 0;
-    const gstAmount = cgstAmount + sgstAmount;
-    
-    const total = taxableValue + gstAmount;
+    if (lab.total && Number(lab.total) > 0) {
+      total = Math.round(Number(lab.total) * 100) / 100;
+      taxableValue = Math.round((total / (1 + (gstPercent / 100))) * 100) / 100;
+      gstAmount = Math.round((total - taxableValue) * 100) / 100;
+      cgstAmount = Math.round((gstAmount / 2) * 100) / 100;
+      sgstAmount = Math.round((gstAmount - cgstAmount) * 100) / 100;
+      igstAmount = 0;
+      rate = Math.round((taxableValue + discount) * 100) / 100;
+    } else {
+      rate = Number(lab.rate) || 0;
+      taxableValue = Math.round((rate - discount) * 100) / 100;
+      const cgstPercent = gstPercent / 2;
+      const sgstPercent = gstPercent / 2;
+      cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
+      sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
+      igstAmount = 0;
+      gstAmount = cgstAmount + sgstAmount;
+      total = Math.round((taxableValue + gstAmount) * 100) / 100;
+    }
 
+    const amount = taxableValue;
     labourTotal += taxableValue;
     gstTotal += gstAmount;
 
@@ -143,10 +161,49 @@ const recalculateEstimate = (parts = [], labour = []) => {
 // List estimates with filters
 router.get('/', auth, async (req, res) => {
   try {
-    const { status, jobCardId } = req.query;
+    const { status, jobCardId, search } = req.query;
     let query = {};
     if (status) query.status = status;
     if (jobCardId) query.jobCardId = jobCardId;
+
+    if (search && search.trim() !== '') {
+      const term = search.trim();
+      const Customer = require('../models/Customer');
+      const Vehicle = require('../models/Vehicle');
+      const JobCard = require('../models/JobCard');
+
+      const [customers, vehicles] = await Promise.all([
+        Customer.find({
+          $or: [
+            { name: { $regex: term, $options: 'i' } },
+            { mobile: { $regex: term, $options: 'i' } }
+          ]
+        }).select('_id').lean(),
+        Vehicle.find({
+          $or: [
+            { vehicleNumber: { $regex: term, $options: 'i' } },
+            { chassisNumber: { $regex: term, $options: 'i' } }
+          ]
+        }).select('_id').lean()
+      ]);
+
+      const customerIds = customers.map(c => c._id);
+      const vehicleIds = vehicles.map(v => v._id);
+
+      const jobCards = await JobCard.find({
+        $or: [
+          { customerId: { $in: customerIds } },
+          { vehicleId: { $in: vehicleIds } }
+        ]
+      }).select('_id').lean();
+
+      const jobCardIds = jobCards.map(jc => jc._id);
+
+      query.$or = [
+        { estimateNo: { $regex: term, $options: 'i' } },
+        { jobCardId: { $in: jobCardIds } }
+      ];
+    }
 
     const estimates = await Estimate.find(query)
       .select('estimateNo jobCardId totals status date validUntil amountInWords createdAt')
@@ -154,7 +211,8 @@ router.get('/', auth, async (req, res) => {
         path: 'jobCardId',
         populate: [{ path: 'customerId' }, { path: 'vehicleId' }]
       })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.send(estimates);
   } catch (error) {
