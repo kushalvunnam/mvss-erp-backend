@@ -73,11 +73,11 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop'), async 
 
     const repair = new ExternalRepair({
       repairNo,
-      jobCardId,
+      jobCardId: jobCardId && jobCardId.toString().trim() !== '' ? jobCardId : undefined,
       jobCardNo,
-      vendorId,
+      vendorId: vendorId && vendorId.toString().trim() !== '' ? vendorId : undefined,
       vendorName,
-      vehicleId,
+      vehicleId: vehicleId && vehicleId.toString().trim() !== '' ? vehicleId : undefined,
       vehicleNo,
       repairDescription,
       cost: Number(cost) || 0,
@@ -109,7 +109,11 @@ router.put('/:id', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop'), asyn
 
     updatableFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        repair[field] = req.body[field];
+        let val = req.body[field];
+        if (['jobCardId', 'vendorId', 'vehicleId'].includes(field) && typeof val === 'string' && val.trim() === '') {
+          val = undefined;
+        }
+        repair[field] = val;
       }
     });
 

@@ -572,7 +572,7 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   };
 
-  const isAdvisorOrAdmin = ['Admin', 'Service', 'Spares', 'Accounts', 'Accounts Executive'].includes(user?.role);
+  const isAdvisorOrAdmin = ['Admin', 'Service', 'Spares', 'Accounts', 'Accounts Executive', 'Body Shop'].includes(user?.role);
 
   return (
     <div className="space-y-4 animate-fade-in p-1">

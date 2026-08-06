@@ -1528,7 +1528,7 @@ function PartsMasterBillingModal({
       ...prev,
       taxableAmount: finalAmt > 0 ? calculatedTaxable.toFixed(4) : '',
       sellingPrice: finalAmt > 0 ? calculatedTaxable.toFixed(4) : '',
-      mrp: finalAmt > 0 ? finalAmt.toFixed(2) : '',
+      mrp: val,
       quantity: '1',
       discountPercent: '0',
       discountAmount: '0',
@@ -1956,7 +1956,7 @@ function PartsMasterBillingModal({
                     type="number"
                     step="0.01"
                     required
-                    value={finalTotalAmount === 0 ? '' : finalTotalAmount.toFixed(2)}
+                    value={form.mrp}
                     onChange={(e) => handleLabourFinalAmountChange(e.target.value)}
                     className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl font-mono text-emerald-600 dark:text-emerald-450 font-bold focus:outline-none focus:border-indigo-500"
                   />
