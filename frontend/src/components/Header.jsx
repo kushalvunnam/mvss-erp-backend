@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config';
 import { Sun, Moon, Bell, AlertTriangle, Menu, LogOut, Search, Calendar, MessageSquare } from 'lucide-react';
 
-export default function Header({ user, token, currentTab, onMenuClick, onLogout, onNavigate, onNavigateToJobCard }) {
+export default function Header({ user, token, currentTab, onMenuClick, onLogout, onNavigate, onNavigateToJobCard, tabPermissions }) {
   const [darkMode, setDarkMode] = useState(false);
   const [alerts, setAlerts] = useState([]);
   const [showAlertsMenu, setShowAlertsMenu] = useState(false);
@@ -42,10 +42,16 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
       return;
     }
     const query = searchQuery.toLowerCase();
-    const staticMatches = searchItems.filter(item => 
-      item.name.toLowerCase().includes(query) || 
-      item.keywords.some(kw => kw.includes(query))
-    );
+    const userRole = user?.role || 'Guest';
+
+    const staticMatches = searchItems.filter(item => {
+      const matchesQuery = item.name.toLowerCase().includes(query) || 
+                           item.keywords.some(kw => kw.includes(query));
+      const hasPermission = tabPermissions && tabPermissions[item.tabId]
+        ? tabPermissions[item.tabId].includes(userRole)
+        : true;
+      return matchesQuery && hasPermission;
+    });
 
     if (token === 'mock_jwt_token_for_offline_demo') {
       setFilteredSuggestions(staticMatches);
@@ -58,7 +64,13 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
           });
           if (res.ok) {
             const dynamicMatches = await res.json();
-            setFilteredSuggestions([...staticMatches, ...dynamicMatches]);
+            const filteredDynamic = dynamicMatches.filter(item => {
+              const hasPermission = tabPermissions && tabPermissions[item.tabId]
+                ? tabPermissions[item.tabId].includes(userRole)
+                : true;
+              return hasPermission;
+            });
+            setFilteredSuggestions([...staticMatches, ...filteredDynamic]);
           } else {
             setFilteredSuggestions(staticMatches);
           }
@@ -71,7 +83,7 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
 
       return () => clearTimeout(delayDebounce);
     }
-  }, [searchQuery, token]);
+  }, [searchQuery, token, user, tabPermissions]);
 
   const handleSelectSuggestion = (item) => {
     if (item.isMock) {

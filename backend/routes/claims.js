@@ -12,7 +12,7 @@ router.use((req, res, next) => {
   next();
 });
 
-router.use(auth, restrictTo('Admin', 'Service'));
+router.use(auth, restrictTo('Admin', 'Service', 'Body Shop'));
 
 const uploadsDir = path.join(__dirname, '../uploads');
 if (!fs.existsSync(uploadsDir)) {

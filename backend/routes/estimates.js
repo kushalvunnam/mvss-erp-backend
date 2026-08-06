@@ -370,7 +370,7 @@ router.post('/:id/parts/issue', auth, restrictTo('Admin', 'Spares', 'Service', '
 });
 
 // Return parts from Job Card (Increment inventory quantity automatically)
-router.post('/:id/parts/return', auth, restrictTo('Admin', 'Spares', 'Service'), async (req, res) => {
+router.post('/:id/parts/return', auth, restrictTo('Admin', 'Spares', 'Service', 'Body Shop'), async (req, res) => {
   try {
     const { partId, qtyToReturn } = req.body;
     const estimate = await Estimate.findById(req.params.id);

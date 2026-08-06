@@ -12,7 +12,7 @@ router.use((req, res, next) => {
   next();
 });
 
-router.use(auth, restrictTo('Admin', 'Service', 'Spares'));
+router.use(auth, restrictTo('Admin', 'Service', 'Spares', 'Body Shop', 'Accounts'));
 
 // 1. Stock Valuation & Statement Report
 router.get('/stock-statement', auth, async (req, res) => {

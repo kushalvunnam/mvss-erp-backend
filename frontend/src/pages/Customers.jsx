@@ -240,14 +240,12 @@ export default function Customers({ token, user }) {
             <h2 className="text-xl font-black text-slate-800 dark:text-white">Customers List</h2>
             <p className="text-xs text-slate-400 font-semibold dark:text-slate-500">Add, edit, or filter customer records</p>
           </div>
-          {user?.role !== 'Body Shop' && (
-            <button
-              onClick={handleOpenAdd}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
-            >
-              <Plus className="w-4 h-4" /> Add Customer
-            </button>
-          )}
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
+          >
+            <Plus className="w-4 h-4" /> Add Customer
+          </button>
         </div>
 
         {/* Filters */}
@@ -310,7 +308,6 @@ export default function Customers({ token, user }) {
                       </td>
                       <td className="p-4 font-mono font-medium text-slate-500">{c.gstNumber || 'None'}</td>
                       <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        {user?.role !== 'Body Shop' && (
                           <div className="flex justify-end gap-1.5">
                             <button
                               onClick={(e) => handleOpenEdit(c, e)}
@@ -329,7 +326,6 @@ export default function Customers({ token, user }) {
                               </button>
                             )}
                           </div>
-                        )}
                       </td>
                     </tr>
                   ))
