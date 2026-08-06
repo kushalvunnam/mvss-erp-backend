@@ -104,15 +104,15 @@ router.get('/service-history', auth, async (req, res) => {
 
     const query = {
       $or: [
-        { status: { $in: ['Ready for Delivery', 'Delivered', 'Closed'] } },
+        { status: { $in: ['Ready for Delivery', 'Delivered', 'Closed', 'Completed'] } },
         { _id: { $in: invoicedJcIds } }
       ],
       $and: [
         {
           $or: [
-            { workCategory: { $in: ['PMS', 'General Service', 'RR', 'Corporate'] } },
-            { serviceType: { $in: ['General Servicing', 'Paid Service'] } },
-            { serviceTypes: { $in: ['General Servicing', 'Paid Service'] } }
+            { workCategory: { $in: ['PMS', 'General Service', 'General Servicing', 'Paid Service'] } },
+            { serviceType: { $in: ['PMS', 'General Service', 'General Servicing', 'Paid Service'] } },
+            { serviceTypes: { $in: ['PMS', 'General Service', 'General Servicing', 'Paid Service'] } }
           ]
         },
         {
@@ -191,7 +191,8 @@ router.get('/service-history', auth, async (req, res) => {
         invoiceAmount: Number(invoiceAmount) || 0,
         status: jc.status || 'N/A',
         servicesPerformed,
-        partsReplaced
+        partsReplaced,
+        serviceCategory: 'PMS / General Service'
       };
     }));
 
