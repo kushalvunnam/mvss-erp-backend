@@ -94,7 +94,7 @@ export default function ServiceHistory({ token }) {
           </div>
         ) : history.length === 0 ? (
           <div className="p-8 text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
-            {search ? 'No matching service records found.' : 'Enter a search term to view vehicle history.'}
+            {search ? 'No matching service records found.' : 'No service history records found.'}
           </div>
         ) : (
           <div className="overflow-x-auto">

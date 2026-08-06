@@ -89,27 +89,7 @@ router.get('/', auth, async (req, res) => {
 router.get('/service-history', auth, async (req, res) => {
   try {
     const { search } = req.query;
-    if (!search || !search.trim()) {
-      return res.send([]);
-    }
-
-    const term = search.trim();
-
-    const customers = await Customer.find({
-      $or: [
-        { name: { $regex: term, $options: 'i' } },
-        { mobile: { $regex: term, $options: 'i' } }
-      ]
-    }).lean();
-    const customerIds = customers.map(c => c._id);
-
-    const vehicles = await Vehicle.find({
-      $or: [
-        { vehicleNumber: { $regex: term, $options: 'i' } },
-        { chassisNumber: { $regex: term, $options: 'i' } }
-      ]
-    }).lean();
-    const vehicleIds = vehicles.map(v => v._id);
+    const term = search ? search.trim() : '';
 
     const ExternalRepair = require('../models/ExternalRepair');
     const externalRepairs = await ExternalRepair.find({ status: { $ne: 'Cancelled' } }).select('jobCardId').lean();
@@ -122,7 +102,7 @@ router.get('/service-history', auth, async (req, res) => {
     const invoices = await Invoice.find({ status: 'Finalized' }).select('jobCardId').lean();
     const invoicedJcIds = invoices.map(inv => inv.jobCardId).filter(Boolean);
 
-    const jobCards = await JobCard.find({
+    const query = {
       $or: [
         { status: { $in: ['Ready for Delivery', 'Delivered', 'Closed'] } },
         { _id: { $in: invoicedJcIds } }
@@ -139,16 +119,40 @@ router.get('/service-history', auth, async (req, res) => {
           jobType: { $nin: ['Insurance Job'] },
           workCategory: { $nin: ['Insurance Jobs'] },
           _id: { $nin: externalJcIds }
-        },
-        {
-          $or: [
-            { jobCardNo: { $regex: term, $options: 'i' } },
-            { customerId: { $in: customerIds } },
-            { vehicleId: { $in: vehicleIds } }
-          ]
         }
       ]
-    })
+    };
+
+    if (term) {
+      const Customer = require('../models/Customer');
+      const Vehicle = require('../models/Vehicle');
+
+      const customers = await Customer.find({
+        $or: [
+          { name: { $regex: term, $options: 'i' } },
+          { mobile: { $regex: term, $options: 'i' } }
+        ]
+      }).lean();
+      const customerIds = customers.map(c => c._id);
+
+      const vehicles = await Vehicle.find({
+        $or: [
+          { vehicleNumber: { $regex: term, $options: 'i' } },
+          { chassisNumber: { $regex: term, $options: 'i' } }
+        ]
+      }).lean();
+      const vehicleIds = vehicles.map(v => v._id);
+
+      query.$and.push({
+        $or: [
+          { jobCardNo: { $regex: term, $options: 'i' } },
+          { customerId: { $in: customerIds } },
+          { vehicleId: { $in: vehicleIds } }
+        ]
+      });
+    }
+
+    const jobCards = await JobCard.find(query)
       .populate('customerId')
       .populate('vehicleId')
       .sort({ createdAt: -1 })
