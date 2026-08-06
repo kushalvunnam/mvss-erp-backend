@@ -181,7 +181,7 @@ const recalculateInvoice = (parts = [], labour = [], isInterstate = false) => {
 };
 
 // Enforce permissions for all Invoice routes
-router.use(auth, restrictTo('Admin', 'Accounts'));
+router.use(auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'));
 
 // List invoices
 router.get('/', async (req, res) => {
@@ -222,7 +222,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Create Invoice (can link to estimate)
-router.post('/', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
+router.post('/', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { jobCardId, estimateId, parts, labour, gstDetails, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     
@@ -325,7 +325,7 @@ router.post('/', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
 });
 
 // Update / Finalize Invoice (Triggers Inventory stock deduction)
-router.put('/:id', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
+router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { parts, labour, status, paymentStatus, paymentMethod, amountPaid, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     const invoice = await Invoice.findById(req.params.id);
@@ -510,7 +510,7 @@ router.get('/:id/gatepass/pdf', auth, async (req, res) => {
 });
 
 // DELETE: Remove an invoice record permanently (Admin only)
-router.delete('/:id', auth, restrictTo('Admin'), async (req, res) => {
+router.delete('/:id', auth, restrictTo('Admin', 'Accounts Executive'), async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
@@ -594,7 +594,7 @@ router.post('/:id/send', auth, async (req, res) => {
 });
 
 // PUT: Mark invoice as paid (updates payment status and logs audit/notifications)
-router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
+router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { paymentMethod, amountPaid } = req.body;
     const invoice = await Invoice.findById(req.params.id).populate('customerId');
@@ -643,7 +643,7 @@ router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts'), async (req, res) =
 });
 
 // POST: Duplicate Invoice
-router.post('/:id/duplicate', auth, restrictTo('Admin', 'Accounts'), async (req, res) => {
+router.post('/:id/duplicate', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const sourceInvoice = await Invoice.findById(req.params.id);
     if (!sourceInvoice) return res.status(404).send({ error: 'Source invoice not found.' });

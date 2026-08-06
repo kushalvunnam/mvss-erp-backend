@@ -60,13 +60,13 @@ import {
 import * as mockData from './utils/mockData';
 
 const tabPermissions = {
-  dashboard: ['Admin', 'Service', 'Reception', 'Accounts'],
+  dashboard: ['Admin', 'Service', 'Reception', 'Accounts', 'Accounts Executive'],
   bodyshop: ['Admin'],
   customers: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
   vehicles: ['Admin', 'Service', 'Body Shop', 'Reception'],
   jobcards: ['Admin', 'Service', 'Body Shop', 'Reception'],
-  estimates: ['Admin', 'Service', 'Body Shop'],
-  invoices: ['Admin', 'Accounts'],
+  estimates: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'],
+  invoices: ['Admin', 'Accounts', 'Accounts Executive'],
   inventory: ['Admin', 'Spares'],
   vendors: ['Admin', 'Spares'],
   adjustments: ['Admin', 'Spares'],
@@ -74,14 +74,14 @@ const tabPermissions = {
   inventoryreports: ['Admin', 'Spares'],
   purchases: ['Admin', 'Spares'],
   purchasereport: ['Admin', 'Spares'],
-  backlogs: ['Admin', 'Service', 'Body Shop', 'Spares'],
+  backlogs: ['Admin', 'Service', 'Body Shop', 'Spares', 'Accounts Executive'],
   expenses: ['Admin', 'Accounts', 'Service', 'Spares'],
   externalrepairs: ['Admin', 'Service', 'Body Shop', 'Reception'],
   employees: ['Admin'],
-  claims: ['Admin', 'Service', 'Body Shop'],
-  reports: ['Admin', 'Service', 'Body Shop', 'Accounts'],
+  claims: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'],
+  reports: ['Admin', 'Service', 'Body Shop', 'Accounts', 'Accounts Executive'],
   auditlogs: ['Admin'],
-  gatepass: ['Admin', 'Service', 'Body Shop']
+  gatepass: ['Admin', 'Service', 'Body Shop', 'Accounts Executive']
 };
 
 export default function App() {
@@ -1956,22 +1956,22 @@ function ERPShell({
   const isPathBlocked = pathTab ? !(tabPermissions[pathTab]?.includes(userRole) ?? true) : false;
 
   const navigationItems = [
-    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception', 'Accounts'] },
+    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception', 'Accounts', 'Accounts Executive'] },
     { id: 'bodyshop', name: 'Body Shop', icon: Wrench, roles: ['Admin'] },
     { id: 'customers', name: 'Customers', icon: Users, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'vehicles', name: 'Vehicles', icon: Car, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
     { id: 'jobcards', name: 'Job Cards', icon: FileText, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
-    { id: 'estimates', name: 'Estimates', icon: FileCheck, roles: ['Admin', 'Service', 'Body Shop'] },
-    { id: 'invoices', name: 'Invoices', icon: Receipt, roles: ['Admin', 'Accounts'] },
+    { id: 'estimates', name: 'Estimates', icon: FileCheck, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] },
+    { id: 'invoices', name: 'Invoices', icon: Receipt, roles: ['Admin', 'Accounts', 'Accounts Executive'] },
     { id: 'inventory', name: 'Inventory', icon: Package, roles: ['Admin', 'Spares'] },
     { id: 'purchases', name: 'Purchases', icon: ShoppingBag, roles: ['Admin', 'Spares'] },
     { id: 'expenses', name: 'Expenses', icon: Wallet, roles: ['Admin', 'Accounts', 'Service', 'Spares'] },
     { id: 'externalrepairs', name: 'External Repairs', icon: Wrench, roles: ['Admin', 'Service', 'Body Shop'] },
     { id: 'employees', name: 'Employees', icon: Users, roles: ['Admin'] },
-    { id: 'claims', name: 'Claims', icon: ShieldCheck, roles: ['Admin', 'Service', 'Body Shop'] },
-    { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service', 'Body Shop', 'Accounts'] },
+    { id: 'claims', name: 'Claims', icon: ShieldCheck, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] },
+    { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service', 'Body Shop', 'Accounts', 'Accounts Executive'] },
     { id: 'auditlogs', name: 'Audit Logs', icon: History, roles: ['Admin'] },
-    { id: 'gatepass', name: 'Gate Pass', icon: Key, roles: ['Admin', 'Service', 'Body Shop'] }
+    { id: 'gatepass', name: 'Gate Pass', icon: Key, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] }
   ];
 
   const filteredNavItems = navigationItems.filter(item => item.roles.includes(userRole));

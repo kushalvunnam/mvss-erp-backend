@@ -149,7 +149,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'), async (req, res) => {
+router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares', 'Accounts Executive'), async (req, res) => {
   try {
     const { 
       vehicleNo, 
@@ -277,7 +277,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
 });
 
 // 4. PUT: Update Backlog Details (Service Advisors and Inventory roles allowed)
-router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Service'), async (req, res) => {
+router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Service', 'Accounts Executive'), async (req, res) => {
   try {
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });
@@ -324,7 +324,7 @@ router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Servi
 });
 
 // 5. PUT: Mark Backlog as Received (Updates status, restocks inventory and logs purchase history)
-router.put('/:id/receive', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares'), async (req, res) => {
+router.put('/:id/receive', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Accounts Executive'), async (req, res) => {
   try {
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });
@@ -432,7 +432,7 @@ router.put('/:id/receive', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares'
 });
 
 // 6. DELETE: Delete Backlog Request (Restricted to Admin Only)
-router.delete('/:id', restrictTo('Admin'), async (req, res) => {
+router.delete('/:id', restrictTo('Admin', 'Accounts Executive'), async (req, res) => {
   try {
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });

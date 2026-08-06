@@ -1038,7 +1038,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
-                              {user?.role === 'Admin' && (
+                              {['Admin', 'Accounts Executive'].includes(user?.role) && (
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); handleDeleteInvoice(inv._id, e); }}
@@ -1217,7 +1217,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                       </button>
                     )}
 
-                    {user?.role === 'Admin' && (
+                    {['Admin', 'Accounts Executive'].includes(user?.role) && (
                       <button
                         onClick={(e) => {
                           handleDeleteInvoice(selectedInvoice._id, e);
