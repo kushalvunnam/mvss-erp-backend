@@ -284,99 +284,100 @@ export default function StockAdjustment({ token, user }) {
       </div>
 
       {/* New Adjustment Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-slate-955/50 backdrop-blur-xs flex items-center justify-center p-4 z-[99999]">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-5 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+      {showModal &&        <div className="fixed inset-0 bg-slate-955/50 backdrop-blur-xs flex items-center justify-center p-4 z-[99999]">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <Wrench className="w-5 h-5 text-indigo-500" /> New Stock Adjustment Entry
               </h3>
-              <button onClick={() => setShowModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-200">
+              <button onClick={() => setShowModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Spare Part *</label>
-                <select
-                  required
-                  value={formData.partId}
-                  onChange={(e) => setFormData({ ...formData, partId: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
-                >
-                  {inventory.map(item => (
-                    <option key={item._id} value={item._id}>
-                      {item.partName} ({item.partNumber}) - Stock: {item.stockQuantity} {item.unit || 'Pcs'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSave} className="flex flex-col min-h-0 flex-1">
+              <div className="p-6 space-y-5 overflow-y-auto flex-1 min-h-0">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Adjustment Type *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Spare Part *</label>
                   <select
-                    value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                    required
+                    value={formData.partId}
+                    onChange={(e) => setFormData({ ...formData, partId: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
                   >
-                    <option value="Stock Increase">Stock Increase (+)</option>
-                    <option value="Returned Items">Returned Items (+)</option>
-                    <option value="Stock Decrease">Stock Decrease (-)</option>
-                    <option value="Damaged Items">Damaged Items (-)</option>
-                    <option value="Missing Items">Missing Items (-)</option>
-                    <option value="Manual Correction">Manual Correction (-)</option>
+                    {inventory.map(item => (
+                      <option key={item._id} value={item._id}>
+                        {item.partName} ({item.partNumber}) - Stock: {item.stockQuantity} {item.unit || 'Pcs'}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Adjustment Type *</label>
+                    <select
+                      value={formData.type}
+                      onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                    >
+                      <option value="Stock Increase">Stock Increase (+)</option>
+                      <option value="Returned Items">Returned Items (+)</option>
+                      <option value="Stock Decrease">Stock Decrease (-)</option>
+                      <option value="Damaged Items">Damaged Items (-)</option>
+                      <option value="Missing Items">Missing Items (-)</option>
+                      <option value="Manual Correction">Manual Correction (-)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Quantity *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={formData.qty}
+                      onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Quantity *</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason for Adjustment *</label>
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
                     required
-                    value={formData.qty}
-                    onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
-                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none font-mono"
+                    value={formData.reason}
+                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                    placeholder="e.g. Physical inventory audit discrepancy, damaged in warehouse..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Comments / Notes</label>
+                  <textarea
+                    rows="2"
+                    value={formData.comments}
+                    onChange={(e) => setFormData({ ...formData, comments: e.target.value })}
+                    placeholder="Additional audit details or verification comments..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason for Adjustment *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.reason}
-                  onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                  placeholder="e.g. Physical inventory audit discrepancy, damaged in warehouse..."
-                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Comments / Notes</label>
-                <textarea
-                  rows="2"
-                  value={formData.comments}
-                  onChange={(e) => setFormData({ ...formData, comments: e.target.value })}
-                  placeholder="Additional audit details or verification comments..."
-                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 bg-slate-50/50 dark:bg-slate-955/40 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-200"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-md shadow-indigo-600/20"
+                  className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-md shadow-indigo-600/20 cursor-pointer"
                 >
                   Record Adjustment
                 </button>
@@ -384,7 +385,7 @@ export default function StockAdjustment({ token, user }) {
             </form>
           </div>
         </div>
-      )}
+      }
     </div>
   );
 }
