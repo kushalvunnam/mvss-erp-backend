@@ -21,7 +21,7 @@ const generateExpenseId = async () => {
   return `EXP-${dateStr}-${sequence}`;
 };
 
-router.use(auth, restrictTo('Admin', 'Accounts', 'Service', 'Spares'));
+router.use(auth, restrictTo('Admin', 'Accounts', 'Service', 'Spares', 'Body Shop', 'Reception', 'Accounts Executive'));
 
 // GET /api/expenses - List expenses with filters and summary statistics
 router.get('/', async (req, res) => {
@@ -249,7 +249,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/expenses/:id - Delete expense record
-router.delete('/:id', restrictTo('Admin', 'Accounts'), async (req, res) => {
+router.delete('/:id', restrictTo('Admin', 'Accounts', 'Service', 'Spares', 'Body Shop', 'Reception', 'Accounts Executive'), async (req, res) => {
   try {
     const expense = await Expense.findById(req.params.id);
     if (!expense) {

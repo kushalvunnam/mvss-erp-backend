@@ -75,7 +75,7 @@ const tabPermissions = {
   purchases: ['Admin', 'Spares'],
   purchasereport: ['Admin', 'Spares'],
   backlogs: ['Admin', 'Service', 'Body Shop', 'Spares', 'Accounts Executive'],
-  expenses: ['Admin', 'Accounts', 'Service', 'Spares'],
+  expenses: ['Admin', 'Accounts', 'Service', 'Spares', 'Body Shop', 'Reception', 'Accounts Executive'],
   externalrepairs: ['Admin', 'Service', 'Body Shop', 'Reception'],
   employees: ['Admin'],
   claims: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'],
