@@ -24,13 +24,13 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
   const role = user?.role || 'Guest';
 
   const navigationItems = [
-    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception'] },
+    { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception', 'Accounts', 'Accounts Executive'] },
     { id: 'bodyshop', name: 'Body Shop', icon: Wrench, roles: ['Admin'] },
     { id: 'customers', name: 'Customers', icon: Users, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
-    { id: 'vehicles', name: 'Vehicles', icon: Car, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
-    { id: 'jobcards', name: 'Job Cards', icon: FileText, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
-    { id: 'estimates', name: 'Estimates', icon: FileCheck, roles: ['Admin', 'Accounts', 'Service', 'Body Shop'] },
-    { id: 'invoices', name: 'Invoices', icon: Receipt, roles: ['Admin', 'Accounts'] },
+    { id: 'vehicles', name: 'Vehicles', icon: Car, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
+    { id: 'jobcards', name: 'Job Cards', icon: FileText, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
+    { id: 'estimates', name: 'Estimates', icon: FileCheck, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] },
+    { id: 'invoices', name: 'Invoices', icon: Receipt, roles: ['Admin', 'Accounts', 'Accounts Executive'] },
     // Inventory Category Items
     { id: 'inventory', name: 'Parts / Labour Master', icon: Package, roles: ['Admin', 'Spares'] },
     { id: 'vendors', name: 'Vendor Management', icon: Users, roles: ['Admin', 'Spares'] },
@@ -38,16 +38,16 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
     { id: 'stockstatement', name: 'Stock Statement', icon: FileText, roles: ['Admin', 'Spares'] },
     { id: 'inventoryreports', name: 'Stock Alerts & Reports', icon: TrendingUp, roles: ['Admin', 'Spares'] },
     { id: 'purchases', name: 'Purchases', icon: ShoppingBag, roles: ['Admin', 'Spares'] },
-    { id: 'backlogs', name: 'Backlog Tracking', icon: Clock, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'] },
+    { id: 'backlogs', name: 'Backlog Tracking', icon: Clock, roles: ['Admin', 'Service', 'Body Shop', 'Spares', 'Accounts Executive'] },
     { id: 'expenses', name: 'Miscellaneous Expenses', icon: Wallet, roles: ['Admin', 'Accounts', 'Service', 'Spares'] },
-    { id: 'externalrepairs', name: 'External Repairs', icon: Wrench, roles: ['Admin', 'Accounts', 'Service', 'Body Shop'] },
+    { id: 'externalrepairs', name: 'External Repairs', icon: Wrench, roles: ['Admin', 'Service', 'Body Shop', 'Reception'] },
     { id: 'employees', name: 'Employees', icon: Users, roles: ['Admin'] },
-    { id: 'claims', name: 'Insurance Claims', icon: ShieldCheck, roles: ['Admin', 'Service'] },
+    { id: 'claims', name: 'Insurance Claims', icon: ShieldCheck, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] },
     { id: 'servicehistory', name: 'General Service History', icon: History, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
     { id: 'insurance', name: 'Insurance Module', icon: ShieldCheck, roles: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'] },
-    { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service'] },
+    { id: 'reports', name: 'Reports', icon: TrendingUp, roles: ['Admin', 'Service', 'Body Shop', 'Accounts', 'Accounts Executive'] },
     { id: 'auditlogs', name: 'Audit Logs', icon: History, roles: ['Admin'] },
-    { id: 'gatepass', name: 'Gate Pass', icon: Key, roles: ['Admin', 'Service'] }
+    { id: 'gatepass', name: 'Gate Pass', icon: Key, roles: ['Admin', 'Service', 'Body Shop', 'Accounts Executive'] }
   ];
 
   // Filter items based on user role to keep same business permissions
