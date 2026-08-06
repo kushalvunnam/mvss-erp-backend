@@ -9,6 +9,7 @@ import { getCachedData, setCachedData } from '../utils/apiCache';
 export default function Customers({ token, user }) {
   const [customers, setCustomers] = useState(() => getCachedData(`${API_BASE_URL}/customers?search=&type=`) || []);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   
   // Detail views & forms
@@ -30,7 +31,7 @@ export default function Customers({ token, user }) {
   });
 
   const fetchCustomers = async () => {
-    const url = `${API_BASE_URL}/customers?search=${encodeURIComponent(search)}&type=${typeFilter}`;
+    const url = `${API_BASE_URL}/customers?search=${encodeURIComponent(debouncedSearch)}&type=${typeFilter}`;
     const cached = getCachedData(url);
     if (cached && customers.length === 0) setCustomers(cached);
 
@@ -60,8 +61,15 @@ export default function Customers({ token, user }) {
   }, []);
 
   useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 120);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  useEffect(() => {
     fetchCustomers();
-  }, [search, typeFilter]);
+  }, [debouncedSearch, typeFilter]);
 
   useEffect(() => {
     const globalFilter = localStorage.getItem('global_search_filter');

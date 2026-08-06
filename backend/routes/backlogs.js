@@ -227,7 +227,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
           expectedDeliveryDate: new Date(expectedDeliveryDate),
           priority: priority || 'Medium',
           remarks: remarks || '',
-          status: status || 'Pending',
+          status: item.status || status || 'Pending',
           serviceAdvisorId,
           serviceAdvisorName,
           createdBy: req.user ? req.user.name : 'Staff'

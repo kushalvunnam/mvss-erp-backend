@@ -16,22 +16,21 @@ router.get('/', auth, async (req, res) => {
     let query = {};
     
     if (search) {
-      // Find matching vehicles by number, brand, model
-      const matchingVehicles = await Vehicle.find({
-        $or: [
-          { vehicleNumber: { $regex: search, $options: 'i' } },
-          { make: { $regex: search, $options: 'i' } },
-          { model: { $regex: search, $options: 'i' } }
-        ]
-      }).select('customerId');
+      // Find matching vehicles and job cards concurrently
+      const [matchingVehicles, matchingJobCards] = await Promise.all([
+        Vehicle.find({
+          $or: [
+            { vehicleNumber: { $regex: search, $options: 'i' } },
+            { make: { $regex: search, $options: 'i' } },
+            { model: { $regex: search, $options: 'i' } }
+          ]
+        }).select('customerId').lean(),
+        JobCard.find({
+          jobCardNo: { $regex: search, $options: 'i' }
+        }).select('customerId').lean()
+      ]);
       
       const vehicleCustomerIds = matchingVehicles.map(v => v.customerId);
-
-      // Find matching job cards by job card number
-      const matchingJobCards = await JobCard.find({
-        jobCardNo: { $regex: search, $options: 'i' }
-      }).select('customerId');
-
       const jobCardCustomerIds = matchingJobCards.map(jc => jc.customerId);
 
       // Combine customer IDs and filter out duplicates/nulls
@@ -49,7 +48,7 @@ router.get('/', auth, async (req, res) => {
       query.type = type;
     }
 
-    const customers = await Customer.find(query).sort({ createdAt: -1 });
+    const customers = await Customer.find(query).sort({ createdAt: -1 }).lean();
     res.send(customers);
   } catch (error) {
     res.status(500).send({ error: 'Failed to fetch customers.' });

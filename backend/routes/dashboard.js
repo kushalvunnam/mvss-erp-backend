@@ -496,60 +496,50 @@ router.get('/search', auth, async (req, res) => {
     const query = q.trim();
     const regex = { $regex: query, $options: 'i' };
 
-    // Search Customers
-    const customers = await Customer.find({
-      $or: [
-        { name: regex },
-        { mobile: regex },
-        { email: regex }
-      ]
-    }).limit(5);
-
-    // Search Vehicles
-    const vehicles = await Vehicle.find({
-      $or: [
-        { vehicleNumber: regex },
-        { chassisNumber: regex },
-        { make: regex },
-        { model: regex }
-      ]
-    }).limit(5);
-
-    // Search Job Cards
-    const jobcards = await JobCard.find({
-      jobCardNo: regex
-    }).limit(5);
-
-    // Search Invoices
-    const invoices = await Invoice.find({
-      invoiceNo: regex
-    }).limit(5);
-
-    // Search Inventory
-    const inventory = await Inventory.find({
-      $or: [
-        { partName: regex },
-        { partNumber: regex }
-      ]
-    }).limit(5);
-
-    // Search Employees
+    // Search concurrently using Promise.all and lean() for optimal performance
     const Employee = require('../models/Employee');
-    const employees = await Employee.find({
-      $or: [
-        { name: regex },
-        { email: regex },
-        { phone: regex }
-      ]
-    }).limit(5);
-
-    // Search Insurance Claims
-    const claims = await InsuranceClaim.find({
-      $or: [
-        { claimNo: regex },
-        { insuranceCompany: regex }
-      ]
-    }).limit(5);
+    const [customers, vehicles, jobcards, invoices, inventory, employees, claims] = await Promise.all([
+      Customer.find({
+        $or: [
+          { name: regex },
+          { mobile: regex },
+          { email: regex }
+        ]
+      }).limit(5).lean(),
+      Vehicle.find({
+        $or: [
+          { vehicleNumber: regex },
+          { chassisNumber: regex },
+          { make: regex },
+          { model: regex }
+        ]
+      }).limit(5).lean(),
+      JobCard.find({
+        jobCardNo: regex
+      }).limit(5).lean(),
+      Invoice.find({
+        invoiceNo: regex
+      }).limit(5).lean(),
+      Inventory.find({
+        $or: [
+          { partName: regex },
+          { partNumber: regex }
+        ]
+      }).limit(5).lean(),
+      Employee.find({
+        $or: [
+          { name: regex },
+          { email: regex },
+          { phone: regex }
+        ]
+      }).limit(5).lean(),
+      InsuranceClaim.find({
+        $or: [
+          { claimNo: regex },
+          { insuranceCompany: regex }
+        ]
+      }).limit(5).lean()
+    ]);
 
     // Format output
     const results = [];

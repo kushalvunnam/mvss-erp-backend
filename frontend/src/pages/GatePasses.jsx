@@ -21,6 +21,7 @@ import {
 export default function GatePasses({ token, user }) {
   const [gatepasses, setGatepasses] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -62,7 +63,7 @@ export default function GatePasses({ token, user }) {
 
   const fetchGatePasses = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/gatepasses?searchQuery=${encodeURIComponent(searchQuery)}&status=${statusFilter}`, {
+      const res = await fetch(`${API_BASE_URL}/gatepasses?searchQuery=${encodeURIComponent(debouncedSearchQuery)}&status=${statusFilter}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -94,9 +95,16 @@ export default function GatePasses({ token, user }) {
   };
 
   useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 120);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  useEffect(() => {
     fetchGatePasses();
     fetchStats();
-  }, [searchQuery, statusFilter]);
+  }, [debouncedSearchQuery, statusFilter]);
 
   // Canvas drawing handlers
   const startDrawing = (canvasRef, setDrawingState, e) => {

@@ -81,7 +81,8 @@ export default function Backlogs({ token, user }) {
     partNumber: '',
     partName: '',
     brand: '',
-    qty: 1
+    qty: 1,
+    status: 'Pending'
   });
 
   const [backlogItems, setBacklogItems] = useState([createEmptyBacklogRow()]);
@@ -92,7 +93,8 @@ export default function Backlogs({ token, user }) {
       partNumber: partData.partNumber || '',
       partName: partData.partName || '',
       brand: partData.brand || '',
-      qty: partData.qty || 1
+      qty: partData.qty || 1,
+      status: partData.status || 'Pending'
     };
 
     setBacklogItems(prev => {
@@ -122,7 +124,7 @@ export default function Backlogs({ token, user }) {
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-    }, 450);
+    }, 120);
     return () => clearTimeout(handler);
   }, [searchTerm]);
 
@@ -407,12 +409,12 @@ export default function Backlogs({ token, user }) {
         expectedDeliveryDate: formData.expectedDeliveryDate,
         priority: formData.priority,
         remarks: formData.remarks,
-        status: formData.status,
         items: backlogItems.map(item => ({
           partNumber: item.partNumber,
           partName: item.partName,
           brand: item.brand,
-          qty: item.qty
+          qty: item.qty,
+          status: item.status || 'Pending'
         }))
       };
 
@@ -1255,14 +1257,15 @@ export default function Backlogs({ token, user }) {
               <div>
                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Part Details</h3>
                 
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden mt-2">
-                  <table className="w-full text-xs text-left border-collapse">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden mt-2 overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse min-w-[800px]">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-850 text-slate-650 dark:text-slate-350 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px]">
                         <th className="p-3 w-8">#</th>
                         <th className="p-3 w-1/3">Part Name / Description *</th>
                         <th className="p-3 w-1/4">Part Number *</th>
                         <th className="p-3 w-1/4">OEM / Brand</th>
+                        <th className="p-3 w-32">Status</th>
                         <th className="p-3 w-16">Qty *</th>
                         <th className="p-3 text-center w-12">Action</th>
                       </tr>
@@ -1317,6 +1320,25 @@ export default function Backlogs({ token, user }) {
                               }}
                               className="w-full text-xs bg-slate-50 dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
                             />
+                          </td>
+
+                          {/* Status */}
+                          <td className="p-2">
+                            <select
+                              value={item.status || 'Pending'}
+                              onChange={(e) => {
+                                const updated = [...backlogItems];
+                                updated[idx].status = e.target.value;
+                                setBacklogItems(updated);
+                              }}
+                              className="w-full text-xs bg-slate-50 dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="Pending">Pending</option>
+                              <option value="Ordered">Ordered</option>
+                              <option value="Received">Received</option>
+                              <option value="Completed">Completed</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
                           </td>
 
                           {/* Qty */}
@@ -1422,7 +1444,7 @@ export default function Backlogs({ token, user }) {
               {/* Schedule & Dates */}
               <div>
                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Schedule & Priority</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Ordered Date</label>
                     <input
@@ -1453,20 +1475,6 @@ export default function Backlogs({ token, user }) {
                       <option value="Medium">Medium</option>
                       <option value="High">High</option>
                       <option value="Urgent">Urgent</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="Pending">Pending</option>
-                      <option value="Ordered">Ordered</option>
-                      <option value="Received">Received</option>
-                      <option value="Completed">Completed</option>
-                      <option value="Cancelled">Cancelled</option>
                     </select>
                   </div>
                 </div>

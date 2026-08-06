@@ -79,7 +79,7 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
           setFilteredSuggestions(staticMatches);
         }
         setSelectedIndex(0);
-      }, 300);
+      }, 100);
 
       return () => clearTimeout(delayDebounce);
     }

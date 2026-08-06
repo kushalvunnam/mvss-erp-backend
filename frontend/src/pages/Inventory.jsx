@@ -179,7 +179,7 @@ export default function Inventory({ token, user }) {
   useEffect(() => {
     const handler = setTimeout(() => {
       setSearch(searchVal);
-    }, 450);
+    }, 120);
     return () => clearTimeout(handler);
   }, [searchVal]);
 

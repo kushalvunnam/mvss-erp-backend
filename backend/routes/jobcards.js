@@ -47,23 +47,22 @@ router.get('/', auth, async (req, res) => {
       query.serviceAdvisorId = advisor;
     }
 
-    let customerIds = [];
-    let vehicleIds = [];
-
     if (search) {
-      // Find matching customers or vehicles
-      const customers = await Customer.find({
-        $or: [
-          { name: { $regex: search, $options: 'i' } },
-          { mobile: { $regex: search, $options: 'i' } }
-        ]
-      });
-      customerIds = customers.map(c => c._id);
+      // Find matching customers and vehicles concurrently using Promise.all and lean()
+      const [customers, vehicles] = await Promise.all([
+        Customer.find({
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { mobile: { $regex: search, $options: 'i' } }
+          ]
+        }).select('_id').lean(),
+        Vehicle.find({
+          vehicleNumber: { $regex: search, $options: 'i' }
+        }).select('_id').lean()
+      ]);
 
-      const vehicles = await Vehicle.find({
-        vehicleNumber: { $regex: search, $options: 'i' }
-      });
-      vehicleIds = vehicles.map(v => v._id);
+      const customerIds = customers.map(c => c._id);
+      const vehicleIds = vehicles.map(v => v._id);
 
       query.$or = [
         { jobCardNo: { $regex: search, $options: 'i' } },
@@ -77,7 +76,8 @@ router.get('/', auth, async (req, res) => {
       .populate('customerId')
       .populate('vehicleId')
       .populate('serviceAdvisorId', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.send(jobCards);
   } catch (error) {

@@ -58,7 +58,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   useEffect(() => {
     const handler = setTimeout(() => {
       setSearch(searchVal);
-    }, 450);
+    }, 120);
     return () => clearTimeout(handler);
   }, [searchVal]);
 
