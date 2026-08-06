@@ -939,7 +939,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                     <option value="Insurance Jobs">insurance</option>
                     <option value="B/P">body shop(bshop)</option>
                     <option value="RR">RR(Running repair)</option>
-                    <option value="PMS">pMS(periodical maintainence service)</option>
+                    <option value="PMS">PMS (Periodical Maintenance Service)</option>
                     <option value="Corporate">corporate</option>
                     <option value="General Service">General Service</option>
                   </select>

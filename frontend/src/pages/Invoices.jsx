@@ -3,7 +3,7 @@ import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
 import { Search, Plus, Receipt, Download, Share2, Mail, CheckCircle2, Printer, Edit2, Eye, Trash2, Copy, Link, ChevronDown, MessageSquare, X } from 'lucide-react';
 import InvoiceForm from './InvoiceForm';
 
-import { getCachedData, setCachedData } from '../utils/apiCache';
+import { getCachedData, setCachedData, invalidateCache } from '../utils/apiCache';
 
 export default function Invoices({ token, user, setActiveTab }) {
   const [rawInvoices, setRawInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices?status=`) || []);
@@ -50,6 +50,7 @@ export default function Invoices({ token, user, setActiveTab }) {
         const data = await res.json();
         setCachedData(url, data);
         setRawInvoices(data);
+        invalidateCache('service-history');
 
         // Update selectedInvoice if it exists
         if (selectedInvoice) {

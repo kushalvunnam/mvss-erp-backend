@@ -1257,16 +1257,16 @@ export default function Backlogs({ token, user }) {
               <div>
                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Part Details</h3>
                 
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden mt-2 overflow-x-auto">
-                  <table className="w-full text-xs text-left border-collapse min-w-[800px]">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl mt-2 overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse min-w-[1100px]">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-850 text-slate-650 dark:text-slate-350 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px]">
-                        <th className="p-3 w-8">#</th>
-                        <th className="p-3 w-1/3">Part Name / Description *</th>
-                        <th className="p-3 w-1/4">Part Number *</th>
-                        <th className="p-3 w-1/4">OEM / Brand</th>
-                        <th className="p-3 w-32">Status</th>
-                        <th className="p-3 w-16">Qty *</th>
+                        <th className="p-3 w-12 text-center">#</th>
+                        <th className="p-3 w-[30%]">Part Name / Description *</th>
+                        <th className="p-3 w-[20%]">Part Number *</th>
+                        <th className="p-3 w-[20%]">OEM / Brand</th>
+                        <th className="p-3 w-[15%]">Status</th>
+                        <th className="p-3 w-[10%]">Qty *</th>
                         <th className="p-3 text-center w-12">Action</th>
                       </tr>
                     </thead>

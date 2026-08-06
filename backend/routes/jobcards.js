@@ -100,7 +100,7 @@ router.get('/service-history', auth, async (req, res) => {
         { name: { $regex: term, $options: 'i' } },
         { mobile: { $regex: term, $options: 'i' } }
       ]
-    });
+    }).lean();
     const customerIds = customers.map(c => c._id);
 
     const vehicles = await Vehicle.find({
@@ -108,35 +108,55 @@ router.get('/service-history', auth, async (req, res) => {
         { vehicleNumber: { $regex: term, $options: 'i' } },
         { chassisNumber: { $regex: term, $options: 'i' } }
       ]
-    });
+    }).lean();
     const vehicleIds = vehicles.map(v => v._id);
 
     const ExternalRepair = require('../models/ExternalRepair');
-    const externalRepairs = await ExternalRepair.find({ status: { $ne: 'Cancelled' } }).select('jobCardId');
+    const externalRepairs = await ExternalRepair.find({ status: { $ne: 'Cancelled' } }).select('jobCardId').lean();
     const externalJcIds = externalRepairs.map(er => er.jobCardId).filter(Boolean);
-
-    const jobCards = await JobCard.find({
-      status: { $in: ['Delivered', 'Closed'] },
-      workCategory: { $in: ['PMS', 'General Service', 'RR', 'Corporate'] },
-      jobType: { $nin: ['Insurance Job'] },
-      serviceType: { $in: ['General Servicing', 'Paid Service'] },
-      _id: { $nin: externalJcIds },
-      $or: [
-        { jobCardNo: { $regex: term, $options: 'i' } },
-        { customerId: { $in: customerIds } },
-        { vehicleId: { $in: vehicleIds } }
-      ]
-    })
-      .populate('customerId')
-      .populate('vehicleId')
-      .sort({ createdAt: -1 });
 
     const Invoice = require('../models/Invoice');
     const Estimate = require('../models/Estimate');
 
+    // Find all job card IDs that have finalized invoices
+    const invoices = await Invoice.find({ status: 'Finalized' }).select('jobCardId').lean();
+    const invoicedJcIds = invoices.map(inv => inv.jobCardId).filter(Boolean);
+
+    const jobCards = await JobCard.find({
+      $or: [
+        { status: { $in: ['Ready for Delivery', 'Delivered', 'Closed'] } },
+        { _id: { $in: invoicedJcIds } }
+      ],
+      $and: [
+        {
+          $or: [
+            { workCategory: { $in: ['PMS', 'General Service', 'RR', 'Corporate'] } },
+            { serviceType: { $in: ['General Servicing', 'Paid Service'] } },
+            { serviceTypes: { $in: ['General Servicing', 'Paid Service'] } }
+          ]
+        },
+        {
+          jobType: { $nin: ['Insurance Job'] },
+          workCategory: { $nin: ['Insurance Jobs'] },
+          _id: { $nin: externalJcIds }
+        },
+        {
+          $or: [
+            { jobCardNo: { $regex: term, $options: 'i' } },
+            { customerId: { $in: customerIds } },
+            { vehicleId: { $in: vehicleIds } }
+          ]
+        }
+      ]
+    })
+      .populate('customerId')
+      .populate('vehicleId')
+      .sort({ createdAt: -1 })
+      .lean();
+
     const history = await Promise.all(jobCards.map(async (jc) => {
-      const invoice = await Invoice.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 });
-      const estimate = invoice ? null : await Estimate.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 });
+      const invoice = await Invoice.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 }).lean();
+      const estimate = invoice ? null : await Estimate.findOne({ jobCardId: jc._id }).sort({ createdAt: -1 }).lean();
       const source = invoice || estimate;
 
       const servicesPerformed = source && Array.isArray(source.labour)

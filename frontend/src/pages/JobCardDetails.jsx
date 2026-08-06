@@ -730,7 +730,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 <p className="font-semibold">
                   Customer Type: <span className="font-bold text-slate-900 dark:text-white">
                     {jc.workCategory === 'RR' ? 'RR(Running repair)' :
-                     jc.workCategory === 'PMS' ? 'pMS(periodical maintainence service)' :
+                     jc.workCategory === 'PMS' ? 'PMS(Periodical Maintenance Service)' :
                      jc.workCategory === 'B/P' ? 'body shop(bshop)' :
                      jc.workCategory === 'Corporate' ? 'corporate' :
                      jc.workCategory === 'General Service' ? 'General Service' :

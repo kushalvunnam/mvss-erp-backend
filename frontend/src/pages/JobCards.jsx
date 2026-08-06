@@ -4,7 +4,7 @@ import { Search, Plus, Edit2, FileText, ChevronRight, Eye, Trash2 } from 'lucide
 import JobCardForm from './JobCardForm';
 import JobCardDetails from './JobCardDetails';
 
-import { getCachedData, setCachedData } from '../utils/apiCache';
+import { getCachedData, setCachedData, invalidateCache } from '../utils/apiCache';
 
 export default function JobCards({ token, user, setActiveTab, viewJcId = null, setViewJcId = null }) {
   const [jobCards, setJobCards] = useState(() => getCachedData(`${API_BASE_URL}/jobcards?search=&status=`) || []);
@@ -40,6 +40,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
         const data = await res.json();
         setCachedData(url, data);
         setJobCards(data);
+        invalidateCache('service-history');
       }
     } catch (err) {
       console.error(err);
@@ -175,6 +176,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
         body: JSON.stringify({ status: newStatus, statusRemarks: remarks })
       });
       if (res.ok) {
+        invalidateCache('service-history');
         fetchJobCards();
       } else {
         const errObj = await res.json().catch(() => ({}));
