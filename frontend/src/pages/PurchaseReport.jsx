@@ -2261,9 +2261,9 @@ export default function PurchaseReport({ token, user }) {
       {/* ========================================================================= */}
       {selectedVoucher && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] print:p-0 print:bg-white print:static">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden shadow-2xl space-y-6 p-6 print:shadow-none print:border-none">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden shadow-2xl p-6 print:shadow-none print:border-none flex flex-col max-h-[90vh]">
             {/* Voucher Actions Bar */}
-            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 print:hidden">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 print:hidden shrink-0">
               <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-indigo-500" />
                 Purchase Voucher: {selectedVoucher.purchaseNo}
@@ -2285,7 +2285,7 @@ export default function PurchaseReport({ token, user }) {
             </div>
 
             {/* Voucher Document Printable Section */}
-            <div className="space-y-6 text-slate-800 dark:text-slate-200 text-xs">
+            <div className="flex-1 overflow-y-auto min-h-0 pr-1 space-y-6 text-slate-800 dark:text-slate-200 text-xs mt-5">
               <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-700 pb-4">
                 <div>
                   <h2 className="text-lg font-black text-indigo-600 dark:text-indigo-400 uppercase">MVSS AUTOMOBILES</h2>

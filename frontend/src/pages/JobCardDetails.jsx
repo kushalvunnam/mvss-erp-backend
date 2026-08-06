@@ -1612,12 +1612,22 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
       {showUpdateModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in print:hidden">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 overflow-y-auto max-h-[90vh]">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b pb-2">
-              Update Job Card Work Log / QC
-            </h3>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                Update Job Card Work Log / QC
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowUpdateModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-205 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             
-            <form onSubmit={handleModalSave} className="space-y-4 text-xs font-semibold text-slate-600 dark:text-slate-400">
+            <form onSubmit={handleModalSave} className="flex flex-col min-h-0 flex-1">
+              <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0 text-xs font-semibold text-slate-600 dark:text-slate-400">
               
               {/* If WIP or Body Shop stage */}
               {['Work In Progress', 'Body Shop'].includes(jc.status) && (
@@ -1688,9 +1698,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   </div>
                 </>
               )}
+              </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5 bg-slate-50/50 dark:bg-slate-955/40 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowUpdateModal(false)}
@@ -1706,7 +1717,6 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   Save Log Updates
                 </button>
               </div>
-
             </form>
           </div>
         </div>
@@ -1714,55 +1724,67 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
       {showWaiverModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in print:hidden">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 overflow-y-auto max-h-[90vh]">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-purple-500" /> Waive Off Remaining Balance
-            </h3>
-            
-            <div className="bg-slate-50 dark:bg-slate-950/20 p-3 rounded-xl space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400 font-semibold">Original Bill Amount:</span>
-                <span className="font-bold font-mono text-slate-800 dark:text-white">₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400 font-semibold">Total Received So Far:</span>
-                <span className="font-bold font-mono text-emerald-600 dark:text-emerald-450">₹{getTotalReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex justify-between border-t border-dashed border-slate-250 dark:border-slate-700 pt-1.5">
-                <span className="text-slate-500 font-bold">Pending Balance:</span>
-                <span className="font-bold font-mono text-rose-600 dark:text-rose-450">₹{(getFinalBillAmount() - getTotalReceived()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-purple-500" /> Waive Off Remaining Balance
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowWaiverModal(false)}
+                className="text-slate-400 hover:text-slate-655 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
+            
+            <form onSubmit={handleRecordWaiver} className="flex flex-col min-h-0 flex-1">
+              <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <div className="bg-slate-50 dark:bg-slate-950/20 p-3 rounded-xl space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-semibold">Original Bill Amount:</span>
+                    <span className="font-bold font-mono text-slate-800 dark:text-white">₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-semibold">Total Received So Far:</span>
+                    <span className="font-bold font-mono text-emerald-600 dark:text-emerald-450">₹{getTotalReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-dashed border-slate-250 dark:border-slate-700 pt-1.5">
+                    <span className="text-slate-500 font-bold">Pending Balance:</span>
+                    <span className="font-bold font-mono text-rose-600 dark:text-rose-450">₹{(getFinalBillAmount() - getTotalReceived()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
 
-            <form onSubmit={handleRecordWaiver} className="space-y-4 text-xs font-semibold text-slate-600 dark:text-slate-400">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Waiver Amount (₹)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max={(getFinalBillAmount() - getTotalReceived()).toFixed(2)}
-                  value={waiverAmount}
-                  onChange={(e) => setWaiverAmount(e.target.value)}
-                  placeholder="Enter amount to waive"
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-800 dark:text-white"
-                />
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Waiver Amount (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={(getFinalBillAmount() - getTotalReceived()).toFixed(2)}
+                    value={waiverAmount}
+                    onChange={(e) => setWaiverAmount(e.target.value)}
+                    placeholder="Enter amount to waive"
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Waiver Reason</label>
+                  <textarea
+                    rows="3"
+                    value={waiverReason}
+                    onChange={(e) => setWaiverReason(e.target.value)}
+                    placeholder="Please state why this balance is being waived off (mandatory)..."
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 resize-none font-medium text-slate-800 dark:text-slate-250"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Waiver Reason</label>
-                <textarea
-                  rows="3"
-                  value={waiverReason}
-                  onChange={(e) => setWaiverReason(e.target.value)}
-                  placeholder="Please state why this balance is being waived off (mandatory)..."
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 resize-none font-medium text-slate-800 dark:text-slate-250"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+              {/* Action Buttons */}
+              <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5 bg-slate-50/50 dark:bg-slate-955/40 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowWaiverModal(false)}

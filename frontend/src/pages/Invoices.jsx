@@ -1240,7 +1240,7 @@ export default function Invoices({ token, user, setActiveTab }) {
       {/* Share dialog modal */}
       {shareModal.show && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center items-center z-[99999] p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md shadow-2xl p-6 animate-fade-in text-xs font-semibold">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md shadow-2xl p-6 animate-fade-in text-xs font-semibold max-h-[90vh] overflow-y-auto">
             {shareSuccess ? (
               <div className="flex flex-col items-center justify-center py-10 space-y-3">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 animate-bounce" />
