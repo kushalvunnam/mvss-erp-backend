@@ -178,6 +178,7 @@ const estimateSchema = new mongoose.Schema({
   date: {
     type: Date,
     default: Date.now,
+    index: true,
   },
   validUntil: {
     type: Date,

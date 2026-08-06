@@ -36,6 +36,7 @@ export default function Backlogs({ token, user }) {
   
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
@@ -113,16 +114,29 @@ export default function Backlogs({ token, user }) {
   // Role Permissions
   const role = user?.role || 'Guest';
   const canCreate = ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'].includes(role);
-  const canEdit = ['Admin', 'Accounts', 'Body Shop', 'Spares'].includes(role);
+  const canEdit = ['Admin', 'Accounts', 'Body Shop', 'Spares', 'Service'].includes(role);
   const canReceive = ['Admin', 'Accounts', 'Body Shop', 'Spares'].includes(role);
   const canDelete = role === 'Admin';
 
+  // Debounce search term
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
   useEffect(() => {
     fetchBacklogs();
-    fetchJobCards();
-    fetchInventoryList();
-    fetchVendors();
-  }, [token, statusFilter, priorityFilter, orderedFromDate, orderedToDate, expectedFromDate, expectedToDate]);
+  }, [token, statusFilter, priorityFilter, orderedFromDate, orderedToDate, expectedFromDate, expectedToDate, debouncedSearch]);
+
+  useEffect(() => {
+    if (token) {
+      fetchJobCards();
+      fetchInventoryList();
+      fetchVendors();
+    }
+  }, [token]);
 
   // Handle URL query parameters to auto-fill backlog request
   useEffect(() => {
@@ -209,28 +223,36 @@ export default function Backlogs({ token, user }) {
   };
 
   const fetchBacklogs = async () => {
-    setLoading(true);
     setError('');
-    try {
-      const queryParams = new URLSearchParams();
-      if (statusFilter) queryParams.append('status', statusFilter);
-      if (priorityFilter) queryParams.append('priority', priorityFilter);
-      if (vendorFilter) queryParams.append('vendorName', vendorFilter);
-      if (partNumberFilter) queryParams.append('partNumber', partNumberFilter);
-      if (jobCardFilter) queryParams.append('jobCardNo', jobCardFilter);
-      if (vehicleFilter) queryParams.append('vehicleNo', vehicleFilter);
-      if (orderedFromDate) queryParams.append('orderedFromDate', orderedFromDate);
-      if (orderedToDate) queryParams.append('orderedToDate', orderedToDate);
-      if (expectedFromDate) queryParams.append('expectedFromDate', expectedFromDate);
-      if (expectedToDate) queryParams.append('expectedToDate', expectedToDate);
-      if (searchTerm) queryParams.append('search', searchTerm);
+    const queryParams = new URLSearchParams();
+    if (statusFilter) queryParams.append('status', statusFilter);
+    if (priorityFilter) queryParams.append('priority', priorityFilter);
+    if (vendorFilter) queryParams.append('vendorName', vendorFilter);
+    if (partNumberFilter) queryParams.append('partNumber', partNumberFilter);
+    if (jobCardFilter) queryParams.append('jobCardNo', jobCardFilter);
+    if (vehicleFilter) queryParams.append('vehicleNo', vehicleFilter);
+    if (orderedFromDate) queryParams.append('orderedFromDate', orderedFromDate);
+    if (orderedToDate) queryParams.append('orderedToDate', orderedToDate);
+    if (expectedFromDate) queryParams.append('expectedFromDate', expectedFromDate);
+    if (expectedToDate) queryParams.append('expectedToDate', expectedToDate);
+    if (debouncedSearch) queryParams.append('search', debouncedSearch);
 
-      const res = await fetch(`${API_BASE_URL}/backlogs?${queryParams.toString()}`, {
+    const url = `${API_BASE_URL}/backlogs?${queryParams.toString()}`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setBacklogs(Array.isArray(cached) ? cached : []);
+    } else if (backlogs.length === 0) {
+      setLoading(true);
+    }
+
+    try {
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
       if (res.ok) {
         const data = await parseJsonResponse(res);
+        setCachedData(url, data);
         setBacklogs(Array.isArray(data) ? data : []);
       } else {
         const err = await parseJsonResponse(res);
@@ -245,12 +267,18 @@ export default function Backlogs({ token, user }) {
   };
 
   const fetchJobCards = async () => {
+    const url = `${API_BASE_URL}/jobcards`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setJobCards(Array.isArray(cached) ? cached : (cached.jobcards || []));
+    }
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards`, {
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setCachedData(url, data);
         setJobCards(Array.isArray(data) ? data : (data.jobcards || []));
       }
     } catch (err) {
@@ -259,12 +287,18 @@ export default function Backlogs({ token, user }) {
   };
 
   const fetchInventoryList = async () => {
+    const url = `${API_BASE_URL}/inventory`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setInventoryList(Array.isArray(cached) ? cached.filter(i => i.type === 'Part') : []);
+    }
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory`, {
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setCachedData(url, data);
         setInventoryList(Array.isArray(data) ? data.filter(i => i.type === 'Part') : []);
       }
     } catch (err) {
@@ -273,12 +307,18 @@ export default function Backlogs({ token, user }) {
   };
 
   const fetchVendors = async () => {
+    const url = `${API_BASE_URL}/vendors`;
+    const cached = getCachedData(url);
+    if (cached) {
+      setVendorList(Array.isArray(cached.vendors) ? cached.vendors : []);
+    }
     try {
-      const res = await fetch(`${API_BASE_URL}/vendors`, {
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setCachedData(url, data);
         setVendorList(Array.isArray(data.vendors) ? data.vendors : []);
       }
     } catch (err) {
@@ -547,7 +587,7 @@ export default function Backlogs({ token, user }) {
       expectedDeliveryDate: backlog.expectedDeliveryDate ? new Date(backlog.expectedDeliveryDate).toISOString().slice(0, 10) : '',
       priority: backlog.priority || 'Medium',
       remarks: backlog.remarks || '',
-      status: backlog.status || 'Pending Order'
+      status: backlog.status || 'Pending'
     });
     setShowEditModal(true);
   };
@@ -559,22 +599,22 @@ export default function Backlogs({ token, user }) {
 
   // Dashboard Stats Calculations
   const totalBacklogParts = backlogs
-    .filter(b => ['Pending', 'Pending Order', 'Ordered', 'Partially Received'].includes(b.status))
+    .filter(b => ['Pending', 'Ordered'].includes(b.status))
     .reduce((sum, item) => sum + (item.qty || 0), 0);
 
-  const pendingCount = backlogs.filter(b => b.status === 'Pending' || b.status === 'Pending Order').length;
+  const pendingCount = backlogs.filter(b => b.status === 'Pending').length;
   const orderedCount = backlogs.filter(b => b.status === 'Ordered').length;
-  const partiallyReceivedCount = backlogs.filter(b => b.status === 'Partially Received' || b.status === 'Installed').length;
+  const completedCount = backlogs.filter(b => b.status === 'Completed').length;
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const receivedTodayCount = backlogs.filter(b => 
-    ['Received', 'In Stock', 'Issued', 'Completed'].includes(b.status) && 
+    ['Received', 'Completed'].includes(b.status) && 
     b.receivedDate && 
     new Date(b.receivedDate).toISOString().slice(0, 10) === todayStr
   ).length;
 
   const overdueCount = backlogs.filter(b => {
-    const isReceived = ['Received', 'In Stock', 'Issued', 'Completed'].includes(b.status);
+    const isReceived = ['Received', 'Completed'].includes(b.status);
     const isCancelled = b.status === 'Cancelled';
     const isPast = new Date(b.expectedDeliveryDate) < new Date(todayStr);
     return !isReceived && !isCancelled && isPast;
@@ -582,28 +622,19 @@ export default function Backlogs({ token, user }) {
 
   // Render Status Badge Class Helper
   const getStatusBadgeClass = (status, expectedDate) => {
-    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && !['Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'].includes(status);
+    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && !['Received', 'Completed', 'Cancelled'].includes(status);
     if (isOverdue) {
       return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-955/20 dark:text-rose-400 dark:border-rose-900/40';
     }
     switch (status) {
       case 'Pending':
-      case 'Pending Order':
         return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-955/20 dark:text-blue-400 dark:border-blue-900/40';
       case 'Ordered':
         return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900/40';
-      case 'Partially Received':
-        return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 dark:border-amber-900/40';
       case 'Received':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40';
-      case 'In Stock':
-        return 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/20 dark:text-teal-400 dark:border-teal-900/40';
-      case 'Issued':
-        return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-955/20 dark:text-orange-455 dark:border-orange-900/40';
       case 'Completed':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40';
-      case 'Installed':
-        return 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/40';
       case 'Cancelled':
         return 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/60';
       default:
@@ -613,7 +644,7 @@ export default function Backlogs({ token, user }) {
 
   // Render Status Badge
   const getStatusBadge = (status, expectedDate) => {
-    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && !['Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'].includes(status);
+    const isOverdue = expectedDate && new Date(expectedDate) < new Date(todayStr) && !['Received', 'Completed', 'Cancelled'].includes(status);
     
     if (isOverdue) {
       return (
@@ -1068,7 +1099,7 @@ export default function Backlogs({ token, user }) {
                             </button>
                           )}
 
-                          {canReceive && !['Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'].includes(b.status) && (
+                          {canReceive && !['Received', 'Completed', 'Cancelled'].includes(b.status) && (
                             <button
                               onClick={() => handleMarkReceived(b)}
                               className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"

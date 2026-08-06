@@ -14,6 +14,7 @@ const JobCardSchema = new mongoose.Schema({
   date: {
     type: Date,
     default: Date.now,
+    index: true,
   },
   time: {
     type: String,

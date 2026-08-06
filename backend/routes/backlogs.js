@@ -273,14 +273,14 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
   }
 });
 
-// 4. PUT: Update Backlog Details (Restricted from Service Advisor updates)
-router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares'), async (req, res) => {
+// 4. PUT: Update Backlog Details (Service Advisors and Inventory roles allowed)
+router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Service'), async (req, res) => {
   try {
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });
 
     // Block core fields changes if already received, but allow status changes
-    const postReceivedStatuses = ['Received', 'In Stock', 'Issued', 'Completed'];
+    const postReceivedStatuses = ['Received', 'Completed'];
     const isPostReceived = postReceivedStatuses.includes(backlog.status);
 
     if (isPostReceived) {
@@ -326,7 +326,7 @@ router.put('/:id/receive', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares'
     const backlog = await Backlog.findById(req.params.id);
     if (!backlog) return res.status(404).send({ error: 'Backlog entry not found.' });
 
-    const postReceivedStatuses = ['Received', 'In Stock', 'Issued', 'Completed'];
+    const postReceivedStatuses = ['Received', 'Completed'];
     if (postReceivedStatuses.includes(backlog.status)) {
       return res.status(400).send({ error: 'This backlog item has already been received.' });
     }

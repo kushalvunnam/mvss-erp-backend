@@ -117,7 +117,7 @@ router.get('/stock-statement', auth, async (req, res) => {
 router.get('/vendor-ledger', auth, async (req, res) => {
   try {
     const vendors = await Vendor.find().sort({ name: 1 });
-    const purchases = await Purchase.find().sort({ createdAt: -1 });
+    const purchases = await Purchase.find().select('vendorId').sort({ createdAt: -1 });
 
     const vendorReport = vendors.map(v => {
       const vPurchases = purchases.filter(p => p.vendorId && p.vendorId.toString() === v._id.toString());
@@ -150,7 +150,7 @@ router.get('/vendor-ledger', auth, async (req, res) => {
 router.get('/inventory-movement', auth, async (req, res) => {
   try {
     const adjustments = await StockAdjustment.find().sort({ createdAt: -1 }).limit(100);
-    const invoices = await Invoice.find().sort({ createdAt: -1 }).limit(50);
+    const invoices = await Invoice.find().select('parts createdAt date invoiceNo paymentStatus preparedBy status').sort({ createdAt: -1 }).limit(50);
 
     const movementLogs = [];
 
@@ -204,7 +204,16 @@ router.get('/purchase-history', auth, async (req, res) => {
     // 1. Fetch Purchase entries from dedicated Purchase collection
     let dbPurchases = [];
     try {
-      dbPurchases = await Purchase.find()
+      const pQuery = {};
+      if (vendorId) {
+        pQuery.vendorId = vendorId;
+      }
+      if (fromDate || toDate) {
+        pQuery.date = {};
+        if (fromDate) pQuery.date.$gte = new Date(fromDate);
+        if (toDate) pQuery.date.$lte = new Date(toDate);
+      }
+      dbPurchases = await Purchase.find(pQuery)
         .populate('items.partId')
         .sort({ date: -1, createdAt: -1 });
     } catch (err) {

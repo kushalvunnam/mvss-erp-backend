@@ -143,6 +143,7 @@ const purchaseSchema = new mongoose.Schema({
   date: {
     type: Date,
     default: Date.now,
+    index: true,
   },
   invoiceNo: {
     type: String,

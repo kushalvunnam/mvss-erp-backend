@@ -76,7 +76,7 @@ const backlogSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Ordered', 'Received', 'In Stock', 'Issued', 'Completed', 'Cancelled'],
+    enum: ['Pending', 'Ordered', 'Received', 'Cancelled', 'Completed'],
     default: 'Pending'
   },
   priority: {

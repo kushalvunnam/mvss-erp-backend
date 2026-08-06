@@ -19,13 +19,19 @@ import {
   AlertTriangle,
   ClipboardList
 } from 'lucide-react';
+import { getCachedData, setCachedData } from '../utils/apiCache';
 
 export default function Reports({ token, user }) {
-  const [jobCards, setJobCards] = useState([]);
-  const [invoices, setInvoices] = useState([]);
-  const [inventory, setInventory] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [jobCards, setJobCards] = useState(() => getCachedData(`${API_BASE_URL}/jobcards`) || []);
+  const [invoices, setInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices`) || []);
+  const [inventory, setInventory] = useState(() => getCachedData(`${API_BASE_URL}/inventory`) || []);
+  const [employees, setEmployees] = useState(() => getCachedData(`${API_BASE_URL}/employees`) || []);
+  const [loading, setLoading] = useState(() => {
+    const jc = getCachedData(`${API_BASE_URL}/jobcards`);
+    const inv = getCachedData(`${API_BASE_URL}/invoices`);
+    const stock = getCachedData(`${API_BASE_URL}/inventory`);
+    return !(jc && inv && stock);
+  });
   
   // Tab groups: 'workshop', 'financial', 'inventory', 'employees'
   const userRole = user?.role || 'Guest';
@@ -47,36 +53,47 @@ export default function Reports({ token, user }) {
 
   const fetchData = async () => {
     try {
-      setLoading(true);
+      const jcUrl = `${API_BASE_URL}/jobcards`;
+      const invUrl = `${API_BASE_URL}/invoices`;
+      const stockUrl = `${API_BASE_URL}/inventory`;
+      const empUrl = `${API_BASE_URL}/employees`;
+
+      const hasCache = getCachedData(jcUrl) && getCachedData(invUrl) && getCachedData(stockUrl);
+      if (!hasCache) {
+        setLoading(true);
+      }
+
       const headers = { Authorization: `Bearer ${token}` };
-      
       const promises = [
-        fetch(`${API_BASE_URL}/jobcards`, { headers }),
-        fetch(`${API_BASE_URL}/invoices`, { headers }),
-        fetch(`${API_BASE_URL}/inventory`, { headers })
+        fetch(jcUrl, { headers }),
+        fetch(invUrl, { headers }),
+        fetch(stockUrl, { headers })
       ];
 
-      // Only fetch employees if Admin or Accounts (to prevent authorization errors for Service/Spares role)
       if (isAdminOrAccounts) {
-        promises.push(fetch(`${API_BASE_URL}/employees`, { headers }));
+        promises.push(fetch(empUrl, { headers }));
       }
 
       const results = await Promise.all(promises);
 
       if (results[0].ok) {
         const jcData = await results[0].json();
+        setCachedData(jcUrl, jcData);
         setJobCards(jcData);
       }
       if (results[1].ok) {
         const invData = await results[1].json();
+        setCachedData(invUrl, invData);
         setInvoices(invData);
       }
       if (results[2].ok) {
         const invItemsData = await results[2].json();
+        setCachedData(stockUrl, invItemsData);
         setInventory(invItemsData);
       }
       if (isAdminOrAccounts && results[3] && results[3].ok) {
         const empData = await results[3].json();
+        setCachedData(empUrl, empData);
         setEmployees(empData);
       }
     } catch (err) {

@@ -171,6 +171,7 @@ const invoiceSchema = new mongoose.Schema({
   date: {
     type: Date,
     default: Date.now,
+    index: true,
   },
   poNumber: {
     type: String,

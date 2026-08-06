@@ -122,7 +122,7 @@ router.get('/stats', auth, restrictTo('Admin', 'Service', 'Reception'), async (r
     const monthlyInvoices = await Invoice.find({
       status: 'Finalized',
       date: { $gte: startOfMonth, $lte: endOfDay }
-    });
+    }).select('totals');
     const revenueThisMonth = monthlyInvoices.reduce((sum, inv) => sum + inv.totals.grandTotal, 0);
 
     // Revenue This Year relative to targetDate
@@ -133,7 +133,7 @@ router.get('/stats', auth, restrictTo('Admin', 'Service', 'Reception'), async (r
     const yearlyInvoices = await Invoice.find({
       status: 'Finalized',
       date: { $gte: startOfYear, $lte: endOfDay }
-    });
+    }).select('totals');
     const revenueThisYear = yearlyInvoices.reduce((sum, inv) => sum + inv.totals.grandTotal, 0);
 
     // Pending Payments as of endOfDay
@@ -146,18 +146,19 @@ router.get('/stats', auth, restrictTo('Admin', 'Service', 'Reception'), async (r
           { paymentStatus: { $ne: 'Paid' } },
           { updatedAt: { $gt: endOfDay } }
         ]
-      });
+      }).select('balanceDue totals advanceReceived');
     } else {
       unpaidInvoices = await Invoice.find({
         status: 'Finalized',
         paymentStatus: { $ne: 'Paid' }
-      });
+      }).select('balanceDue totals advanceReceived');
     }
     const pendingPayments = unpaidInvoices.reduce((sum, inv) => sum + (inv.balanceDue !== undefined ? inv.balanceDue : (inv.totals.roundedGrandTotal - (inv.advanceReceived || 0))), 0);
 
     const VendorModel = require('../models/Vendor');
     const PurchaseModel = require('../models/Purchase');
-    const allInventory = await Inventory.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {});
+    const allInventory = await Inventory.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {})
+      .select('partName partNumber stockQuantity purchasePrice sellingPrice lowStockThreshold');
     const inventoryValue = allInventory.reduce((sum, item) => sum + ((item.stockQuantity || 0) * (item.purchasePrice || 0)), 0);
     const sellingValuation = allInventory.reduce((sum, item) => sum + ((item.stockQuantity || 0) * (item.sellingPrice || 0)), 0);
     const lowStockItems = allInventory.filter(item => (item.stockQuantity || 0) <= (item.lowStockThreshold || 5) && (item.stockQuantity || 0) > 0).length;

@@ -176,6 +176,28 @@ export default function Dashboard({ token, user, setActiveTab }) {
         const dateStr = selectedDate.toISOString().split('T')[0];
         const statsUrl = `${API_BASE_URL}/dashboard/stats?date=${dateStr}`;
         const chartsUrl = `${API_BASE_URL}/dashboard/charts?date=${dateStr}`;
+        let summaryUrl = `${API_BASE_URL}/dashboard/summary?filter=${summaryFilter}&date=${dateStr}`;
+        if (summaryFilter === 'Custom' && customStartDate && customEndDate) {
+          summaryUrl += `&startDate=${customStartDate}&endDate=${customEndDate}`;
+        }
+        const reportsUrl = `${API_BASE_URL}/dashboard/reports?type=${reportType}&date=${dateStr}`;
+
+        // Pre-load from SWR cache
+        const cachedStats = getCachedData(statsUrl);
+        const cachedCharts = getCachedData(chartsUrl);
+        const cachedSummary = getCachedData(summaryUrl);
+        const cachedReports = getCachedData(reportsUrl);
+
+        if (cachedStats) setStats(cachedStats);
+        if (cachedCharts) setCharts(cachedCharts);
+        if (cachedSummary) setSummaryData(cachedSummary);
+        if (cachedReports) setReportsData(cachedReports.reports || []);
+
+        if (cachedStats && cachedCharts && cachedSummary && cachedReports) {
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
 
         // Parallelize all 4 independent requests!
         await Promise.all([
@@ -206,7 +228,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
     };
 
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 10000);
+    const interval = setInterval(fetchDashboardData, 60000);
     return () => clearInterval(interval);
   }, [token, selectedDate, summaryFilter, customStartDate, customEndDate, reportType]);
 
