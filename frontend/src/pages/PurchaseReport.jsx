@@ -1934,7 +1934,7 @@ export default function PurchaseReport({ token, user }) {
                                   <Eye className="w-4 h-4" />
                                 </button>
 
-                                {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts Executive'].includes(user?.role) && (
+                                {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
                                   <button
                                     type="button"
                                     onClick={() => handleStartEdit(p)}
