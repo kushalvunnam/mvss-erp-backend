@@ -245,7 +245,7 @@ async function seedDatabase() {
     console.log('Configuring default user accounts...');
     const defaultUsers = [
       { name: 'System Admin', email: 'admin@mvssautomobiles.com', password: 'admin_mvss@2026', role: 'Admin' },
-      { name: 'Accounts Executive', email: 'accounts@mvssautomobiles.com', password: 'accounts_mvss@2026', role: 'Accounts' },
+      { name: 'Accounts Executive', email: 'accounts@mvssautomobiles.com', password: 'accounts_mvss@2026', role: 'Accounts Executive' },
       { name: 'Service Advisor', email: 'service@mvssautomobiles.com', password: 'service_mvss@2026', role: 'Service' },
       { name: 'Store Manager', email: 'store@mvssautomobiles.com', password: 'store_mvss@2026', role: 'Spares' },
       { name: 'Body Shop Manager', email: 'bodyshop@mvssautomobiles.com', password: 'bodyshop_mvss@2026', role: 'Body Shop' },
@@ -257,6 +257,11 @@ async function seedDatabase() {
         const user = new User(u);
         await user.save();
         console.log(` - Created ${u.role}: ${u.email} / ${u.password}`);
+      } else if (existing.role !== u.role || existing.name !== u.name) {
+        existing.role = u.role;
+        existing.name = u.name;
+        await existing.save();
+        console.log(` - Updated seed user ${u.email} to role ${u.role}`);
       }
     }
 

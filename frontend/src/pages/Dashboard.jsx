@@ -232,17 +232,7 @@ export default function Dashboard({ token, user, setActiveTab }) {
     return () => clearInterval(interval);
   }, [token, selectedDate, summaryFilter, customStartDate, customEndDate, reportType]);
 
-  if (user?.role === 'Service' || user?.role === 'Spares') {
-    return (
-      <div className="flex-1 flex flex-col justify-center items-center h-full min-h-[300px] text-sm font-semibold text-slate-400 p-6 text-center">
-        <ShieldCheck className="w-10 h-10 text-slate-450 mb-3" />
-        <h4 className="text-slate-800 dark:text-white font-bold text-sm">Access Restricted</h4>
-        <p className="text-xs text-slate-450 mt-1 max-w-xs leading-relaxed">
-          Please use the sidebar to access your designated workspace modules.
-        </p>
-      </div>
-    );
-  }
+
 
   // 4. Restore original SVG Line Chart coordinates calculations
   const revenuePoints = charts.revenueChart || [];
