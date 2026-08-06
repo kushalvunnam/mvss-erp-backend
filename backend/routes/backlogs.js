@@ -163,6 +163,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
       expectedDeliveryDate, 
       priority, 
       remarks,
+      status,
       items // Array of { partNumber, partName, brand, qty }
     } = req.body;
 
@@ -226,6 +227,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
           expectedDeliveryDate: new Date(expectedDeliveryDate),
           priority: priority || 'Medium',
           remarks: remarks || '',
+          status: status || 'Pending',
           serviceAdvisorId,
           serviceAdvisorName,
           createdBy: req.user ? req.user.name : 'Staff'
@@ -258,6 +260,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
         expectedDeliveryDate: new Date(expectedDeliveryDate),
         priority: priority || 'Medium',
         remarks: remarks || '',
+        status: status || 'Pending',
         serviceAdvisorId,
         serviceAdvisorName,
         createdBy: req.user ? req.user.name : 'Staff'

@@ -407,6 +407,7 @@ export default function Backlogs({ token, user }) {
         expectedDeliveryDate: formData.expectedDeliveryDate,
         priority: formData.priority,
         remarks: formData.remarks,
+        status: formData.status,
         items: backlogItems.map(item => ({
           partNumber: item.partNumber,
           partName: item.partName,
@@ -1421,7 +1422,7 @@ export default function Backlogs({ token, user }) {
               {/* Schedule & Dates */}
               <div>
                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-950 pb-1 mb-3">Schedule & Priority</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Ordered Date</label>
                     <input
@@ -1452,6 +1453,20 @@ export default function Backlogs({ token, user }) {
                       <option value="Medium">Medium</option>
                       <option value="High">High</option>
                       <option value="Urgent">Urgent</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Ordered">Ordered</option>
+                      <option value="Received">Received</option>
+                      <option value="Completed">Completed</option>
+                      <option value="Cancelled">Cancelled</option>
                     </select>
                   </div>
                 </div>
