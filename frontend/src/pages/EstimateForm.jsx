@@ -319,7 +319,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 discountPercent: pricing.discountPercent.toFixed(2),
                 discountType: 'Fixed',
                 gstPercent: gst.toString(),
-                taxableAmount: pricing.taxableAmount.toFixed(2)
+                taxableAmount: pricing.taxableAmount.toFixed(2),
+                status: p.status || 'Pending'
               };
             }));
             setLabourList(est.labour.map(l => {
@@ -503,7 +504,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             qty: '1',
             rate: (matchedInventoryPart.sellingPrice || 0).toString(),
             discount: '0',
-            gstPercent: (matchedInventoryPart.gstPercent || 18).toString()
+            gstPercent: (matchedInventoryPart.gstPercent || 18).toString(),
+            status: 'Pending'
           });
         }
       } else {
@@ -642,7 +644,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   // Parts rows operations
   const handleAddPartRow = () => {
     setManualOverride(false);
-    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '' }]);
+    setPartsList([...partsList, { partId: '', name: '', partNo: '', hsnCode: '', unit: 'Pcs', qty: '1', mrp: '', rate: '', discount: '0', discountPercent: '0', discountAmount: '0', discountType: 'Percent', gstPercent: '18', taxableAmount: '', status: 'Pending' }]);
   };
 
   const handleRemovePartRow = (idx) => {
@@ -800,7 +802,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
           qty: Math.max(1, Number(p.qty) || 1), // Mongoose requires min: 1
           rate: Number(p.rate) || 0,
           discount: Number(p.discount) || 0,
-          gstPercent: (p.gstPercent !== undefined && p.gstPercent !== null && p.gstPercent !== '') ? Number(p.gstPercent) : 18
+          gstPercent: (p.gstPercent !== undefined && p.gstPercent !== null && p.gstPercent !== '') ? Number(p.gstPercent) : 18,
+          status: p.status || 'Pending'
         };
         // Only include partId if it's a valid non-empty string to avoid CastError
         if (p.partId && p.partId.trim() !== '') {
@@ -997,7 +1000,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
               + Add Spare Part
             </button>
           </div>          <div className="overflow-x-auto pb-3">
-            <div className="space-y-2 min-w-[1250px] pr-2">
+            <div className="space-y-2 min-w-[1550px] pr-2">
               {partsList.map((part, idx) => (
                 <div key={idx} className="flex flex-nowrap gap-2.5 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="w-48">
@@ -1041,7 +1044,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     />
                   </div>
 
-                  <div className="w-32">
+                   <div className="w-32">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Part Number</label>
                     <input
                       type="text"
@@ -1050,6 +1053,21 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                       placeholder="e.g. SP-ENG-10W40"
                       className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                     />
+                  </div>
+
+                  <div className="w-32">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Status</label>
+                    <select
+                      value={part.status || 'Pending'}
+                      onChange={(e) => handlePartRowValue(idx, 'status', e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none"
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Ordered">Ordered</option>
+                      <option value="Received">Received</option>
+                      <option value="Installed">Installed</option>
+                      <option value="Cancelled">Cancelled</option>
+                    </select>
                   </div>
 
                   <div className="w-28">
@@ -1162,11 +1180,21 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                     </div>
                   </div>
 
-                  <div className="w-28 text-right pr-2">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Total (₹)</span>
-                    <span className="text-xs font-black text-slate-800 dark:text-slate-200 h-[28px] flex items-center justify-end font-mono">
-                      {Math.round((parseFloat(part.taxableAmount || 0) * (1 + (parseFloat(part.gstPercent) || 0) / 100)) * 100) / 100}
-                    </span>
+                  <div className="w-36">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Total (₹)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={(() => {
+                        const taxable = parseFloat(part.taxableAmount) || 0;
+                        const gstPercent = parseFloat(part.gstPercent) || 0;
+                        const rowTotal = Math.round((taxable * (1 + gstPercent / 100)) * 100) / 100;
+                        return rowTotal ? rowTotal.toString() : '';
+                      })()}
+                      onChange={(e) => handleTotalChange(e, partsList, setPartsList, idx)}
+                      placeholder="Total"
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-semibold focus:outline-none font-mono text-right font-bold text-indigo-650 focus:border-indigo-500"
+                    />
                   </div>
 
                   <button

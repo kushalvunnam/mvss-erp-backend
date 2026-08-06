@@ -79,6 +79,11 @@ const estimateItemSchema = new mongoose.Schema({
   total: {
     type: Number,
     required: true,
+  },
+  status: {
+    type: String,
+    enum: ['Pending', 'Ordered', 'Received', 'Installed', 'Cancelled'],
+    default: 'Pending',
   }
 });
 
