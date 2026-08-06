@@ -748,10 +748,10 @@ export default function Backlogs({ token, user }) {
           description="Shipped / In-transit" 
         />
         <StatsCard 
-          title="Partially Rcvd" 
-          value={partiallyReceivedCount || 0} 
-          icon={AlertTriangle} 
-          description="Incomplete deliveries" 
+          title="Completed" 
+          value={completedCount || 0} 
+          icon={CheckCircle2} 
+          description="Fulfilled requests" 
         />
         <StatsCard 
           title="Received Today" 
