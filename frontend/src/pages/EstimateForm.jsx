@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
 import { Plus, Trash2, Save, ShoppingCart, Activity, AlertCircle } from 'lucide-react';
 import { calculatePricing } from '../utils/pricingEngine';
+import SearchableDropdown from '../components/SearchableDropdown';
+import { useInventoryCache } from '../hooks/useInventoryCache';
 
 const STANDARD_SERVICES = [
   { description: 'General Servicing', rate: 1500, gstPercent: 18 },
@@ -181,7 +183,9 @@ const INSPECTION_MAPPING_RULES = {
 
 export default function EstimateForm({ token, user, onSaved, onCancel, editId = null }) {
   const [jobCards, setJobCards] = useState([]);
-  const [inventory, setInventory] = useState([]);
+  const { data: partsInventory } = useInventoryCache(token, 'parts');
+  const { data: labourInventory } = useInventoryCache(token, 'labour');
+  const inventory = partsInventory;
   
   // Selection
   const [selectedJcId, setSelectedJcId] = useState('');
@@ -272,10 +276,9 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         const jcRes = await fetch(`${API_BASE_URL}/jobcards`, { headers });
         const invRes = await fetch(`${API_BASE_URL}/inventory`, { headers });
         
-        if (jcRes.ok && invRes.ok) {
-          const jcData = await jcRes.ok ? await jcRes.json() : [];
+        if (jcRes.ok) {
+          const jcData = await jcRes.json();
           setJobCards(jcData.filter(jc => jc.status !== 'Delivered'));
-          setInventory(await invRes.json());
         }
 
         // If a specific jobcard ID is passed via localStorage
@@ -1040,18 +1043,16 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 <div key={idx} className="flex flex-nowrap gap-2.5 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="w-48">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Part Catalog</label>
-                    <select
+                    <SearchableDropdown
+                      items={inventory}
                       value={part.partId}
-                      onChange={(e) => handlePartSelect(idx, e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-bold focus:outline-none"
-                    >
-                      <option value="">-- Custom Part --</option>
-                      {inventory.map(item => (
-                        <option key={item._id} value={item._id}>
-                          {item.partName} {item.brand ? `[${item.brand}]` : ''} {item.model ? `(${item.model}${item.variant ? ` - ${item.variant}` : ''})` : ''} ({item.partNumber})
-                        </option>
-                      ))}
-                    </select>
+                      onSelect={(partId) => handlePartSelect(idx, partId)}
+                      placeholder="Search part name, number, OEM, HSN..."
+                      emptyOptionLabel="-- Custom Part --"
+                      token={token}
+                      type="parts"
+                      className="w-full"
+                    />
                     {(() => {
                       const matched = inventory.find(item => item._id === part.partId);
                       if (matched) {
@@ -1264,24 +1265,33 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 <div key={idx} className="flex gap-3 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="w-56 shrink-0">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Service</label>
-                    <select
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (!val) return;
-                        const preset = STANDARD_SERVICES.find(s => s.description === val);
-                        if (preset) {
-                          handleLabourRowValue(idx, 'description', preset.description);
-                          handleLabourRowValue(idx, 'rate', preset.rate);
-                          handleLabourRowValue(idx, 'gstPercent', preset.gstPercent);
+                    <SearchableDropdown
+                      items={[...labourInventory, ...STANDARD_SERVICES.filter(s => !labourInventory.some(l => l.partName === s.description)).map(s => ({ _id: `preset_${s.description}`, partName: s.description, partNumber: '', partCode: '', category: '', hsnCode: '', model: '', _isPreset: true, _preset: s }))]}
+                      value={lab.labourId || ''}
+                      onSelect={(id) => {
+                        if (!id) { handleLabourRowValue(idx, 'description', ''); handleLabourRowValue(idx, 'labourId', ''); return; }
+                        const presetItem = STANDARD_SERVICES.find(s => `preset_${s.description}` === id);
+                        if (presetItem) {
+                          handleLabourRowValue(idx, 'description', presetItem.description);
+                          handleLabourRowValue(idx, 'rate', presetItem.rate);
+                          handleLabourRowValue(idx, 'gstPercent', presetItem.gstPercent);
+                          handleLabourRowValue(idx, 'labourId', id);
+                          return;
+                        }
+                        const labour = labourInventory.find(l => l._id === id);
+                        if (labour) {
+                          handleLabourRowValue(idx, 'description', labour.partName);
+                          handleLabourRowValue(idx, 'rate', labour.sellingPrice !== undefined && labour.sellingPrice !== null ? labour.sellingPrice : '');
+                          handleLabourRowValue(idx, 'gstPercent', labour.gstPercent !== undefined && labour.gstPercent !== null ? labour.gstPercent : '18');
+                          handleLabourRowValue(idx, 'labourId', id);
                         }
                       }}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-lg text-xs font-bold focus:outline-none"
-                    >
-                      <option value="">-- Custom Preset --</option>
-                      {STANDARD_SERVICES.map(s => (
-                        <option key={s.description} value={s.description}>{s.description}</option>
-                      ))}
-                    </select>
+                      placeholder="Search labour code, description, category..."
+                      emptyOptionLabel="-- Custom Preset --"
+                      token={token}
+                      type="labour"
+                      className="w-full"
+                    />
                   </div>
 
                   <div className="w-96 shrink-0">
