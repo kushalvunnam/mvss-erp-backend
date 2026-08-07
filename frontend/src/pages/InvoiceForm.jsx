@@ -39,7 +39,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
   // Tables
   const [partsList, setPartsList] = useState([]);
   const [labourList, setLabourList] = useState([{ description: '', qty: '1', rate: '', gstPercent: '', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
-  const [inventory, setInventory] = useState([]);
+  const { data: partsInventory } = useInventoryCache(token, 'parts');
+  const { data: labourInventory } = useInventoryCache(token, 'labour');
   const [gstDetails, setGstDetails] = useState({ customerGSTIN: '', isInterstate: false });
   const [invoiceType, setInvoiceType] = useState('Tax Invoice');
   const [poNumber, setPoNumber] = useState('');
@@ -238,16 +239,13 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
         const headers = { Authorization: `Bearer ${token}` };
         const jcRes = await fetch(`${API_BASE_URL}/jobcards`, { headers });
         const estRes = await fetch(`${API_BASE_URL}/estimates`, { headers });
-        const invRes = await fetch(`${API_BASE_URL}/inventory`, { headers });
 
-        if (jcRes.ok && estRes.ok && invRes.ok) {
+        if (jcRes.ok && estRes.ok) {
           const jcData = await jcRes.json();
           const estData = await estRes.json();
-          const invData = await invRes.json();
           // Filter jobcards that are ready or work in progress
           setJobCards(jcData.filter(jc => jc.status !== 'Delivered'));
           setEstimates(estData.filter(e => e.status === 'Approved'));
-          setInventory(invData);
         }
 
         // Check if loading pre-filled estimate conversion
@@ -750,7 +748,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
 
   const handlePartSelect = (idx, partId) => {
     setManualOverride(false);
-    const part = inventory.find(item => item._id === partId);
+    const part = partsInventory.find(item => item._id === partId);
     if (!part) return;
 
     const list = [...partsList];
@@ -898,7 +896,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
 
         // Validate stock availability if finalizing
         if (isFinalize && part.partId && part.partId.trim() !== '') {
-          const invItem = inventory.find(item => item._id === part.partId);
+          const invItem = partsInventory.find(item => item._id === part.partId);
           if (invItem) {
             const availStock = invItem.stockQuantity || 0;
             if (qty > availStock) {
@@ -1236,20 +1234,18 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                 <div key={idx} className="flex gap-3 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="w-56 shrink-0">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Part Catalog</label>
-                    <select
+                    <SearchableDropdown
+                      items={partsInventory}
                       value={part.partId}
-                      onChange={(e) => handlePartSelect(idx, e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-bold focus:outline-none"
-                    >
-                      <option value="">-- Custom Part --</option>
-                      {inventory.map(item => (
-                        <option key={item._id} value={item._id}>
-                          {item.partName} {item.brand ? `[${item.brand}]` : ''} {item.model ? `(${item.model}${item.variant ? ` - ${item.variant}` : ''})` : ''} ({item.partNumber})
-                        </option>
-                      ))}
-                    </select>
+                      onSelect={(partId) => handlePartSelect(idx, partId)}
+                      placeholder="Search part name, number, OEM, HSN..."
+                      emptyOptionLabel="-- Custom Part --"
+                      token={token}
+                      type="parts"
+                      className="w-full"
+                    />
                     {part.partId && (() => {
-                      const itemInInv = inventory.find(item => item._id === part.partId);
+                      const itemInInv = partsInventory.find(item => item._id === part.partId);
                       const displayStock = itemInInv?.stockQuantity ?? part.stockQuantity ?? 0;
                       const displayUnit = itemInInv?.unit ?? part.unit ?? 'Pcs';
                       const displayPur = itemInInv?.purchasePrice ?? part.purchasePrice;
@@ -1476,24 +1472,33 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                 <div key={idx} className="flex gap-3 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="w-56 shrink-0">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Service</label>
-                    <select
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (!val) return;
-                        const preset = STANDARD_SERVICES.find(s => s.description === val);
-                        if (preset) {
-                          handleLabourRowValue(idx, 'description', preset.description);
-                          handleLabourRowValue(idx, 'rate', preset.rate);
-                          handleLabourRowValue(idx, 'gstPercent', preset.gstPercent);
+                    <SearchableDropdown
+                      items={[...labourInventory, ...STANDARD_SERVICES.filter(s => !labourInventory.some(l => l.partName === s.description)).map(s => ({ _id: `preset_${s.description}`, partName: s.description, partNumber: '', partCode: '', category: '', hsnCode: '', model: '', _isPreset: true, _preset: s }))]}
+                      value={lab.labourId || ''}
+                      onSelect={(id) => {
+                        if (!id) { handleLabourRowValue(idx, 'description', ''); handleLabourRowValue(idx, 'labourId', ''); return; }
+                        const presetItem = STANDARD_SERVICES.find(s => `preset_${s.description}` === id);
+                        if (presetItem) {
+                          handleLabourRowValue(idx, 'description', presetItem.description);
+                          handleLabourRowValue(idx, 'rate', presetItem.rate);
+                          handleLabourRowValue(idx, 'gstPercent', presetItem.gstPercent);
+                          handleLabourRowValue(idx, 'labourId', id);
+                          return;
+                        }
+                        const labour = labourInventory.find(l => l._id === id);
+                        if (labour) {
+                          handleLabourRowValue(idx, 'description', labour.partName);
+                          handleLabourRowValue(idx, 'rate', labour.sellingPrice !== undefined && labour.sellingPrice !== null ? labour.sellingPrice : '');
+                          handleLabourRowValue(idx, 'gstPercent', labour.gstPercent !== undefined && labour.gstPercent !== null ? labour.gstPercent : '18');
+                          handleLabourRowValue(idx, 'labourId', id);
                         }
                       }}
-                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-bold focus:outline-none"
-                    >
-                      <option value="">-- Custom Preset --</option>
-                      {STANDARD_SERVICES.map(s => (
-                        <option key={s.description} value={s.description}>{s.description}</option>
-                      ))}
-                    </select>
+                      placeholder="Search labour code, description, category..."
+                      emptyOptionLabel="-- Custom Preset --"
+                      token={token}
+                      type="labour"
+                      className="w-full"
+                    />
                   </div>
 
                   <div className="w-96 shrink-0">

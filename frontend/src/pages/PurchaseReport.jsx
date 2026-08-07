@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config';
+import SearchableDropdown from '../components/SearchableDropdown';
+import { useInventoryCache } from '../hooks/useInventoryCache';
 import { 
   ShoppingBag, 
   Search, 
@@ -37,6 +39,7 @@ export default function PurchaseReport({ token, user }) {
   // Datasets
   const [vendorsList, setVendorsList] = useState([]);
   const [inventoryList, setInventoryList] = useState([]);
+  const { data: partsInventory } = useInventoryCache(token, 'parts');
   const [purchaseHistory, setPurchaseHistory] = useState([]);
   const [reportsData, setReportsData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1363,18 +1366,16 @@ export default function PurchaseReport({ token, user }) {
 
                         {/* Existing SKU Select */}
                         <td className="py-2.5 px-3" style={{ width: '220px', minWidth: '220px', verticalAlign: 'middle', textAlign: 'left' }}>
-                          <select
+                          <SearchableDropdown
+                            items={inventoryList.length > 0 ? inventoryList : partsInventory}
                             value={row.selectedPartId}
-                            onChange={(e) => handleSelectSKU(row.id, e.target.value)}
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                          >
-                            <option value="">-- New / Select Part --</option>
-                            {inventoryList.map(p => (
-                              <option key={p._id} value={p._id}>
-                                {p.partName} ({p.partNumber}) - Stock: {p.stockQuantity}
-                              </option>
-                            ))}
-                          </select>
+                            onSelect={(partId) => handleSelectSKU(row.id, partId)}
+                            placeholder="Search part name, number, OEM, HSN..."
+                            emptyOptionLabel="-- New / Select Part --"
+                            token={token}
+                            type="parts"
+                            className="w-full"
+                          />
                         </td>
 
                         {/* Part Name */}

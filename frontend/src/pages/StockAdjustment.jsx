@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
+import SearchableDropdown from '../components/SearchableDropdown';
+import { useInventoryCache } from '../hooks/useInventoryCache';
 import { 
   Wrench, 
   Plus, 
@@ -19,6 +21,7 @@ import {
 export default function StockAdjustment({ token, user }) {
   const [adjustments, setAdjustments] = useState([]);
   const [inventory, setInventory] = useState([]);
+  const { data: partsInventory } = useInventoryCache(token, 'parts');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -299,18 +302,16 @@ export default function StockAdjustment({ token, user }) {
               <div className="p-6 space-y-5 overflow-y-auto flex-1 min-h-0">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Spare Part *</label>
-                  <select
-                    required
+                  <SearchableDropdown
+                    items={inventory.length > 0 ? inventory : partsInventory}
                     value={formData.partId}
-                    onChange={(e) => setFormData({ ...formData, partId: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
-                  >
-                    {inventory.map(item => (
-                      <option key={item._id} value={item._id}>
-                        {item.partName} ({item.partNumber}) - Stock: {item.stockQuantity} {item.unit || 'Pcs'}
-                      </option>
-                    ))}
-                  </select>
+                    onSelect={(partId) => setFormData({ ...formData, partId })}
+                    placeholder="Search part name, number, OEM, HSN..."
+                    emptyOptionLabel="-- Select Part --"
+                    token={token}
+                    type="parts"
+                    className="w-full"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
