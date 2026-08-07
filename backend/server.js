@@ -554,6 +554,7 @@ mongoose.connect(MONGODB_URI, {
   console.log('Connected to MongoDB successfully at', MONGODB_URI);
   await seedDatabase();
   await migrateWeeklyOffAttendance();
+  await migrateInsuranceCustomers();
 })
 .catch((err) => {
   console.error('MongoDB connection error (Starting server anyway in warning mode):', err);
@@ -590,6 +591,35 @@ async function migrateWeeklyOffAttendance() {
     }
   } catch (err) {
     console.error('[Self-healing Migration] Weekly Off standardization failed:', err);
+  }
+}
+
+// Self-healing migration for Insurance policy customerId linkage
+async function migrateInsuranceCustomers() {
+  try {
+    const Insurance = require('./models/Insurance');
+    const Vehicle = require('./models/Vehicle');
+    
+    // Find all insurances that do not have customerId
+    const policies = await Insurance.find({ customerId: { $exists: false } });
+    if (policies.length === 0) return;
+    
+    console.log(`[Migration] Found ${policies.length} insurance policies lacking customerId.`);
+    let migratedCount = 0;
+    
+    for (const policy of policies) {
+      if (policy.vehicleId) {
+        const vehicle = await Vehicle.findById(policy.vehicleId);
+        if (vehicle && vehicle.customerId) {
+          policy.customerId = vehicle.customerId;
+          await policy.save();
+          migratedCount++;
+        }
+      }
+    }
+    console.log(`[Migration] Successfully linked customerId for ${migratedCount} insurance policies.`);
+  } catch (err) {
+    console.error('Error migrating insurance policies customerId:', err);
   }
 }
 

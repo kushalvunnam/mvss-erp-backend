@@ -402,7 +402,7 @@ export default function Insurance({ token }) {
                         </div>
                       </td>
                       <td className="p-4">
-                        <div className="font-black text-slate-800 dark:text-white font-mono tracking-wide">{p.vehicleNo}</div>
+                        <div className="font-black text-slate-800 dark:text-white font-mono tracking-wide">{p.vehicleId?.vehicleNumber || p.vehicleNo || 'N/A'}</div>
                         <div className="text-[10px] text-slate-450 dark:text-slate-400">
                           {p.vehicleId?.make} {p.vehicleId?.model}
                         </div>

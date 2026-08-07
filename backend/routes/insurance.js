@@ -35,6 +35,7 @@ router.get('/', auth, async (req, res) => {
 
     const policies = await Insurance.find(query)
       .populate('vehicleId')
+      .populate('customerId')
       .sort({ expiryDate: 1 });
 
     res.send(policies);
@@ -48,6 +49,12 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   try {
     const policy = new Insurance(req.body);
+    if (policy.vehicleId) {
+      const vehicle = await Vehicle.findById(policy.vehicleId);
+      if (vehicle) {
+        policy.customerId = vehicle.customerId;
+      }
+    }
     await policy.save();
 
     await logAction(req.user, 'INSURANCE_CREATE', `Created insurance policy ${policy.policyNumber} (${policy.insuranceCompany})`, req);
@@ -60,7 +67,14 @@ router.post('/', auth, async (req, res) => {
 // Update insurance policy
 router.put('/:id', auth, async (req, res) => {
   try {
-    const policy = await Insurance.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const updateData = { ...req.body };
+    if (updateData.vehicleId) {
+      const vehicle = await Vehicle.findById(updateData.vehicleId);
+      if (vehicle) {
+        updateData.customerId = vehicle.customerId;
+      }
+    }
+    const policy = await Insurance.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!policy) return res.status(404).send({ error: 'Insurance policy not found.' });
 
     await logAction(req.user, 'INSURANCE_UPDATE', `Updated insurance policy ${policy.policyNumber} (${policy.insuranceCompany})`, req);
