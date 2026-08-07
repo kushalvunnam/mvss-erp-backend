@@ -163,6 +163,17 @@ export default function Estimates({ token, user, setActiveTab }) {
       return result.replace(/\s+/g, ' ').trim();
     };
 
+    const isInterstate = cust.gstNumber 
+      ? !cust.gstNumber.startsWith('36') 
+      : (cust.address ? (
+          !(cust.address.toLowerCase().includes('telangana') || 
+            cust.address.toLowerCase().includes('hyderabad') || 
+            cust.address.toLowerCase().includes('secunderabad')) &&
+          ['andhra', 'karnataka', 'maharashtra', 'bangalore', 'mumbai', 'pune', 'delhi', 
+           'tamil nadu', 'chennai', 'kerala', 'goa', 'gujarat', 'rajasthan', 'madhya pradesh',
+           'ap', 'ka', 'mh', 'dl', 'tn'].some(state => cust.address.toLowerCase().includes(state))
+        ) : false);
+
     let partsRowsHtml = '';
     if (est.parts && est.parts.length > 0) {
       est.parts.forEach((p, idx) => {
@@ -173,6 +184,14 @@ export default function Estimates({ token, user, setActiveTab }) {
         const taxAmt = cgst + sgst;
         const net = taxable + taxAmt;
         const netRate = taxable / (p.qty || 1);
+        
+        let gstSplitStr = '';
+        if (isInterstate) {
+          gstSplitStr = `IGST: ₹${taxAmt.toFixed(2)} (${p.gstPercent}%)`;
+        } else {
+          gstSplitStr = `CGST: ₹${cgst.toFixed(2)} (${(p.gstPercent/2)}%)<br/>SGST: ₹${sgst.toFixed(2)} (${(p.gstPercent/2)}%)`;
+        }
+
         partsRowsHtml += `
           <tr>
             <td>${idx + 1}</td>
@@ -183,8 +202,7 @@ export default function Estimates({ token, user, setActiveTab }) {
             <td>₹${taxable.toFixed(2)}</td>
             <td>₹${taxable.toFixed(2)}</td>
             <td style="font-size: 9px; line-height: 1.2;">
-              CGST: ₹${cgst.toFixed(2)} (${(p.gstPercent/2)}%)<br/>
-              SGST: ₹${sgst.toFixed(2)} (${(p.gstPercent/2)}%)
+              ${gstSplitStr}
             </td>
             <td><strong>₹${net.toFixed(2)}</strong></td>
           </tr>
@@ -205,6 +223,14 @@ export default function Estimates({ token, user, setActiveTab }) {
         const net = taxable + taxAmt;
         const qty = l.qty || 1;
         const netRate = taxable / qty;
+        
+        let gstSplitStr = '';
+        if (isInterstate) {
+          gstSplitStr = `IGST: ₹${taxAmt.toFixed(2)} (${l.gstPercent}%)`;
+        } else {
+          gstSplitStr = `CGST: ₹${cgst.toFixed(2)} (${(l.gstPercent/2)}%)<br/>SGST: ₹${sgst.toFixed(2)} (${(l.gstPercent/2)}%)`;
+        }
+
         labourRowsHtml += `
           <tr>
             <td>${idx + 1}</td>
@@ -215,8 +241,7 @@ export default function Estimates({ token, user, setActiveTab }) {
             <td>₹${taxable.toFixed(2)}</td>
             <td>₹${taxable.toFixed(2)}</td>
             <td style="font-size: 9px; line-height: 1.2;">
-              CGST: ₹${cgst.toFixed(2)} (${(l.gstPercent/2)}%)<br/>
-              SGST: ₹${sgst.toFixed(2)} (${(l.gstPercent/2)}%)
+              ${gstSplitStr}
             </td>
             <td><strong>₹${net.toFixed(2)}</strong></td>
           </tr>
@@ -233,6 +258,9 @@ export default function Estimates({ token, user, setActiveTab }) {
     let partsTotal = 0;
     let labourTotal = 0;
     let gstTotal = 0;
+    let cgstTotal = 0;
+    let sgstTotal = 0;
+    let igstTotal = 0;
 
     if (est.parts && est.parts.length > 0) {
       est.parts.forEach(p => {
@@ -242,6 +270,12 @@ export default function Estimates({ token, user, setActiveTab }) {
         const taxAmt = taxable * (gstPercent / 100);
         partsTotal += taxable;
         gstTotal += taxAmt;
+        if (isInterstate) {
+          igstTotal += taxAmt;
+        } else {
+          cgstTotal += taxAmt / 2;
+          sgstTotal += taxAmt / 2;
+        }
       });
     }
 
@@ -253,6 +287,12 @@ export default function Estimates({ token, user, setActiveTab }) {
         const taxAmt = taxable * (gstPercent / 100);
         labourTotal += taxable;
         gstTotal += taxAmt;
+        if (isInterstate) {
+          igstTotal += taxAmt;
+        } else {
+          cgstTotal += taxAmt / 2;
+          sgstTotal += taxAmt / 2;
+        }
       });
     }
 
@@ -488,8 +528,23 @@ export default function Estimates({ token, user, setActiveTab }) {
                 <td>Net Total (Taxable Amount):</td>
                 <td style="text-align: right;">₹${(partsTotal + labourTotal).toFixed(2)}</td>
               </tr>
+              ${isInterstate ? `
+                <tr>
+                  <td>Estimated IGST Total:</td>
+                  <td style="text-align: right;">₹${igstTotal.toFixed(2)}</td>
+                </tr>
+              ` : `
+                <tr>
+                  <td>Estimated CGST Total:</td>
+                  <td style="text-align: right;">₹${cgstTotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td>Estimated SGST Total:</td>
+                  <td style="text-align: right;">₹${sgstTotal.toFixed(2)}</td>
+                </tr>
+              `}
               <tr>
-                <td>Estimated GST Total:</td>
+                <td>Total GST Amount:</td>
                 <td style="text-align: right;">₹${gstTotal.toFixed(2)}</td>
               </tr>
               <tr class="grand-total">

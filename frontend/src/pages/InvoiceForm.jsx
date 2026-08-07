@@ -16,6 +16,20 @@ const STANDARD_SERVICES = [
   { description: 'Suspension Check & Repair', rate: 2200, gstPercent: 18 }
 ];
 
+const checkAddressIsInterstate = (address) => {
+  if (!address) return false;
+  const addr = address.toLowerCase();
+  if (addr.includes('telangana') || addr.includes('hyderabad') || addr.includes('secunderabad')) {
+    return false;
+  }
+  const otherStates = [
+    'andhra', 'karnataka', 'maharashtra', 'bangalore', 'mumbai', 'pune', 'delhi', 
+    'tamil nadu', 'chennai', 'kerala', 'goa', 'gujarat', 'rajasthan', 'madhya pradesh',
+    'ap', 'ka', 'mh', 'dl', 'tn'
+  ];
+  return otherStates.some(state => addr.includes(state));
+};
+
 export default function InvoiceForm({ token, user, onSaved, onCancel, editId = null }) {
   const [jobCards, setJobCards] = useState([]);
   const [estimates, setEstimates] = useState([]);
@@ -313,7 +327,9 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
 
             setGstDetails({
               customerGSTIN: cust.gstNumber || '',
-              isInterstate: cust.gstNumber ? !cust.gstNumber.startsWith('36') : false
+              isInterstate: cust.gstNumber 
+                ? !cust.gstNumber.startsWith('36') 
+                : checkAddressIsInterstate(cust.address)
             });
 
             setInsuranceDetails({
@@ -630,7 +646,9 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
 
         setGstDetails({
           customerGSTIN: cust.gstNumber || '',
-          isInterstate: cust.gstNumber ? !cust.gstNumber.startsWith('36') : false
+          isInterstate: cust.gstNumber 
+            ? !cust.gstNumber.startsWith('36') 
+            : checkAddressIsInterstate(cust.address)
         });
 
         const totalAdvance = jc.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + p.amount, 0) : 0;
@@ -1096,9 +1114,22 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               placeholder="Enter GST Number"
               className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none uppercase font-mono tracking-wider"
             />
-            <span className="text-[10px] font-bold text-slate-400 mt-1 block">
-              Billing Category: <strong className="text-indigo-600">{gstDetails.isInterstate ? 'IGST (Inter-State)' : 'CGST + SGST (Intra-State)'}</strong>
-            </span>
+            <div className="mt-2">
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">
+                Billing Category *
+              </label>
+              <select
+                value={gstDetails.isInterstate ? 'interstate' : 'intrastate'}
+                onChange={(e) => {
+                  const isInter = e.target.value === 'interstate';
+                  setGstDetails(prev => ({ ...prev, isInterstate: isInter }));
+                }}
+                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold text-slate-800 dark:text-white focus:outline-none"
+              >
+                <option value="intrastate">CGST + SGST (Intra-State)</option>
+                <option value="interstate">IGST (Inter-State)</option>
+              </select>
+            </div>
           </div>
 
           <div>

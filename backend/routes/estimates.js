@@ -37,8 +37,28 @@ const numberToWords = (num) => {
   return words + 'Only';
 };
 
+const checkIsInterstate = (customer) => {
+  if (!customer) return false;
+  if (customer.gstNumber && customer.gstNumber.trim() !== '') {
+    return !customer.gstNumber.trim().startsWith('36');
+  }
+  if (customer.address && customer.address.trim() !== '') {
+    const addr = customer.address.toLowerCase();
+    if (addr.includes('telangana') || addr.includes('hyderabad') || addr.includes('secunderabad')) {
+      return false;
+    }
+    const otherStates = [
+      'andhra', 'karnataka', 'maharashtra', 'bangalore', 'mumbai', 'pune', 'delhi', 
+      'tamil nadu', 'chennai', 'kerala', 'goa', 'gujarat', 'rajasthan', 'madhya pradesh',
+      'ap', 'ka', 'mh', 'dl', 'tn'
+    ];
+    return otherStates.some(state => addr.includes(state));
+  }
+  return false;
+};
+
 // Recalculate parts/labour totals and GST
-const recalculateEstimate = (parts = [], labour = []) => {
+const recalculateEstimate = (parts = [], labour = [], isInterstate = false) => {
   let partsTotal = 0;
   let labourTotal = 0;
   let gstTotal = 0;
@@ -55,19 +75,32 @@ const recalculateEstimate = (parts = [], labour = []) => {
       total = Math.round(Number(part.total) * 100) / 100;
       taxableValue = Math.round((total / (1 + (gstPercent / 100))) * 100) / 100;
       gstAmount = Math.round((total - taxableValue) * 100) / 100;
-      cgstAmount = Math.round((gstAmount / 2) * 100) / 100;
-      sgstAmount = Math.round((gstAmount - cgstAmount) * 100) / 100;
-      igstAmount = 0;
+      if (isInterstate) {
+        igstAmount = gstAmount;
+        cgstAmount = 0;
+        sgstAmount = 0;
+      } else {
+        cgstAmount = Math.round((gstAmount / 2) * 100) / 100;
+        sgstAmount = Math.round((gstAmount - cgstAmount) * 100) / 100;
+        igstAmount = 0;
+      }
       rate = Math.round(((taxableValue + discount) / qty) * 100) / 100;
     } else {
       rate = Number(part.rate) || 0;
       taxableValue = Math.round(((qty * rate) - discount) * 100) / 100;
-      const cgstPercent = gstPercent / 2;
-      const sgstPercent = gstPercent / 2;
-      cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
-      sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
-      igstAmount = 0;
-      gstAmount = cgstAmount + sgstAmount;
+      if (isInterstate) {
+        igstAmount = Math.round((taxableValue * (gstPercent / 100)) * 100) / 100;
+        cgstAmount = 0;
+        sgstAmount = 0;
+        gstAmount = igstAmount;
+      } else {
+        const cgstPercent = gstPercent / 2;
+        const sgstPercent = gstPercent / 2;
+        cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
+        sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
+        igstAmount = 0;
+        gstAmount = cgstAmount + sgstAmount;
+      }
       total = Math.round((taxableValue + gstAmount) * 100) / 100;
     }
 
@@ -107,19 +140,32 @@ const recalculateEstimate = (parts = [], labour = []) => {
       total = Math.round(Number(lab.total) * 100) / 100;
       taxableValue = Math.round((total / (1 + (gstPercent / 100))) * 100) / 100;
       gstAmount = Math.round((total - taxableValue) * 100) / 100;
-      cgstAmount = Math.round((gstAmount / 2) * 100) / 100;
-      sgstAmount = Math.round((gstAmount - cgstAmount) * 100) / 100;
-      igstAmount = 0;
+      if (isInterstate) {
+        igstAmount = gstAmount;
+        cgstAmount = 0;
+        sgstAmount = 0;
+      } else {
+        cgstAmount = Math.round((gstAmount / 2) * 100) / 100;
+        sgstAmount = Math.round((gstAmount - cgstAmount) * 100) / 100;
+        igstAmount = 0;
+      }
       rate = Math.round((taxableValue + discount) * 100) / 100;
     } else {
       rate = Number(lab.rate) || 0;
       taxableValue = Math.round((rate - discount) * 100) / 100;
-      const cgstPercent = gstPercent / 2;
-      const sgstPercent = gstPercent / 2;
-      cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
-      sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
-      igstAmount = 0;
-      gstAmount = cgstAmount + sgstAmount;
+      if (isInterstate) {
+        igstAmount = Math.round((taxableValue * (gstPercent / 100)) * 100) / 100;
+        cgstAmount = 0;
+        sgstAmount = 0;
+        gstAmount = igstAmount;
+      } else {
+        const cgstPercent = gstPercent / 2;
+        const sgstPercent = gstPercent / 2;
+        cgstAmount = Math.round((taxableValue * (cgstPercent / 100)) * 100) / 100;
+        sgstAmount = Math.round((taxableValue * (sgstPercent / 100)) * 100) / 100;
+        igstAmount = 0;
+        gstAmount = cgstAmount + sgstAmount;
+      }
       total = Math.round((taxableValue + gstAmount) * 100) / 100;
     }
 
@@ -244,6 +290,10 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     const jobCard = await JobCard.findById(jobCardId);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
 
+    // Resolve customer and check if interstate
+    const customer = await Customer.findById(jobCard.customerId);
+    const isInterstate = checkIsInterstate(customer);
+
     // Check stock availability automatically
     const Inventory = require('../models/Inventory');
     if (parts && parts.length > 0) {
@@ -259,7 +309,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     }
 
     const estimateNo = await generateEstimateNo();
-    const calculations = recalculateEstimate(parts, labour);
+    const calculations = recalculateEstimate(parts, labour, isInterstate);
 
     const estimate = new Estimate({
       estimateNo,
@@ -304,7 +354,14 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
     }
 
     if (parts || labour) {
-      const calculations = recalculateEstimate(parts || estimate.parts, labour || estimate.labour);
+      // Find Job Card and Customer to determine if interstate
+      const jobCard = await JobCard.findById(estimate.jobCardId);
+      let isInterstate = false;
+      if (jobCard) {
+        const customer = await Customer.findById(jobCard.customerId);
+        isInterstate = checkIsInterstate(customer);
+      }
+      const calculations = recalculateEstimate(parts || estimate.parts, labour || estimate.labour, isInterstate);
 
       // Save a revision copy if modifying a finalized estimate (Sent or Approved)
       if (estimate.status !== 'Draft') {

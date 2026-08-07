@@ -3,6 +3,26 @@ const numberToWords = require('./numberToWords');
 const fs = require('fs');
 const path = require('path');
 
+const checkIsInterstate = (customer) => {
+  if (!customer) return false;
+  if (customer.gstNumber && customer.gstNumber.trim() !== '') {
+    return !customer.gstNumber.trim().startsWith('36');
+  }
+  if (customer.address && customer.address.trim() !== '') {
+    const addr = customer.address.toLowerCase();
+    if (addr.includes('telangana') || addr.includes('hyderabad') || addr.includes('secunderabad')) {
+      return false;
+    }
+    const otherStates = [
+      'andhra', 'karnataka', 'maharashtra', 'bangalore', 'mumbai', 'pune', 'delhi', 
+      'tamil nadu', 'chennai', 'kerala', 'goa', 'gujarat', 'rajasthan', 'madhya pradesh',
+      'ap', 'ka', 'mh', 'dl', 'tn'
+    ];
+    return otherStates.some(state => addr.includes(state));
+  }
+  return false;
+};
+
 // Helper to draw horizontal lines
 function drawLine(doc, y) {
   doc.strokeColor('#cccccc')
@@ -828,7 +848,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
   const isInvoice = false;
   drawMetadataGrid(doc, 105, customer, vehicle, estimate.estimateNo, docDate, isInvoice, { jobCardId: jobCard });
 
-  const isInterstate = customer.gstNumber ? !customer.gstNumber.startsWith('36') : false;
+  const isInterstate = checkIsInterstate(customer);
   const gstMode = isInterstate ? 'igst' : 'cgst_sgst';
 
   // Table header
@@ -1031,8 +1051,10 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
   doc.strokeColor('#000000').lineWidth(1)
      .rect(30, 30, 535, 782).stroke();
 
+
+
   const isInterstate = invoice.gstDetails.isInterstate || false;
-  const hasGst = customer.gstNumber && customer.gstNumber.trim() !== '';
+  const gstMode = isInterstate ? 'igst' : 'cgst_sgst';
 
   const docTitle = invoice.invoiceType ? invoice.invoiceType.toUpperCase() : 'TAX INVOICE';
   drawCompanyHeader(doc, docTitle, '36AAJCM4778P1ZI');
@@ -1043,7 +1065,7 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
 
   // Table header
   let y = 220;
-  drawTableHeader(doc, y);
+  drawTableHeader(doc, y, gstMode);
   y += 25;
 
   let sNo = 1;
@@ -1063,22 +1085,22 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
     // draw horizontal line at y + 16
     doc.strokeColor('#cccccc').lineWidth(0.7)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
-    drawVerticalLines(doc, y, y + 16);
+    drawVerticalLines(doc, y, y + 16, gstMode);
     y += 16;
     
     invoice.parts.forEach(part => {
-      y = checkPageOverflow(doc, y);
+      y = checkPageOverflow(doc, y, gstMode);
       
       const qty = part.qty || 1;
       const rate = part.rate || 0;
-      const amount = part.amount || (qty * rate);
-      const gstPercent = part.gstPercent || 0;
-      const gstAmount = part.gstAmount || (hasGst ? (amount * (gstPercent / 100)) : 0);
-      const total = part.total || (amount + gstAmount);
+      const amount = part.amount !== undefined ? part.amount : (qty * rate);
+      const gstPercent = part.gstPercent !== undefined ? part.gstPercent : 0;
+      const gstAmount = part.gstAmount !== undefined ? part.gstAmount : (amount * (gstPercent / 100));
+      const total = part.total !== undefined ? part.total : (amount + gstAmount);
 
-      const cgstAmt = part.cgstAmount || (isInterstate ? 0 : (gstAmount / 2));
-      const sgstAmt = part.sgstAmount || (isInterstate ? 0 : (gstAmount / 2));
-      const igstAmt = part.igstAmount || (isInterstate ? gstAmount : 0);
+      const cgstAmt = part.cgstAmount !== undefined ? part.cgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const sgstAmt = part.sgstAmount !== undefined ? part.sgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const igstAmt = part.igstAmount !== undefined ? part.igstAmount : (isInterstate ? gstAmount : 0);
       
       partsTaxableSum += amount;
       partsCgstSum += cgstAmt;
@@ -1086,16 +1108,15 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
       partsIgstSum += igstAmt;
       partsTotalSum += total;
 
-      let cgstRateStr, sgstRateStr;
-      if (!hasGst) {
-        cgstRateStr = 'N/A';
-        sgstRateStr = 'N/A';
-      } else if (isInterstate) {
+      let cgstRateStr, sgstRateStr, igstRateStr;
+      if (isInterstate) {
         cgstRateStr = '0%';
         sgstRateStr = '0%';
+        igstRateStr = `${gstPercent.toFixed(1)}%`;
       } else {
         cgstRateStr = `${(gstPercent / 2).toFixed(1)}%`;
         sgstRateStr = `${(gstPercent / 2).toFixed(1)}%`;
+        igstRateStr = '0%';
       }
 
       drawTableRow(
@@ -1113,15 +1134,18 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
         cgstAmt.toFixed(2),
         sgstRateStr,
         sgstAmt.toFixed(2),
-        total.toFixed(2)
+        total.toFixed(2),
+        gstMode,
+        igstRateStr,
+        igstAmt.toFixed(2)
       );
       y += 16;
       sNo++;
     });
 
     // Parts Subtotal Row
-    y = checkPageOverflow(doc, y);
-    drawPartsTotalRow(doc, y, partsTaxableSum, partsCgstSum, partsSgstSum, partsTotalSum);
+    y = checkPageOverflow(doc, y, gstMode);
+    drawPartsTotalRow(doc, y, partsTaxableSum, partsCgstSum, partsSgstSum, partsTotalSum, gstMode, partsIgstSum);
     y += 16;
   }
 
@@ -1133,28 +1157,28 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
 
   // Labour List
   if (invoice.labour && invoice.labour.length > 0) {
-    y = checkPageOverflow(doc, y);
+    y = checkPageOverflow(doc, y, gstMode);
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5);
     doc.text('LABOUR CHARGES', 53, y + 4);
     
     doc.strokeColor('#cccccc').lineWidth(0.7)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
-    drawVerticalLines(doc, y, y + 16);
+    drawVerticalLines(doc, y, y + 16, gstMode);
     y += 16;
 
     invoice.labour.forEach(item => {
-      y = checkPageOverflow(doc, y);
+      y = checkPageOverflow(doc, y, gstMode);
       
       const qty = item.qty || 1;
       const rate = item.rate || 0;
-      const amount = item.amount || (qty * rate);
-      const gstPercent = item.gstPercent || 0;
-      const gstAmount = item.gstAmount || (hasGst ? (amount * (gstPercent / 100)) : 0);
-      const total = item.total || (amount + gstAmount);
+      const amount = item.amount !== undefined ? item.amount : (qty * rate);
+      const gstPercent = item.gstPercent !== undefined ? item.gstPercent : 0;
+      const gstAmount = item.gstAmount !== undefined ? item.gstAmount : (amount * (gstPercent / 100));
+      const total = item.total !== undefined ? item.total : (amount + gstAmount);
 
-      const cgstAmt = item.cgstAmount || (isInterstate ? 0 : (gstAmount / 2));
-      const sgstAmt = item.sgstAmount || (isInterstate ? 0 : (gstAmount / 2));
-      const igstAmt = item.igstAmount || (isInterstate ? gstAmount : 0);
+      const cgstAmt = item.cgstAmount !== undefined ? item.cgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const sgstAmt = item.sgstAmount !== undefined ? item.sgstAmount : (isInterstate ? 0 : (gstAmount / 2));
+      const igstAmt = item.igstAmount !== undefined ? item.igstAmount : (isInterstate ? gstAmount : 0);
 
       labourTaxableSum += amount;
       labourCgstSum += cgstAmt;
@@ -1162,16 +1186,15 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
       labourIgstSum += igstAmt;
       labourTotalSum += total;
 
-      let cgstRateStr, sgstRateStr;
-      if (!hasGst) {
-        cgstRateStr = 'N/A';
-        sgstRateStr = 'N/A';
-      } else if (isInterstate) {
+      let cgstRateStr, sgstRateStr, igstRateStr;
+      if (isInterstate) {
         cgstRateStr = '0%';
         sgstRateStr = '0%';
+        igstRateStr = `${gstPercent.toFixed(1)}%`;
       } else {
         cgstRateStr = `${(gstPercent / 2).toFixed(1)}%`;
         sgstRateStr = `${(gstPercent / 2).toFixed(1)}%`;
+        igstRateStr = '0%';
       }
 
       drawTableRow(
@@ -1189,15 +1212,18 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
         cgstAmt.toFixed(2),
         sgstRateStr,
         sgstAmt.toFixed(2),
-        total.toFixed(2)
+        total.toFixed(2),
+        gstMode,
+        igstRateStr,
+        igstAmt.toFixed(2)
       );
       y += 16;
       sNo++;
     });
 
     // Labour Subtotal Row
-    y = checkPageOverflow(doc, y);
-    drawLabourTotalRow(doc, y, labourTaxableSum, labourCgstSum, labourSgstSum, labourTotalSum);
+    y = checkPageOverflow(doc, y, gstMode);
+    drawLabourTotalRow(doc, y, labourTaxableSum, labourCgstSum, labourSgstSum, labourTotalSum, gstMode, labourIgstSum);
     y += 16;
   }
 
@@ -1208,10 +1234,24 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
   // Calculate discount from invoice totals
   const discountAmount = invoice.totals.discount || 0;
 
-  // Summary box totals representation
+  // Compute gross part and labour totals to fix the double discount subtraction bug
+  let partsGrossSum = 0;
+  if (invoice.parts && invoice.parts.length > 0) {
+    invoice.parts.forEach(part => {
+      partsGrossSum += (part.qty || 1) * (part.rate || 0);
+    });
+  }
+  let labourGrossSum = 0;
+  if (invoice.labour && invoice.labour.length > 0) {
+    invoice.labour.forEach(item => {
+      labourGrossSum += (item.qty || 1) * (item.rate || 0);
+    });
+  }
+
+  // Summary box totals representation using gross values
   const summaryTotals = {
-    partsTotal: partsTaxableSum,
-    labourTotal: labourTaxableSum,
+    partsTotal: partsGrossSum,
+    labourTotal: labourGrossSum,
     cgstTotalParts: partsCgstSum,
     sgstTotalParts: partsSgstSum,
     igstTotalParts: partsIgstSum,
