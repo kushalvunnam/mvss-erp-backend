@@ -1708,61 +1708,7 @@ export default function App() {
     }
   }, [token]);
 
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
-  const [passwordLoading, setPasswordLoading] = useState(false);
 
-  const handlePasswordChangeSubmit = async (e) => {
-    e.preventDefault();
-    setPasswordError('');
-    setPasswordSuccess('');
-
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError('New passwords do not match.');
-      return;
-    }
-    if (passwordForm.newPassword.length < 6) {
-      setPasswordError('New password must be at least 6 characters long.');
-      return;
-    }
-    if (passwordForm.newPassword === passwordForm.currentPassword) {
-      setPasswordError('New password cannot be the same as the current password.');
-      return;
-    }
-
-    setPasswordLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(passwordForm)
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPasswordSuccess('Password changed successfully.');
-        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-        setTimeout(() => {
-          setShowChangePasswordModal(false);
-          setPasswordSuccess('');
-        }, 1500);
-      } else {
-        setPasswordError(data.error || 'Failed to change password.');
-      }
-    } catch (err) {
-      setPasswordError('Network error. Failed to connect to server.');
-    } finally {
-      setPasswordLoading(false);
-    }
-  };
 
   useEffect(() => {
     if (user && !loading) {
@@ -1949,6 +1895,62 @@ function ERPShell({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  const handlePasswordChangeSubmit = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('New passwords do not match.');
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters long.');
+      return;
+    }
+    if (passwordForm.newPassword === passwordForm.currentPassword) {
+      setPasswordError('New password cannot be the same as the current password.');
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(passwordForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPasswordSuccess('Password changed successfully.');
+        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setTimeout(() => {
+          setShowChangePasswordModal(false);
+          setPasswordSuccess('');
+        }, 1500);
+      } else {
+        setPasswordError(data.error || 'Failed to change password.');
+      }
+    } catch (err) {
+      setPasswordError('Network error. Failed to connect to server.');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
 
   // Sync activeTab state based on current URL path
   useEffect(() => {
