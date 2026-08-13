@@ -20,7 +20,7 @@ import {
   Clock
 } from 'lucide-react';
 
-export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isOpen, setIsOpen, isCollapsed }) {
+export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isOpen, setIsOpen, isCollapsed, onChangePassword }) {
   const role = user?.role || 'Guest';
 
   const navigationItems = [
@@ -146,6 +146,13 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
                 <h4 className="text-slate-200 font-bold text-xs truncate leading-none">{user?.name || 'User'}</h4>
                 <span className="text-[9px] text-slate-500 font-medium mt-0.5 block truncate">{user?.role}</span>
               </div>
+              <button
+                onClick={onChangePassword}
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors mr-1"
+                title="Change Password"
+              >
+                <Key className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={onLogout}
                 className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"

@@ -90,4 +90,78 @@ router.post('/logout', auth, async (req, res) => {
   }
 });
 
+// Change own password
+router.put('/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).send({ error: 'All password fields are required.' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).send({ error: 'New password and confirmation do not match.' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).send({ error: 'New password must be at least 6 characters long.' });
+    }
+
+    // Load the user from DB (with password field)
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).send({ error: 'User not found.' });
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).send({ error: 'Incorrect current password.' });
+    }
+
+    const isSame = await user.comparePassword(newPassword);
+    if (isSame) {
+      return res.status(400).send({ error: 'New password cannot be the same as the current password.' });
+    }
+
+    user.password = newPassword; // Pre-save hook will hash this
+    await user.save();
+
+    await logAction(user, 'USER_PASSWORD_CHANGE', `User ${user.email} successfully updated their password`, req);
+
+    res.send({ success: true, message: 'Password updated successfully.' });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to update password: ' + error.message });
+  }
+});
+
+// Admin only: Change another user's password
+router.put('/users/:id/change-password', auth, restrictTo('Admin'), async (req, res) => {
+  try {
+    const { newPassword, confirmPassword } = req.body;
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).send({ error: 'Password and confirmation are required.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).send({ error: 'Passwords do not match.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).send({ error: 'Password must be at least 6 characters long.' });
+    }
+
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      return res.status(404).send({ error: 'User not found.' });
+    }
+
+    targetUser.password = newPassword;
+    await targetUser.save();
+
+    await logAction(req.user, 'USER_PASSWORD_RESET', `Admin reset password for user ${targetUser.email}`, req);
+
+    res.send({ success: true, message: 'User password reset successfully.' });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to reset user password: ' + error.message });
+  }
+});
+
 module.exports = router;
+

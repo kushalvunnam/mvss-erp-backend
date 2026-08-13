@@ -54,7 +54,8 @@ import {
   TrendingUp,
   ShoppingBag,
   Wallet,
-  Key
+  Key,
+  X
 } from 'lucide-react';
 
 import * as mockData from './utils/mockData';
@@ -1707,6 +1708,62 @@ export default function App() {
     }
   }, [token]);
 
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  const handlePasswordChangeSubmit = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('New passwords do not match.');
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters long.');
+      return;
+    }
+    if (passwordForm.newPassword === passwordForm.currentPassword) {
+      setPasswordError('New password cannot be the same as the current password.');
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(passwordForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPasswordSuccess('Password changed successfully.');
+        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setTimeout(() => {
+          setShowChangePasswordModal(false);
+          setPasswordSuccess('');
+        }, 1500);
+      } else {
+        setPasswordError(data.error || 'Failed to change password.');
+      }
+    } catch (err) {
+      setPasswordError('Network error. Failed to connect to server.');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (user && !loading) {
       const userRole = user.role || 'Guest';
@@ -1997,6 +2054,7 @@ function ERPShell({
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
         isCollapsed={isCollapsed}
+        onChangePassword={() => setShowChangePasswordModal(true)}
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
@@ -2010,12 +2068,13 @@ function ERPShell({
                 const next = !prev;
                 localStorage.setItem('sidebar_collapsed', next.toString());
                 return next;
-              });
+                });
             } else {
               setSidebarOpen(prev => !prev);
             }
           }} 
           onLogout={handleLogout} 
+          onChangePassword={() => setShowChangePasswordModal(true)}
           onNavigate={(tab) => {
             setActiveTab(tab);
             setViewJcId(null);
@@ -2158,6 +2217,90 @@ function ERPShell({
           )}
         </div>
       </div>
+      {showChangePasswordModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[100] animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">Change Account Password</h3>
+              <button 
+                onClick={() => {
+                  setShowChangePasswordModal(false);
+                  setPasswordError('');
+                  setPasswordSuccess('');
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {passwordError && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/30 text-red-650 dark:text-red-400 text-xs font-bold rounded-xl border border-red-200/50 dark:border-red-900/30">
+                {passwordError}
+              </div>
+            )}
+            {passwordSuccess && (
+              <div className="p-3 bg-green-50 dark:bg-green-950/30 text-green-650 dark:text-green-400 text-xs font-bold rounded-xl border border-green-200/50 dark:border-green-900/30">
+                {passwordSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handlePasswordChangeSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Current Password *</label>
+                <input 
+                  type="password"
+                  required
+                  value={passwordForm.currentPassword}
+                  onChange={e => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">New Password *</label>
+                <input 
+                  type="password"
+                  required
+                  value={passwordForm.newPassword}
+                  onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Confirm New Password *</label>
+                <input 
+                  type="password"
+                  required
+                  value={passwordForm.confirmPassword}
+                  onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChangePasswordModal(false);
+                    setPasswordError('');
+                    setPasswordSuccess('');
+                  }}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-500/10 disabled:opacity-50"
+                >
+                  {passwordLoading ? 'Saving...' : 'Update Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

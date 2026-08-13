@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config';
-import { Sun, Moon, Bell, AlertTriangle, Menu, LogOut, Search, Calendar, MessageSquare } from 'lucide-react';
+import { Sun, Moon, Bell, AlertTriangle, Menu, LogOut, Search, Calendar, MessageSquare, Key } from 'lucide-react';
 
-export default function Header({ user, token, currentTab, onMenuClick, onLogout, onNavigate, onNavigateToJobCard, tabPermissions }) {
+export default function Header({ user, token, currentTab, onMenuClick, onLogout, onNavigate, onNavigateToJobCard, tabPermissions, onChangePassword }) {
   const [darkMode, setDarkMode] = useState(false);
   const [alerts, setAlerts] = useState([]);
   const [showAlertsMenu, setShowAlertsMenu] = useState(false);
@@ -676,6 +676,13 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
                 {user?.role}
               </span>
             </div>
+            <button
+              onClick={onChangePassword}
+              className="p-1.5 text-slate-400 hover:text-indigo-650 dark:hover:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors ml-1.5"
+              title="Change Password"
+            >
+              <Key className="w-4 h-4" />
+            </button>
             <button
               onClick={onLogout}
               className="p-1.5 text-slate-400 hover:text-red-650 dark:hover:text-red-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg md:hidden transition-colors"

@@ -6,6 +6,8 @@ const VIRTUALIZATION_THRESHOLD = 500;
 
 const PART_SEARCH_FIELDS = ['partName', 'partNumber', 'partCode', 'oemBrand', 'hsnCode', 'brand', 'supplier', 'vehicleCompatibility', 'model', 'alias'];
 const LABOUR_SEARCH_FIELDS = ['partName', 'partNumber', 'partCode', 'category', 'hsnCode', 'model', 'alias', 'oemBrand', 'description'];
+const VENDOR_SEARCH_FIELDS = ['name', 'vendorCode', 'mobile', 'phone', 'city', 'supplierType'];
+const JOBCARD_SEARCH_FIELDS = ['jobCardNo', 'vehicleNo', 'customerName', 'vehicleModel', 'dateFormatted', 'status'];
 
 function buildMatcher(query, fields) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -23,6 +25,15 @@ function defaultRenderLabel(item, type = 'parts') {
     const category = item.category ? `[${item.category}]` : '';
     const model = item.model ? `(${item.model})` : '';
     return `${desc} ${category} ${model} ${code ? `(${code})` : ''}`.replace(/\s+/g, ' ').trim();
+  }
+  if (type === 'vendors') {
+    const name = item.name || '';
+    const code = item.vendorCode ? `(${item.vendorCode})` : '';
+    const phone = item.mobile || item.phone ? `- Phone: ${item.mobile || item.phone}` : '';
+    return `${name} ${code} ${phone}`.replace(/\s+/g, ' ').trim();
+  }
+  if (type === 'jobcards') {
+    return `${item.jobCardNo} | Reg: ${item.vehicleNo} | Cust: ${item.customerName} | Vehicle: ${item.vehicleModel} | Date: ${item.dateFormatted} | Status: ${item.status}`;
   }
   const name = item.partName || item.name || '';
   const num = item.partNumber || '';
@@ -43,7 +54,7 @@ export default function SearchableDropdown({
   className = '',
   type = 'parts',
 }) {
-  const fields = searchFields || (type === 'labour' ? LABOUR_SEARCH_FIELDS : PART_SEARCH_FIELDS);
+  const fields = searchFields || (type === 'labour' ? LABOUR_SEARCH_FIELDS : type === 'vendors' ? VENDOR_SEARCH_FIELDS : type === 'jobcards' ? JOBCARD_SEARCH_FIELDS : PART_SEARCH_FIELDS);
   const renderLabel = renderItemLabel || ((item) => defaultRenderLabel(item, type));
 
   const [open, setOpen] = useState(false);
@@ -209,7 +220,7 @@ export default function SearchableDropdown({
 
           {filtered.length === 0 ? (
             <div className="px-4 py-5 text-center text-xs text-slate-450 font-bold italic">
-              {type === 'labour' ? 'No services found.' : 'No spare parts found.'}
+              {type === 'labour' ? 'No services found.' : type === 'vendors' ? 'No vendors found.' : type === 'jobcards' ? 'No job cards found.' : 'No spare parts found.'}
             </div>
           ) : (
             <div

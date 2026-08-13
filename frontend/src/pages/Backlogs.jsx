@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import StatsCard from '../components/StatsCard';
 import { API_BASE_URL } from '../config';
+import { getCachedData, setCachedData } from '../utils/apiCache';
+import SearchableDropdown from '../components/SearchableDropdown';
 import { 
   Plus, 
   Search, 
@@ -33,6 +35,18 @@ export default function Backlogs({ token, user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const mappedJobCards = React.useMemo(() => {
+    return jobCards.map(j => ({
+      ...j,
+      jobCardNo: j.jobCardNo || '',
+      vehicleNo: j.vehicleId?.vehicleNumber || j.vehicleNo || '',
+      customerName: j.customerId?.name || j.customerName || '',
+      vehicleModel: j.vehicleId?.model || j.vehicleModel || '',
+      dateFormatted: j.date ? new Date(j.date).toLocaleDateString('en-IN') : '',
+      status: j.status || ''
+    }));
+  }, [jobCards]);
   
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,11 +75,13 @@ export default function Backlogs({ token, user }) {
     vehicleNo: '',
     customerName: '',
     jobCardNo: '',
+    jobCardId: '',
     vehicleModel: '',
     partNumber: '',
     partName: '',
     brand: '',
     qty: 1,
+    vendorId: '',
     vendorName: '',
     vendorContact: '',
     poNumber: '',
@@ -115,10 +131,10 @@ export default function Backlogs({ token, user }) {
 
   // Role Permissions
   const role = user?.role || 'Guest';
-  const canCreate = ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares'].includes(role);
-  const canEdit = ['Admin', 'Accounts', 'Body Shop', 'Spares', 'Service'].includes(role);
-  const canReceive = ['Admin', 'Accounts', 'Body Shop', 'Spares'].includes(role);
-  const canDelete = role === 'Admin';
+  const canCreate = ['Admin', 'Accounts', 'Service', 'Body Shop', 'Spares', 'Accounts Executive'].includes(role);
+  const canEdit = ['Admin', 'Accounts', 'Body Shop', 'Spares', 'Service', 'Accounts Executive'].includes(role);
+  const canReceive = ['Admin', 'Accounts', 'Body Shop', 'Spares', 'Accounts Executive'].includes(role);
+  const canDelete = ['Admin', 'Accounts Executive'].includes(role);
 
   // Debounce search term
   useEffect(() => {
@@ -329,12 +345,17 @@ export default function Backlogs({ token, user }) {
   };
 
   // Auto-fill form when selection of Job Card changes
-  const handleJobCardSelectChange = async (jcNo) => {
+  const handleJobCardSelectChange = async (jcId) => {
+    const matched = jobCards.find(j => j._id === jcId);
+    const jcNo = matched ? matched.jobCardNo : '';
     setFormData(prev => {
-      const updated = { ...prev, jobCardNo: jcNo };
-      if (!jcNo) return updated;
-      
-      const matched = jobCards.find(j => j.jobCardNo === jcNo);
+      const updated = { ...prev, jobCardNo: jcNo, jobCardId: jcId || '' };
+      if (!jcId) {
+        updated.vehicleNo = '';
+        updated.vehicleModel = '';
+        updated.customerName = '';
+        return updated;
+      }
       if (matched) {
         updated.vehicleNo = matched.vehicleNo || matched.vehicleId?.vehicleNumber || '';
         updated.vehicleModel = matched.vehicleModel || matched.vehicleId?.model || '';
@@ -344,10 +365,9 @@ export default function Backlogs({ token, user }) {
     });
 
     setEstimateParts([]);
-    if (!jcNo) return;
+    if (!jcId || !matched) return;
 
-    const matched = jobCards.find(j => j.jobCardNo === jcNo);
-    if (matched && matched._id) {
+    if (matched._id) {
       try {
         const res = await fetch(`${API_BASE_URL}/estimates?jobCardId=${matched._id}`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -363,6 +383,16 @@ export default function Backlogs({ token, user }) {
         console.error('Failed to fetch estimate parts:', err);
       }
     }
+  };
+
+  const handleVendorSelectChange = (vendorId) => {
+    const matchedVendor = vendorList.find(v => v._id === vendorId);
+    setFormData(prev => ({
+      ...prev,
+      vendorId: vendorId || '',
+      vendorName: matchedVendor ? matchedVendor.name : '',
+      vendorContact: matchedVendor?.mobile || prev.vendorContact || ''
+    }));
   };
 
   const handleEstimatePartSelectChange = (indexVal) => {
@@ -545,11 +575,13 @@ export default function Backlogs({ token, user }) {
       vehicleNo: '',
       customerName: '',
       jobCardNo: '',
+      jobCardId: '',
       vehicleModel: '',
       partNumber: '',
       partName: '',
       brand: '',
       qty: 1,
+      vendorId: '',
       vendorName: '',
       vendorContact: '',
       poNumber: '',
@@ -574,15 +606,19 @@ export default function Backlogs({ token, user }) {
     setError('');
     setSuccess('');
     setSelectedBacklog(backlog);
+    const matchedVendor = vendorList.find(v => v.name === backlog.vendorName);
+    const matchedJc = jobCards.find(j => j.jobCardNo === backlog.jobCardNo);
     setFormData({
       vehicleNo: backlog.vehicleNo || '',
       customerName: backlog.customerName || '',
       jobCardNo: backlog.jobCardNo || '',
+      jobCardId: matchedJc ? matchedJc._id : '',
       vehicleModel: backlog.vehicleModel || '',
       partNumber: backlog.partNumber || '',
       partName: backlog.partName || '',
       brand: backlog.brand || '',
       qty: backlog.qty || 1,
+      vendorId: matchedVendor ? matchedVendor._id : '',
       vendorName: backlog.vendorName || '',
       vendorContact: backlog.vendorContact || '',
       poNumber: backlog.poNumber || '',
@@ -1165,18 +1201,14 @@ export default function Backlogs({ token, user }) {
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-350 mb-1.5">
                     Link Job Card (Auto-fills Vehicle/Customer)
                   </label>
-                  <select
-                    value={formData.jobCardNo}
-                    onChange={(e) => handleJobCardSelectChange(e.target.value)}
-                    className="w-full text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold text-slate-850 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="">-- Manual Entry / No Job Card --</option>
-                    {jobCards.map(j => (
-                      <option key={j._id} value={j.jobCardNo}>
-                        {j.jobCardNo} ({j.vehicleId?.vehicleNumber || j.vehicleNo})
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableDropdown
+                    items={mappedJobCards}
+                    value={formData.jobCardId}
+                    onSelect={handleJobCardSelectChange}
+                    type="jobcards"
+                    emptyOptionLabel="-- Manual Entry / No Job Card --"
+                    placeholder="Search Job Card, Reg #, Customer..."
+                  />
                 </div>
 
                 <div>
@@ -1396,27 +1428,14 @@ export default function Backlogs({ token, user }) {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Name *</label>
-                    <select
-                      required
-                      value={formData.vendorName}
-                      onChange={(e) => {
-                        const vName = e.target.value;
-                        const matchedVendor = vendorList.find(v => v.name === vName);
-                        setFormData({
-                          ...formData,
-                          vendorName: vName,
-                          vendorContact: matchedVendor?.mobile || formData.vendorContact || ''
-                        });
-                      }}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                    >
-                      <option value="">-- Select Vendor --</option>
-                      {vendorList.map(v => (
-                        <option key={v._id} value={v.name}>
-                          {v.name} {v.city ? `(${v.city})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchableDropdown
+                      items={vendorList}
+                      value={formData.vendorId}
+                      onSelect={handleVendorSelectChange}
+                      type="vendors"
+                      emptyOptionLabel="-- Select Vendor --"
+                      placeholder="Search Vendor Name, Code, Phone..."
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Contact (Optional)</label>
@@ -1664,27 +1683,14 @@ export default function Backlogs({ token, user }) {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Name *</label>
-                    <select
-                      required
-                      value={formData.vendorName}
-                      onChange={(e) => {
-                        const vName = e.target.value;
-                        const matchedVendor = vendorList.find(v => v.name === vName);
-                        setFormData({
-                          ...formData,
-                          vendorName: vName,
-                          vendorContact: matchedVendor?.mobile || formData.vendorContact || ''
-                        });
-                      }}
-                      className="w-full text-xs bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                    >
-                      <option value="">-- Select Vendor --</option>
-                      {vendorList.map(v => (
-                        <option key={v._id} value={v.name}>
-                          {v.name} {v.city ? `(${v.city})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchableDropdown
+                      items={vendorList}
+                      value={formData.vendorId}
+                      onSelect={handleVendorSelectChange}
+                      type="vendors"
+                      emptyOptionLabel="-- Select Vendor --"
+                      placeholder="Search Vendor Name, Code, Phone..."
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor Contact (Optional)</label>
