@@ -99,8 +99,8 @@ router.get('/service-history', auth, async (req, res) => {
     const Estimate = require('../models/Estimate');
 
     // Find all job card IDs that have finalized invoices
-    const invoices = await Invoice.find({ status: 'Finalized' }).select('jobCardId').lean();
-    const invoicedJcIds = invoices.map(inv => inv.jobCardId).filter(Boolean);
+    const finalizedInvoices = await Invoice.find({ status: 'Finalized' }).select('jobCardId').lean();
+    const invoicedJcIds = finalizedInvoices.map(inv => inv.jobCardId).filter(Boolean);
 
     const query = {
       $or: [
