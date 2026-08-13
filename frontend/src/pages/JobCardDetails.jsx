@@ -728,7 +728,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             <p className="text-xs text-slate-400 font-semibold">Time: {jc.time}</p>
             <div className="text-xs text-slate-400 font-semibold mt-1.5 flex items-center justify-end gap-1.5 select-none">
               <span>Status:</span>
-              {['Super Admin', 'Admin', 'Branch Manager', 'Service Advisor', 'Workshop Manager'].includes(user?.role) ? (
+              {['Super Admin', 'Admin', 'Branch Manager', 'Service Advisor', 'Workshop Manager', 'Body Shop'].includes(user?.role) ? (
                 <select
                   value={jc.status}
                   onChange={(e) => {

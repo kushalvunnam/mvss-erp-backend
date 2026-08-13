@@ -18,10 +18,11 @@ import {
   ArrowRight,
   ShieldCheck,
   Calendar,
-  IndianRupee
+  IndianRupee,
+  Plus
 } from 'lucide-react';
 
-export default function BodyShop({ token, user, onNavigateToJobCard }) {
+export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTab }) {
   const [jobCards, setJobCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedJc, setSelectedJc] = useState(null);
@@ -284,6 +285,25 @@ export default function BodyShop({ token, user, onNavigateToJobCard }) {
 
   return (
     <div className="space-y-6 animate-fade-in p-1 select-none">
+      {/* Header with Create Job Card button */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-black text-slate-800 dark:text-white">Body Shop Terminal</h2>
+          <p className="text-xs text-slate-400 font-semibold dark:text-slate-500">Track body and paint repair progress</p>
+        </div>
+        <button
+          onClick={() => {
+            if (setActiveTab) {
+              setActiveTab('jobcards');
+              localStorage.setItem('jobcard_view_mode', 'create');
+            }
+          }}
+          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
+        >
+          <Plus className="w-4 h-4" /> Create Job Card
+        </button>
+      </div>
+
       {/* Dashboard Stats Panel */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         {[

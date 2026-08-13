@@ -72,6 +72,14 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
     }
   }, []);
 
+  useEffect(() => {
+    const viewModeFromStorage = localStorage.getItem('jobcard_view_mode');
+    if (viewModeFromStorage === 'create') {
+      setViewMode('create');
+      localStorage.removeItem('jobcard_view_mode');
+    }
+  }, []);
+
   const handleOpenDetails = (id) => {
     setSelectedJcId(id);
     setViewMode('details');
@@ -156,8 +164,8 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
     );
   }
 
-  const isAdvisorOrAdmin = user?.role === 'Admin' || user?.role === 'Service';
-  const isAuthorizedToEdit = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager'].includes(user?.role);
+  const isAdvisorOrAdmin = user?.role === 'Admin' || user?.role === 'Service' || user?.role === 'Body Shop';
+  const isAuthorizedToEdit = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager', 'Body Shop'].includes(user?.role);
 
   const handleStatusChange = async (jcId, newStatus) => {
     const currentJc = jobCards.find(j => j._id === jcId);

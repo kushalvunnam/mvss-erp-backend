@@ -61,7 +61,7 @@ import * as mockData from './utils/mockData';
 
 const tabPermissions = {
   dashboard: ['Admin', 'Service', 'Reception', 'Accounts', 'Accounts Executive'],
-  bodyshop: ['Admin'],
+  bodyshop: ['Admin', 'Body Shop'],
   customers: ['Admin', 'Accounts', 'Service', 'Body Shop', 'Reception'],
   vehicles: ['Admin', 'Service', 'Body Shop', 'Reception'],
   jobcards: ['Admin', 'Service', 'Body Shop', 'Reception'],
@@ -2073,7 +2073,7 @@ function ERPShell({
                 }} />} />
                 <Route path="/customers" element={<Customers token={token} user={user} />} />
                 <Route path="/vehicles" element={<Vehicles token={token} user={user} />} />
-                <Route path="/body-shop" element={<BodyShop token={token} user={user} onNavigateToJobCard={handleNavigateToJobCard} />} />
+                <Route path="/body-shop" element={<BodyShop token={token} user={user} onNavigateToJobCard={handleNavigateToJobCard} setActiveTab={setActiveTab} />} />
                 <Route path="/job-cards" element={<JobCards token={token} user={user} setActiveTab={setActiveTab} viewJcId={viewJcId} setViewJcId={setViewJcId} />} />
                 <Route path="/estimates" element={<Estimates token={token} user={user} setActiveTab={setActiveTab} />} />
                 <Route path="/invoices" element={<Invoices token={token} user={user} setActiveTab={setActiveTab} />} />

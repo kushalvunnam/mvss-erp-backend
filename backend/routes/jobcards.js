@@ -328,9 +328,9 @@ router.put('/:id', auth, async (req, res) => {
       const newStatus = req.body.status;
       const oldStatus = jobCard.status;
 
-      // Role check: Admin, Service Advisor, Workshop Manager, Branch Manager can update the status.
+      // Role check: Admin, Service Advisor, Workshop Manager, Branch Manager, Body Shop can update the status.
       // Other roles have read-only access.
-      const allowedRoles = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager'];
+      const allowedRoles = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager', 'Body Shop'];
       if (!allowedRoles.includes(req.user?.role)) {
         return res.status(403).send({ error: 'You do not have permission to update the Job Card workflow status.' });
       }
