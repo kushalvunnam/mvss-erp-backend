@@ -269,8 +269,10 @@ export default function SearchableDropdown({
       {open && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed z-[999999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+          className="fixed bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
           style={{
+            position: 'fixed',
+            zIndex: 1000000,
             top: coords.top,
             bottom: coords.bottom,
             left: coords.left,
