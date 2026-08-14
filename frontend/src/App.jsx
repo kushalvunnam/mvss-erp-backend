@@ -55,7 +55,9 @@ import {
   ShoppingBag,
   Wallet,
   Key,
-  X
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 import * as mockData from './utils/mockData';
@@ -2051,6 +2053,9 @@ function ERPShell({
   const [selectedUserId, setSelectedUserId] = useState('');
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
 
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   useEffect(() => {
     if (showChangePasswordModal && user?.role === 'Admin') {
       const fetchAllUsers = async () => {
@@ -2077,6 +2082,8 @@ function ERPShell({
       setSelectedUserId('');
       setAllUsers([]);
       setRoles([]);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
     }
   }, [showChangePasswordModal, user, token]);
 
@@ -2523,25 +2530,43 @@ function ERPShell({
                 </div>
               )}
 
-              <div>
+               <div>
                 <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">New Password *</label>
-                <input 
-                  type="password"
-                  required
-                  value={passwordForm.newPassword}
-                  onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
-                />
+                <div className="relative">
+                  <input 
+                    type={showNewPassword ? 'text' : 'password'}
+                    required
+                    value={passwordForm.newPassword}
+                    onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                    className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 pr-10 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Confirm New Password *</label>
-                <input 
-                  type="password"
-                  required
-                  value={passwordForm.confirmPassword}
-                  onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
-                />
+                <div className="relative">
+                  <input 
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={passwordForm.confirmPassword}
+                    onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                    className="w-full text-xs bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 pr-10 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex gap-3 pt-2">
