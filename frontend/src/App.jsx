@@ -2557,7 +2557,7 @@ function ERPShell({
                     required
                     value={passwordForm.confirmPassword}
                     onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                    className="w-full text-xs bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 pr-10 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                    className={`w-full text-xs bg-slate-50 dark:bg-slate-955 border ${passwordForm.newPassword && passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword ? 'border-red-500 focus:border-red-500' : 'border-slate-200 dark:border-slate-800 focus:border-indigo-600'} rounded-xl p-3 pr-10 font-semibold focus:outline-none dark:text-white`}
                   />
                   <button
                     type="button"
@@ -2567,6 +2567,9 @@ function ERPShell({
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {passwordForm.newPassword && passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && (
+                  <p className="text-[10px] font-bold text-red-650 dark:text-red-450 mt-1">Passwords do not match.</p>
+                )}
               </div>
 
               <div className="flex gap-3 pt-2">
