@@ -2498,7 +2498,9 @@ function ERPShell({
                             const emailLower = u.email.trim().toLowerCase();
                             if (seen.has(emailLower)) return false;
                             seen.add(emailLower);
-                            return u.role === selectedRole;
+                            return u.role === selectedRole && 
+                                   u.active !== false && 
+                                   emailLower.endsWith('@mvssautomobiles.com');
                           })
                           .map(u => (
                             <option key={u._id} value={u._id}>{u.name} ({u.email})</option>
