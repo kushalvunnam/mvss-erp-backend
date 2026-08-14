@@ -7,8 +7,29 @@ import { Search, Plus, Calendar, Receipt, Download, FileText, CheckCircle2, XCir
 export default function Employees({ token, user }) {
   const [employees, setEmployees] = useState([]);
   const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'attendance', 'salary'
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All'); // 'All', 'Active', 'Inactive'
+  const [search, setSearch] = useState(() => {
+    return localStorage.getItem('employee_search_filter') || '';
+  });
+  const [statusFilter, setStatusFilter] = useState(() => {
+    return localStorage.getItem('employee_status_filter') || 'All';
+  });
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const limit = 10;
+
+  useEffect(() => {
+    localStorage.setItem('employee_search_filter', search);
+  }, [search]);
+
+  useEffect(() => {
+    localStorage.setItem('employee_status_filter', statusFilter);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -289,12 +310,26 @@ export default function Employees({ token, user }) {
 
   const fetchEmployees = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/employees`, {
+      const queryParams = new URLSearchParams();
+      queryParams.append('status', statusFilter);
+      queryParams.append('search', search);
+      queryParams.append('page', currentPage);
+      queryParams.append('limit', limit);
+
+      const res = await fetch(`${API_BASE_URL}/employees?${queryParams.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
-        setEmployees(data);
+        if (data && data.employees) {
+          setEmployees(data.employees);
+          setTotalPages(data.totalPages || 1);
+          setTotalCount(data.totalCount || 0);
+        } else if (Array.isArray(data)) {
+          setEmployees(data);
+          setTotalPages(1);
+          setTotalCount(data.length);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -303,7 +338,7 @@ export default function Employees({ token, user }) {
 
   useEffect(() => {
     fetchEmployees();
-  }, [token]);
+  }, [token, statusFilter, search, currentPage]);
 
   useEffect(() => {
     const globalFilter = localStorage.getItem('global_search_filter');
@@ -1123,17 +1158,7 @@ export default function Employees({ token, user }) {
     }
   };
 
-  const filteredEmployees = employees.filter(emp => {
-    const matchesSearch = emp.name.toLowerCase().includes(search.toLowerCase()) ||
-                          emp.email.toLowerCase().includes(search.toLowerCase()) ||
-                          emp.phone.includes(search) ||
-                          (emp.employeeId && emp.employeeId.toLowerCase().includes(search.toLowerCase())) ||
-                          (emp.department && emp.department.toLowerCase().includes(search.toLowerCase())) ||
-                          (emp.role && emp.role.toLowerCase().includes(search.toLowerCase()));
-    const empStatus = emp.status || 'Active';
-    const matchesStatus = statusFilter === 'All' || empStatus === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredEmployees = employees;
 
   const getMonthlyDetails = (emp) => {
     if (!emp) return [];
@@ -1446,6 +1471,33 @@ export default function Employees({ token, user }) {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
+            <span className="text-xs font-semibold text-slate-500">
+              {totalCount > 0 ? `Showing page ${currentPage} of ${totalPages} (${totalCount} total staff)` : 'No staff found'}
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold transition-all text-slate-700 dark:text-slate-200"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-bold transition-all text-slate-700 dark:text-slate-200"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1802,9 +1854,11 @@ export default function Employees({ token, user }) {
                           else if (day.status === 'Leave') colorClass = 'border-blue-500 bg-blue-50/25 text-blue-800 dark:text-blue-300';
                           else if (day.status === 'Weekly Off') colorClass = 'border-slate-350 bg-slate-100/60 dark:border-slate-800 dark:bg-slate-950 text-slate-500 dark:text-slate-400';
 
+                          const filterVal = (selectedStatusFilter || '').trim().toLowerCase();
+                          const dayStatusVal = (day.status || '').trim().toLowerCase();
                           const matchesStatusFilter = !selectedStatusFilter || 
-                            (selectedStatusFilter === 'Present' && (day.status === 'Present' || day.status === 'Present (Worked on Weekly Off)')) ||
-                            day.status === selectedStatusFilter;
+                            (filterVal === 'present' && (dayStatusVal === 'present' || dayStatusVal === 'present (worked on weekly off)')) ||
+                            dayStatusVal === filterVal;
                           const opacityClass = matchesStatusFilter ? 'opacity-100' : 'opacity-30';
 
                           return (
@@ -1839,18 +1893,23 @@ export default function Employees({ token, user }) {
                   <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
                     {employees.map(emp => {
                       const details = getMonthlyDetails(emp);
-                      const presentDays = details.filter(d => d.status === 'Present' || d.status === 'Present (Worked on Weekly Off)' || d.status === 'Weekly Off').length;
-                      const absentDays = details.filter(d => d.status === 'Absent').length;
-                      const halfDays = details.filter(d => d.status === 'Half Day').length;
-                      const leaveDays = details.filter(d => d.status === 'Leave').length;
-                      const weeklyOffDays = details.filter(d => d.status === 'Weekly Off').length;
+                      const presentDays = details.filter(d => {
+                        const s = (d.status || '').trim().toLowerCase();
+                        return s === 'present' || s === 'present (worked on weekly off)';
+                      }).length;
+                      const absentDays = details.filter(d => (d.status || '').trim().toLowerCase() === 'absent').length;
+                      const halfDays = details.filter(d => (d.status || '').trim().toLowerCase() === 'half day').length;
+                      const leaveDays = details.filter(d => (d.status || '').trim().toLowerCase() === 'leave').length;
+                      const weeklyOffDays = details.filter(d => (d.status || '').trim().toLowerCase() === 'weekly off').length;
 
+                      const filterVal = (selectedStatusFilter || '').trim().toLowerCase();
                       const matchesStatusFilter = !selectedStatusFilter || 
-                        (selectedStatusFilter === 'Present' && presentDays > 0) ||
-                        (selectedStatusFilter === 'Absent' && absentDays > 0) ||
-                        (selectedStatusFilter === 'Half Day' && halfDays > 0) ||
-                        (selectedStatusFilter === 'Leave' && leaveDays > 0) ||
-                        (selectedStatusFilter === 'Weekly Off' && weeklyOffDays > 0);
+                        (filterVal === 'present' && presentDays > 0) ||
+                        (filterVal === 'absent' && absentDays > 0) ||
+                        (filterVal === 'half day' && halfDays > 0) ||
+                        (filterVal === 'leave' && leaveDays > 0) ||
+                        (filterVal === 'weekly off' && weeklyOffDays > 0) ||
+                        (filterVal === 'present (worked on weekly off)' && details.some(d => (d.status || '').trim().toLowerCase() === 'present (worked on weekly off)'));
 
                       if (!matchesStatusFilter) return null;
 

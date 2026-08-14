@@ -181,6 +181,18 @@ const purchaseSchema = new mongoose.Schema({
   createdBy: {
     type: String,
     required: true,
+  },
+  attachmentUrl: {
+    type: String,
+    default: ''
+  },
+  attachmentName: {
+    type: String,
+    default: ''
+  },
+  attachmentType: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true,

@@ -271,6 +271,27 @@ export default function App() {
           return responseJson(user || { id: 'demo_user_id', name: 'System Admin', email: 'admin@mvssautomobiles.com', role: 'Admin' });
         }
 
+        if (urlStr.includes('/api/auth/users')) {
+          if (urlStr.includes('/change-password')) {
+            return responseJson({ success: true, message: 'User password reset successfully.' });
+          }
+          let mockUsers = JSON.parse(sessionStorage.getItem('mock_users') || '[]');
+          if (mockUsers.length === 0) {
+            mockUsers = [
+              { _id: 'u1', name: 'System Admin', email: 'admin@mvssautomobiles.com', role: 'Admin' },
+              { _id: 'u2', name: 'Accounts Executive', email: 'accounts@mvssautomobiles.com', role: 'Accounts Executive' },
+              { _id: 'u3', name: 'Service Advisor', email: 'service@mvssautomobiles.com', role: 'Service' },
+              { _id: 'u4', name: 'Spares Manager', email: 'spares@mvssautomobiles.com', role: 'Spares' }
+            ];
+            sessionStorage.setItem('mock_users', JSON.stringify(mockUsers));
+          }
+          return responseJson(mockUsers);
+        }
+
+        if (urlStr.includes('/api/auth/change-password')) {
+          return responseJson({ success: true, message: 'Password updated successfully.' });
+        }
+
         if (urlStr.includes('/api/dashboard/stats')) {
           const customers = JSON.parse(sessionStorage.getItem('mock_customers') || '[]');
           const vehicles = JSON.parse(sessionStorage.getItem('mock_vehicles') || '[]');
@@ -1248,7 +1269,47 @@ export default function App() {
           const db = JSON.parse(sessionStorage.getItem('mock_employees') || '[]');
           
           if (method === 'GET') {
-            return responseJson(db);
+            const parsedUrl = new URL(urlStr, window.location.origin);
+            const status = parsedUrl.searchParams.get('status');
+            const search = parsedUrl.searchParams.get('search');
+            const page = parsedUrl.searchParams.get('page');
+            const limit = parsedUrl.searchParams.get('limit');
+
+            let filtered = [...db];
+
+            if (status && status.toLowerCase() !== 'all') {
+              filtered = filtered.filter(emp => (emp.status || 'Active').toLowerCase() === status.toLowerCase());
+            }
+
+            if (search) {
+              const query = search.toLowerCase();
+              filtered = filtered.filter(emp => 
+                emp.name?.toLowerCase().includes(query) ||
+                emp.email?.toLowerCase().includes(query) ||
+                emp.phone?.includes(query) ||
+                emp.employeeId?.toLowerCase().includes(query) ||
+                emp.department?.toLowerCase().includes(query) ||
+                emp.role?.toLowerCase().includes(query)
+              );
+            }
+
+            if (page || limit) {
+              const pageNum = parseInt(page, 10) || 1;
+              const limitNum = parseInt(limit, 10) || 10;
+              const totalCount = filtered.length;
+              const totalPages = Math.ceil(totalCount / limitNum);
+              const skip = (pageNum - 1) * limitNum;
+              const paginated = filtered.slice(skip, skip + limitNum);
+
+              return responseJson({
+                employees: paginated,
+                totalPages,
+                currentPage: pageNum,
+                totalCount
+              });
+            }
+
+            return responseJson(filtered);
           }
 
           if (method === 'POST') {
@@ -1408,6 +1469,67 @@ export default function App() {
             }
             return responseJson({ error: 'Employee not found' }, 404);
           }
+        }
+
+        if (urlStr.includes('/api/purchases/upload-attachment')) {
+          if (method === 'POST') {
+            const file = body && typeof body.get === 'function' ? body.get('attachment') : null;
+            let fileUrl = 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?q=80&w=600';
+            let fileName = 'mock_document.jpg';
+            let fileType = 'image/jpeg';
+            if (file && file instanceof File) {
+              fileUrl = await readFileAsDataURL(file);
+              fileName = file.name;
+              fileType = file.type;
+            }
+            return responseJson({ attachmentUrl: fileUrl, attachmentName: fileName, attachmentType: fileType });
+          }
+        }
+
+        if (urlStr.includes('/api/purchases/check-duplicate')) {
+          return responseJson({ available: true });
+        }
+
+        if (urlStr.includes('/api/purchases/')) {
+          if (urlStr.includes('/check-in-use')) {
+            return responseJson({ isInUse: false, warnings: [] });
+          }
+        }
+
+        if (urlStr.includes('/api/purchases')) {
+          const db = JSON.parse(sessionStorage.getItem('mock_purchases') || '[]');
+          
+          if (method === 'GET') {
+            return responseJson(db);
+          }
+          
+          if (method === 'POST') {
+            const newItem = {
+              _id: 'pur_' + Date.now(),
+              purchaseNo: 'PUR-' + Math.round(Date.now() / 1000).toString().slice(-6),
+              date: new Date().toISOString(),
+              ...body
+            };
+            db.unshift(newItem);
+            sessionStorage.setItem('mock_purchases', JSON.stringify(db));
+            return responseJson(newItem, 201);
+          }
+          
+          if (method === 'PUT') {
+            const id = urlStr.split('/').pop();
+            const idx = db.findIndex(p => p._id === id);
+            if (idx !== -1) {
+              db[idx] = { ...db[idx], ...body };
+              sessionStorage.setItem('mock_purchases', JSON.stringify(db));
+              return responseJson(db[idx]);
+            }
+            return responseJson({ error: 'Purchase not found' }, 404);
+          }
+        }
+
+        if (urlStr.includes('/api/reports/purchase-history')) {
+          const db = JSON.parse(sessionStorage.getItem('mock_purchases') || '[]');
+          return responseJson(db);
         }
 
         if (urlStr.includes('/api/customers/search')) {
@@ -1906,44 +2028,114 @@ function ERPShell({
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
 
+  const [allUsers, setAllUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [selectedRole, setSelectedRole] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
+
+  useEffect(() => {
+    if (showChangePasswordModal && user?.role === 'Admin') {
+      const fetchAllUsers = async () => {
+        setAdminUsersLoading(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/auth/users`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setAllUsers(data);
+            const uniqueRoles = [...new Set(data.map(u => u.role).filter(Boolean))];
+            setRoles(uniqueRoles);
+          }
+        } catch (err) {
+          console.error('Failed to fetch users:', err);
+        } finally {
+          setAdminUsersLoading(false);
+        }
+      };
+      fetchAllUsers();
+    } else {
+      setSelectedRole('');
+      setSelectedUserId('');
+      setAllUsers([]);
+      setRoles([]);
+    }
+  }, [showChangePasswordModal, user, token]);
+
   const handlePasswordChangeSubmit = async (e) => {
     e.preventDefault();
     setPasswordError('');
     setPasswordSuccess('');
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError('New passwords do not match.');
-      return;
-    }
-    if (passwordForm.newPassword.length < 6) {
-      setPasswordError('New password must be at least 6 characters long.');
-      return;
-    }
-    if (passwordForm.newPassword === passwordForm.currentPassword) {
-      setPasswordError('New password cannot be the same as the current password.');
-      return;
+    const isAdminReset = user?.role === 'Admin';
+
+    if (isAdminReset) {
+      if (!selectedRole) {
+        setPasswordError('Please select a role.');
+        return;
+      }
+      if (!selectedUserId) {
+        setPasswordError('Please select a user.');
+        return;
+      }
+      if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
+        setPasswordError('Password and confirmation are required.');
+        return;
+      }
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+        setPasswordError('Passwords do not match.');
+        return;
+      }
+      if (passwordForm.newPassword.length < 6) {
+        setPasswordError('Password must be at least 6 characters long.');
+        return;
+      }
+    } else {
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+        setPasswordError('New passwords do not match.');
+        return;
+      }
+      if (passwordForm.newPassword.length < 6) {
+        setPasswordError('New password must be at least 6 characters long.');
+        return;
+      }
+      if (passwordForm.newPassword === passwordForm.currentPassword) {
+        setPasswordError('New password cannot be the same as the current password.');
+        return;
+      }
     }
 
     setPasswordLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/change-password`, {
+      const url = isAdminReset 
+        ? `${API_BASE_URL}/auth/users/${selectedUserId}/change-password`
+        : `${API_BASE_URL}/auth/change-password`;
+
+      const bodyData = isAdminReset
+        ? { newPassword: passwordForm.newPassword, confirmPassword: passwordForm.confirmPassword }
+        : passwordForm;
+
+      const res = await fetch(url, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(passwordForm)
+        body: JSON.stringify(bodyData)
       });
       const data = await res.json();
       if (res.ok) {
-        setPasswordSuccess('Password changed successfully.');
+        setPasswordSuccess(isAdminReset ? 'User password updated successfully.' : 'Password changed successfully.');
         setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setSelectedRole('');
+        setSelectedUserId('');
         setTimeout(() => {
           setShowChangePasswordModal(false);
           setPasswordSuccess('');
         }, 1500);
       } else {
-        setPasswordError(data.error || 'Failed to change password.');
+        setPasswordError(data.error || 'Failed to update password.');
       }
     } catch (err) {
       setPasswordError('Network error. Failed to connect to server.');
@@ -2223,7 +2415,9 @@ function ERPShell({
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[100] animate-fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">Change Account Password</h3>
+              <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">
+                {user?.role === 'Admin' ? 'CHANGE USER PASSWORD' : 'Change Account Password'}
+              </h3>
               <button 
                 onClick={() => {
                   setShowChangePasswordModal(false);
@@ -2248,16 +2442,59 @@ function ERPShell({
             )}
 
             <form onSubmit={handlePasswordChangeSubmit} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Current Password *</label>
-                <input 
-                  type="password"
-                  required
-                  value={passwordForm.currentPassword}
-                  onChange={e => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
-                />
-              </div>
+              {user?.role === 'Admin' ? (
+                <>
+                  {/* Select Role */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Select Role *</label>
+                    <select
+                      required
+                      value={selectedRole}
+                      onChange={e => {
+                        setSelectedRole(e.target.value);
+                        setSelectedUserId('');
+                      }}
+                      className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                    >
+                      <option value="">-- Select Role --</option>
+                      {roles.map(role => (
+                        <option key={role} value={role}>{role}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Select User */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Select User *</label>
+                    <select
+                      required
+                      value={selectedUserId}
+                      onChange={e => setSelectedUserId(e.target.value)}
+                      className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                    >
+                      <option value="">-- Select User --</option>
+                      {allUsers
+                        .filter(u => u.role === selectedRole)
+                        .map(u => (
+                          <option key={u._id} value={u._id}>{u.name} ({u.email})</option>
+                        ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                /* Normal User flow: Current Password */
+                <div>
+                  <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">Current Password *</label>
+                  <input 
+                    type="password"
+                    required
+                    value={passwordForm.currentPassword}
+                    onChange={e => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                    className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] font-extrabold uppercase text-slate-450 mb-1">New Password *</label>
                 <input 
@@ -2275,7 +2512,7 @@ function ERPShell({
                   required
                   value={passwordForm.confirmPassword}
                   onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
                 />
               </div>
 

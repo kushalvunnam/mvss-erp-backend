@@ -121,6 +121,86 @@ export default function PurchaseReport({ token, user }) {
 
   const invoiceNoRef = useRef(null);
 
+  const [attachment, setAttachment] = useState(null);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.');
+      return;
+    }
+
+    setAttachment({
+      file,
+      name: file.name,
+      type: file.type,
+      status: 'uploading',
+      url: ''
+    });
+
+    try {
+      if (token === 'mock_jwt_token_for_offline_demo') {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachment({
+            file,
+            name: file.name,
+            type: file.type,
+            status: 'uploaded',
+            url: reader.result
+          });
+        };
+        reader.onerror = () => {
+          setAttachment(prev => ({
+            ...prev,
+            status: 'error'
+          }));
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const formData = new FormData();
+        formData.append('attachment', file);
+
+        const res = await fetch(`${API_BASE_URL}/purchases/upload-attachment`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setAttachment({
+            file,
+            name: data.attachmentName || file.name,
+            type: data.attachmentType || file.type,
+            status: 'uploaded',
+            url: data.attachmentUrl
+          });
+        } else {
+          setAttachment(prev => ({
+            ...prev,
+            status: 'error'
+          }));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setAttachment(prev => ({
+        ...prev,
+        status: 'error'
+      }));
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachment(null);
+  };
+
   // Auto-focus Invoice No. field on tab change or duplicate error detection
   useEffect(() => {
     if (activeTab === 'entry') {
@@ -602,6 +682,16 @@ export default function PurchaseReport({ token, user }) {
 
     // 2. Prefill form state
     setEditPurchaseId(p._id);
+    if (p.attachmentUrl) {
+      setAttachment({
+        url: p.attachmentUrl,
+        name: p.attachmentName || 'Attached Document',
+        type: p.attachmentType || 'image/jpeg',
+        status: 'uploaded'
+      });
+    } else {
+      setAttachment(null);
+    }
     const hasIgst = p.totals?.igstTotal > 0 || p.items.some(item => (item.igst || 0) > 0);
     setPurchaseHeader({
       vendorId: p.vendorId?._id || p.vendorId || '',
@@ -672,6 +762,7 @@ export default function PurchaseReport({ token, user }) {
     setPurchaseItems([createEmptyRow()]);
     setPurchaseFormError('');
     setPurchaseSuccess('');
+    setAttachment(null);
     setActiveTab('history');
   };
 
@@ -691,12 +782,14 @@ export default function PurchaseReport({ token, user }) {
     setInvoiceNoDuplicate(false);
     setPurchaseFormError('');
     setPurchaseSuccess('');
+    setAttachment(null);
   };
 
   const handleCancel = () => {
     if (window.confirm("Discard this purchase entry?")) {
       handleClearForm();
       setEditPurchaseId(null);
+      setAttachment(null);
       setActiveTab('history');
     }
   };
@@ -829,7 +922,10 @@ export default function PurchaseReport({ token, user }) {
       updatePurchasePrice: purchaseHeader.updatePurchasePrice,
       updateMRP: purchaseHeader.updateMRP,
       billingType: purchaseHeader.billingType || 'Intra-State',
-      reason
+      reason,
+      attachmentUrl: attachment && attachment.status === 'uploaded' ? attachment.url : '',
+      attachmentName: attachment && attachment.status === 'uploaded' ? attachment.name : '',
+      attachmentType: attachment && attachment.status === 'uploaded' ? attachment.type : ''
     };
 
     setPurchaseSubmitting(true);
@@ -864,6 +960,7 @@ export default function PurchaseReport({ token, user }) {
             billingType: 'Intra-State'
           });
           setPurchaseItems([createEmptyRow()]);
+          setAttachment(null);
           fetchPurchases();
           fetchPurchaseReports();
           fetchInventoryList();
@@ -1226,10 +1323,10 @@ export default function PurchaseReport({ token, user }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-1">
               {/* Billing Type Selection */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-355 mb-1.5">
                   Billing Type <span className="text-rose-500">*</span>
                 </label>
                 <select
@@ -1244,7 +1341,7 @@ export default function PurchaseReport({ token, user }) {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-355 mb-1.5">
                   Amount Paid (₹)
                 </label>
                 <input
@@ -1258,7 +1355,7 @@ export default function PurchaseReport({ token, user }) {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-355 mb-1.5">
                   Purchase Notes / Remarks
                 </label>
                 <input
@@ -1268,6 +1365,64 @@ export default function PurchaseReport({ token, user }) {
                   onChange={(e) => setPurchaseHeader({ ...purchaseHeader, notes: e.target.value })}
                   className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 />
+              </div>
+
+              {/* Upload Invoice / Bill */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-355 mb-1.5">
+                  Upload Invoice / Bill
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  {!attachment ? (
+                    <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-650 dark:text-slate-300 cursor-pointer transition-all hover:border-indigo-500 justify-center">
+                      <span>📎 Upload Invoice / Bill</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,.pdf"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </label>
+                  ) : (
+                    <div className="flex flex-col gap-1.5 p-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <span className="text-xs text-slate-850 dark:text-slate-200 truncate font-bold flex-1 pr-1" title={attachment.name}>
+                          📎 {attachment.name}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {attachment.status === 'uploaded' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (attachment.url) {
+                                  window.open(attachment.url.startsWith('data:') ? attachment.url : `${API_BASE_URL.replace('/api', '')}${attachment.url}`, '_blank');
+                                }
+                              }}
+                              className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500"
+                              title="Preview"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleRemoveAttachment}
+                            className="p-1 hover:bg-rose-100 dark:hover:bg-rose-955 text-rose-500 rounded"
+                            title="Remove"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wide">
+                        {attachment.status === 'uploading' ? 'Uploading...' : attachment.status === 'error' ? 'Failed' : 'Ready'}
+                      </span>
+                    </div>
+                  )}
+                  <span className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                    Upload the supplier invoice, bill, tax invoice, or other purchase document.
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1882,7 +2037,21 @@ export default function PurchaseReport({ token, user }) {
                             </td>
 
                             <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300">
-                              {p.invoiceNo || 'N/A'}
+                              <div className="flex items-center gap-1.5">
+                                <span>{p.invoiceNo || 'N/A'}</span>
+                                {p.attachmentUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(p.attachmentUrl.startsWith('data:') ? p.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${p.attachmentUrl}`, '_blank')}
+                                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-indigo-600 dark:text-indigo-400 font-bold"
+                                    title={`View/Download Document: ${p.attachmentName || 'Attachment'}`}
+                                  >
+                                    📎
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] text-slate-400 italic font-semibold" title="No document">No document</span>
+                                )}
+                              </div>
                             </td>
 
                             <td className="py-3 px-4">
@@ -2417,6 +2586,36 @@ export default function PurchaseReport({ token, user }) {
                   </div>
                 </div>
               </div>
+
+              {/* Document Attachment Display in Voucher */}
+              {selectedVoucher.attachmentUrl && (
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 print:hidden text-xs">
+                  <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-2 tracking-wider">
+                    Attached Document
+                  </span>
+                  <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 gap-4 mb-2">
+                    <span className="font-bold text-slate-700 dark:text-slate-300 truncate max-w-xs flex-1">
+                      📎 {selectedVoucher.attachmentName || 'purchase_document'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => window.open(selectedVoucher.attachmentUrl.startsWith('data:') ? selectedVoucher.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${selectedVoucher.attachmentUrl}`, '_blank')}
+                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 dark:bg-indigo-955/40 dark:text-indigo-400 text-[10px] font-bold rounded-lg transition-all"
+                    >
+                      View / Download
+                    </button>
+                  </div>
+                  {!selectedVoucher.attachmentType?.includes('pdf') && (
+                    <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <img
+                        src={selectedVoucher.attachmentUrl.startsWith('data:') ? selectedVoucher.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${selectedVoucher.attachmentUrl}`}
+                        alt="Voucher document"
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

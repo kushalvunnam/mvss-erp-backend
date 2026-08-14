@@ -35,8 +35,41 @@ router.use(auth, restrictTo('Admin'));
 // 1. Get all employees (with self-healing unique employeeId backfill)
 router.get('/', async (req, res) => {
   try {
-    const employees = await Employee.find().sort({ createdAt: -1 });
+    const { status, search, page, limit } = req.query;
+    let query = {};
+
+    if (status && status.toLowerCase() !== 'all') {
+      query.status = { $regex: new RegExp('^' + status + '$', 'i') };
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { employeeId: { $regex: search, $options: 'i' } },
+        { department: { $regex: search, $options: 'i' } },
+        { role: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    let queryBuilder = Employee.find(query).sort({ createdAt: -1 });
+
+    const totalCount = await Employee.countDocuments(query);
+    let totalPages = 1;
+    let currentPage = 1;
+
+    if (page && limit) {
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 10;
+      currentPage = pageNum;
+      totalPages = Math.ceil(totalCount / limitNum);
+      queryBuilder = queryBuilder.skip((pageNum - 1) * limitNum).limit(limitNum);
+    }
+
+    const employees = await queryBuilder;
     let updated = false;
+
     for (let emp of employees) {
       if (!emp.employeeId) {
         const lastEmp = await Employee.findOne(
@@ -65,8 +98,26 @@ router.get('/', async (req, res) => {
         updated = true;
       }
     }
-    const finalEmployees = updated ? await Employee.find().sort({ createdAt: -1 }) : employees;
-    res.send(finalEmployees);
+    
+    let finalEmployees = employees;
+    if (updated) {
+      let finalQuery = Employee.find(query).sort({ createdAt: -1 });
+      if (page && limit) {
+        finalQuery = finalQuery.skip((currentPage - 1) * parseInt(limit, 10)).limit(parseInt(limit, 10));
+      }
+      finalEmployees = await finalQuery;
+    }
+
+    if (page || limit) {
+      res.send({
+        employees: finalEmployees,
+        totalPages,
+        currentPage,
+        totalCount
+      });
+    } else {
+      res.send(finalEmployees);
+    }
   } catch (error) {
     console.error('Fetch employees error:', error);
     res.status(500).send({ error: 'Failed to fetch employees.' });

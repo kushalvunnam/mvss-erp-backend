@@ -155,7 +155,7 @@ router.put('/users/:id/change-password', auth, restrictTo('Admin'), async (req, 
     targetUser.password = newPassword;
     await targetUser.save();
 
-    await logAction(req.user, 'USER_PASSWORD_RESET', `Admin reset password for user ${targetUser.email}`, req);
+    await logAction(req.user, 'USER_PASSWORD_RESET', `Admin Password Reset: Admin ${req.user.email} reset password for user ${targetUser.email} with role ${targetUser.role}`, req);
 
     res.send({ success: true, message: 'User password reset successfully.' });
   } catch (error) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '../config';
 import SearchableDropdown from '../components/SearchableDropdown';
 import { useInventoryCache } from '../hooks/useInventoryCache';
@@ -41,6 +42,17 @@ export default function StockAdjustment({ token, user }) {
   useEffect(() => {
     fetchData();
   }, [token, typeFilter]);
+
+  useEffect(() => {
+    if (showModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showModal]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -284,12 +296,11 @@ export default function StockAdjustment({ token, user }) {
             </table>
           </div>
         )}
-      </div>
-
-      {/* New Adjustment Modal */}
-      {showModal &&        <div className="fixed inset-0 bg-slate-955/50 backdrop-blur-xs flex items-center justify-center p-4 z-[99999]">
+      </div>      {/* New Adjustment Modal */}
+      {showModal && createPortal(
+        <div className="fixed inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-[99999]">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-955/40 shrink-0">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <Wrench className="w-5 h-5 text-indigo-500" /> New Stock Adjustment Entry
               </h3>
@@ -385,8 +396,9 @@ export default function StockAdjustment({ token, user }) {
               </div>
             </form>
           </div>
-        </div>
-      }
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
