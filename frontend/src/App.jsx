@@ -278,14 +278,31 @@ export default function App() {
           let mockUsers = JSON.parse(sessionStorage.getItem('mock_users') || '[]');
           if (mockUsers.length === 0) {
             mockUsers = [
-              { _id: 'u1', name: 'System Admin', email: 'admin@mvssautomobiles.com', role: 'Admin' },
-              { _id: 'u2', name: 'Accounts Executive', email: 'accounts@mvssautomobiles.com', role: 'Accounts Executive' },
-              { _id: 'u3', name: 'Service Advisor', email: 'service@mvssautomobiles.com', role: 'Service' },
-              { _id: 'u4', name: 'Spares Manager', email: 'spares@mvssautomobiles.com', role: 'Spares' }
+              { _id: 'u1', name: 'System Admin', email: 'admin@mvssautomobiles.com', role: 'Admin', active: true },
+              { _id: 'u2', name: 'Accounts Executive', email: 'accounts@mvssautomobiles.com', role: 'Accounts Executive', active: true },
+              { _id: 'u3', name: 'Service Advisor', email: 'service@mvssautomobiles.com', role: 'Service', active: true },
+              { _id: 'u4', name: 'Spares Manager', email: 'spares@mvssautomobiles.com', role: 'Spares', active: true }
             ];
             sessionStorage.setItem('mock_users', JSON.stringify(mockUsers));
           }
-          return responseJson(mockUsers);
+
+          let updated = false;
+          mockUsers = mockUsers.map(u => {
+            if (u.email?.toLowerCase().endsWith('@autoworkshop.com') && u.active !== false) {
+              updated = true;
+              return { ...u, active: false };
+            }
+            return u;
+          });
+          if (updated) {
+            sessionStorage.setItem('mock_users', JSON.stringify(mockUsers));
+          }
+
+          const filtered = mockUsers.filter(u => 
+            u.active !== false && 
+            u.email?.toLowerCase().endsWith('@mvssautomobiles.com')
+          );
+          return responseJson(filtered);
         }
 
         if (urlStr.includes('/api/auth/change-password')) {
@@ -2473,11 +2490,20 @@ function ERPShell({
                       className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 font-semibold focus:outline-none focus:border-indigo-600 dark:text-white"
                     >
                       <option value="">-- Select User --</option>
-                      {allUsers
-                        .filter(u => u.role === selectedRole)
-                        .map(u => (
-                          <option key={u._id} value={u._id}>{u.name} ({u.email})</option>
-                        ))}
+                      {(() => {
+                        const seen = new Set();
+                        return allUsers
+                          .filter(u => {
+                            if (!u.email) return false;
+                            const emailLower = u.email.trim().toLowerCase();
+                            if (seen.has(emailLower)) return false;
+                            seen.add(emailLower);
+                            return u.role === selectedRole;
+                          })
+                          .map(u => (
+                            <option key={u._id} value={u._id}>{u.name} ({u.email})</option>
+                          ));
+                      })()}
                     </select>
                   </div>
                 </>

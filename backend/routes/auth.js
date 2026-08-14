@@ -73,7 +73,20 @@ router.post('/register', auth, restrictTo('Admin'), async (req, res) => {
 // Admin-only: List users
 router.get('/users', auth, restrictTo('Admin'), async (req, res) => {
   try {
-    const users = await User.find({}, '-password');
+    // Deactivate obsolete autoworkshop.com accounts
+    await User.updateMany(
+      { email: { $regex: '@autoworkshop.com$', $options: 'i' } },
+      { active: false }
+    );
+
+    // Load only active users belonging to the mvssautomobiles.com domain
+    const users = await User.find(
+      { 
+        active: true, 
+        email: { $regex: '@mvssautomobiles.com$', $options: 'i' } 
+      }, 
+      '-password'
+    );
     res.send(users);
   } catch (error) {
     res.status(500).send({ error: 'Failed to fetch users.' });
