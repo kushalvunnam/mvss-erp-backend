@@ -258,6 +258,18 @@ router.post('/attendance/bulk', async (req, res) => {
     const attendanceDate = new Date(date);
     attendanceDate.setHours(0, 0, 0, 0);
 
+    // Validate that all employees are active before proceeding
+    for (const record of records) {
+      const { employeeId } = record;
+      const employee = await Employee.findById(employeeId);
+      if (!employee) {
+        return res.status(404).json({ error: 'Employee not found.' });
+      }
+      if (employee.status !== 'Active') {
+        return res.status(400).json({ error: 'Attendance cannot be marked for an inactive employee.' });
+      }
+    }
+
     const updatedEmployees = [];
     for (const record of records) {
       const { employeeId, status, remarks } = record;
@@ -305,6 +317,9 @@ router.post('/:id/attendance', async (req, res) => {
     const { date, status, remarks } = req.body;
     const employee = await Employee.findById(req.params.id);
     if (!employee) return res.status(404).send({ error: 'Employee not found.' });
+    if (employee.status !== 'Active') {
+      return res.status(400).send({ error: 'Attendance cannot be marked for an inactive employee.' });
+    }
 
     const attendanceDate = new Date(date);
     attendanceDate.setHours(0, 0, 0, 0);

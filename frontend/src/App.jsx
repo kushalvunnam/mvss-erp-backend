@@ -1332,12 +1332,40 @@ export default function App() {
           }
 
           if (method === 'POST') {
-            // Check if attendance request
+            // Check if bulk attendance request
+            if (urlStr.includes('/attendance/bulk')) {
+              const { date, records } = body;
+              const attendanceDate = new Date(date).toISOString().substring(0, 10);
+              const updatedEmployees = [];
+              for (const record of records) {
+                const { employeeId, status } = record;
+                const idx = db.findIndex(emp => emp._id === employeeId);
+                if (idx !== -1) {
+                  if ((db[idx].status || 'Active') !== 'Active') {
+                    return responseJson({ error: 'Attendance cannot be marked for an inactive employee.' }, 400);
+                  }
+                  if (!db[idx].attendance) db[idx].attendance = [];
+                  db[idx].attendance = db[idx].attendance.filter(a => {
+                    const d = new Date(a.date).toISOString().substring(0, 10);
+                    return d !== attendanceDate;
+                  });
+                  db[idx].attendance.push({ date: new Date(date).toISOString(), status });
+                  updatedEmployees.push(db[idx]);
+                }
+              }
+              sessionStorage.setItem('mock_employees', JSON.stringify(db));
+              return responseJson({ success: true, count: updatedEmployees.length });
+            }
+
+            // Check if individual attendance request
             if (urlStr.includes('/attendance')) {
               const parts = urlStr.split('/');
               const id = parts[parts.length - 2];
               const idx = db.findIndex(emp => emp._id === id);
               if (idx !== -1) {
+                if ((db[idx].status || 'Active') !== 'Active') {
+                  return responseJson({ error: 'Attendance cannot be marked for an inactive employee.' }, 400);
+                }
                 const { date, status } = body;
                 const attendanceDate = new Date(date).toISOString().substring(0, 10);
                 if (!db[idx].attendance) db[idx].attendance = [];

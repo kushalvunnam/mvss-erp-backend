@@ -6,6 +6,7 @@ import { Search, Plus, Calendar, Receipt, Download, FileText, CheckCircle2, XCir
 
 export default function Employees({ token, user }) {
   const [employees, setEmployees] = useState([]);
+  const [attendanceEmployees, setAttendanceEmployees] = useState([]);
   const [activeTab, setActiveTab] = useState('registry'); // 'registry', 'attendance', 'salary'
   const [search, setSearch] = useState(() => {
     return localStorage.getItem('employee_search_filter') || '';
@@ -336,9 +337,32 @@ export default function Employees({ token, user }) {
     }
   };
 
+  const fetchAttendanceEmployees = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/employees?status=Active&limit=1000`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.employees || data;
+        if (Array.isArray(list)) {
+          setAttendanceEmployees(list.filter(e => e.status === 'Active'));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch attendance employees:', err);
+    }
+  };
+
   useEffect(() => {
     fetchEmployees();
   }, [token, statusFilter, search, currentPage]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') {
+      fetchAttendanceEmployees();
+    }
+  }, [activeTab, token, attendanceDate]);
 
   useEffect(() => {
     const globalFilter = localStorage.getItem('global_search_filter');
@@ -352,7 +376,7 @@ export default function Employees({ token, user }) {
   useEffect(() => {
     const map = {};
     const remMap = {};
-    employees.forEach(emp => {
+    attendanceEmployees.forEach(emp => {
       const record = emp.attendance?.find(a => {
         const d = new Date(a.date).toISOString().substring(0, 10);
         return d === attendanceDate;
@@ -363,7 +387,7 @@ export default function Employees({ token, user }) {
     });
     setAttendanceMap(map);
     setAttendanceRemarksMap(remMap);
-  }, [attendanceDate, employees]);
+  }, [attendanceDate, attendanceEmployees]);
 
   // Recalculate leaves and net salary when salary inputs change
   useEffect(() => {
@@ -651,6 +675,7 @@ export default function Employees({ token, user }) {
       });
       if (res.ok) {
         fetchEmployees();
+        fetchAttendanceEmployees();
       }
     } catch (err) {
       console.error(err);
@@ -671,6 +696,7 @@ export default function Employees({ token, user }) {
       });
       if (res.ok) {
         fetchEmployees();
+        fetchAttendanceEmployees();
         alert('Attendance updated successfully for employee.');
       } else {
         const err = await res.json().catch(() => ({}));
@@ -684,7 +710,7 @@ export default function Employees({ token, user }) {
 
   const handleMarkAllStatus = (status) => {
     const newMap = { ...attendanceMap };
-    employees.forEach(emp => {
+    attendanceEmployees.forEach(emp => {
       newMap[emp._id] = status;
     });
     setAttendanceMap(newMap);
@@ -715,6 +741,7 @@ export default function Employees({ token, user }) {
 
       if (res.ok) {
         fetchEmployees();
+        fetchAttendanceEmployees();
         alert(`Attendance marked for ${records.length} employees.`);
       } else {
         const err = await res.json().catch(() => ({}));
@@ -745,6 +772,7 @@ export default function Employees({ token, user }) {
       });
       if (res.ok) {
         fetchEmployees();
+        fetchAttendanceEmployees();
       } else {
         const err = await res.json().catch(() => ({}));
         alert(`Error: ${err.error || 'Failed to update attendance'}`);
@@ -782,6 +810,7 @@ export default function Employees({ token, user }) {
       });
       if (res.ok) {
         fetchEmployees();
+        fetchAttendanceEmployees();
         alert('Attendance overridden successfully.');
       } else {
         const err = await res.json().catch(() => ({}));
@@ -1544,20 +1573,20 @@ export default function Employees({ token, user }) {
                 </div>
               </div>
 
-              {employees.length > 0 && (
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+              {attendanceEmployees.length > 0 && (
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 dark:bg-slate-955/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
                   <div className="flex items-center gap-2.5">
                     <input
                       type="checkbox"
                       id="select-all-attendance"
-                      checked={employees.length > 0 && employees.every(emp => !!checkedEmployees[emp._id])}
+                      checked={attendanceEmployees.length > 0 && attendanceEmployees.every(emp => !!checkedEmployees[emp._id])}
                       onChange={(e) => {
                         const checked = e.target.checked;
                         const newChecked = {};
                         const newMap = { ...attendanceMap };
                         const isSunday = new Date(attendanceDate).getDay() === 0;
                         const defaultStatus = isSunday ? 'Weekly Off' : 'Present';
-                        employees.forEach(emp => {
+                        attendanceEmployees.forEach(emp => {
                           newChecked[emp._id] = checked;
                           if (checked) {
                             newMap[emp._id] = defaultStatus;
@@ -1614,8 +1643,8 @@ export default function Employees({ token, user }) {
               )}
 
               <div className="space-y-3">
-                {employees.length > 0 ? (
-                  employees.map(emp => {
+                {attendanceEmployees.length > 0 ? (
+                  attendanceEmployees.map(emp => {
                     const currentStatus = attendanceMap[emp._id] || 'Present';
                     const currentRemarks = attendanceRemarksMap[emp._id] || '';
                     const summary = getEmpCurrentMonthSummary(emp);
@@ -1699,7 +1728,7 @@ export default function Employees({ token, user }) {
                 )}
               </div>
 
-              {employees.length > 0 && (
+              {attendanceEmployees.length > 0 && (
                 <div className="flex justify-end pt-4 border-t border-slate-150 dark:border-slate-800">
                   <button
                     type="button"
@@ -1724,7 +1753,7 @@ export default function Employees({ token, user }) {
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
                   >
                     <option value="">All Employees</option>
-                    {employees.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}
+                    {attendanceEmployees.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}
                   </select>
                 </div>
                 <div>
