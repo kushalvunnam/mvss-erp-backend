@@ -25,6 +25,7 @@ import {
 export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTab }) {
   const [jobCards, setJobCards] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [brokenImages, setBrokenImages] = useState({});
   const [selectedJc, setSelectedJc] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -572,17 +573,33 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                             photosOfType.map((p, i) => {
                               if (!p || !p.url) return null;
                               const isAbsolute = p.url.startsWith('http') || p.url.startsWith('blob:') || p.url.startsWith('data:');
-                              const hostname = window.location.hostname;
-                              const isCloud = hostname.includes('vercel.app') || hostname.includes('surge.sh') || hostname.includes('github.io') || hostname.includes('loca.lt') || hostname.includes('pinggy') || hostname.includes('lhr.life') || hostname.includes('ngrok');
-                              const src = isAbsolute ? p.url : `${API_BASE_URL.replace('/api', '')}${p.url}`;
+                              
+                              let relativePath = p.url;
+                              if (!isAbsolute) {
+                                if (!relativePath.startsWith('/uploads/') && !relativePath.startsWith('uploads/')) {
+                                  relativePath = `/uploads/${relativePath}`;
+                                } else if (relativePath.startsWith('uploads/')) {
+                                  relativePath = `/${relativePath}`;
+                                }
+                              }
+                              const src = isAbsolute ? p.url : `${API_BASE_URL.replace('/api', '')}${relativePath}`;
+                              const isBroken = brokenImages[p.url];
+                              
                               return (
-                                <div key={i} className="aspect-video w-full rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900">
-                                  <img 
-                                    src={src} 
-                                    alt={type} 
-                                    onClick={() => window.open(src, '_blank')}
-                                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-all"
-                                  />
+                                <div key={i} className="aspect-video w-full rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
+                                  {isBroken ? (
+                                    <div className="flex flex-col items-center justify-center p-2 text-center">
+                                      <span className="text-[9px] font-bold text-red-500">Attachment unavailable.</span>
+                                    </div>
+                                  ) : (
+                                    <img 
+                                      src={src} 
+                                      alt={type} 
+                                      onError={() => setBrokenImages(prev => ({ ...prev, [p.url]: true }))}
+                                      onClick={() => window.open(src, '_blank')}
+                                      className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-all"
+                                    />
+                                  )}
                                 </div>
                               );
                             })

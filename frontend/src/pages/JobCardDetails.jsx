@@ -42,6 +42,7 @@ const getStatusBadgeClass = (status) => {
 
 export default function JobCardDetails({ jcId, token, user, onBack, onCreateEstimate, onViewEstimate, onConvertInvoice }) {
   const [jc, setJc] = useState(null);
+  const [brokenImages, setBrokenImages] = useState({});
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [estimate, setEstimate] = useState(null);
@@ -1046,15 +1047,26 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               {jc.photos.map((photo, index) => {
                 if (!photo || !photo.url) return null;
                 const isAbsolute = photo.url.startsWith('http') || photo.url.startsWith('blob:') || photo.url.startsWith('data:');
-                const hostname = window.location.hostname;
-                const isCloud = hostname.includes('vercel.app') || hostname.includes('surge.sh') || hostname.includes('github.io') || hostname.includes('loca.lt') || hostname.includes('pinggy') || hostname.includes('lhr.life') || hostname.includes('ngrok');
-                // const base = '';
-                const src = isAbsolute ? photo.url : `${API_BASE_URL.replace('/api', '')}${photo.url}`;
+                
+                let relativePath = photo.url;
+                if (!isAbsolute) {
+                  if (!relativePath.startsWith('/uploads/') && !relativePath.startsWith('uploads/')) {
+                    relativePath = `/uploads/${relativePath}`;
+                  } else if (relativePath.startsWith('uploads/')) {
+                    relativePath = `/${relativePath}`;
+                  }
+                }
+                const src = isAbsolute ? photo.url : `${API_BASE_URL.replace('/api', '')}${relativePath}`;
+                const isBroken = brokenImages[photo.url];
                 
                 return (
                   <div key={index} className="relative group border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-950 shadow-sm transition-all hover:shadow-md">
                     <div className="aspect-video w-full overflow-hidden bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
-                      {(photo.url.toLowerCase().endsWith('.pdf') || photo.photoType === 'Document') ? (
+                      {isBroken ? (
+                        <div className="flex flex-col items-center justify-center p-4 text-center">
+                          <span className="text-[10px] font-bold text-red-500">Attachment is no longer available.</span>
+                        </div>
+                      ) : (photo.url.toLowerCase().endsWith('.pdf') || photo.photoType === 'Document') ? (
                         <div className="flex flex-col items-center justify-center p-4">
                           <FileText className="w-8 h-8 text-indigo-500" />
                           <span className="text-[10px] font-bold text-slate-500 mt-2">Document Copy</span>
@@ -1064,6 +1076,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                           src={src} 
                           alt={`Attachment ${index + 1}`} 
                           className="w-full h-full object-cover cursor-pointer transition-transform duration-300 group-hover:scale-105"
+                          onError={() => setBrokenImages(prev => ({ ...prev, [photo.url]: true }))}
                           onClick={() => window.open(src, '_blank')}
                         />
                       )}
@@ -1072,14 +1085,26 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-500">
                         {photo.photoType || 'Photo'}
                       </span>
-                      <a 
-                        href={src} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="text-[9px] font-bold text-indigo-650 hover:text-indigo-700 uppercase"
-                      >
-                        View Full
-                      </a>
+                      {isBroken ? (
+                        <span className="text-[9px] font-bold text-slate-400 cursor-not-allowed uppercase">
+                          Unavailable
+                        </span>
+                      ) : (
+                        <a 
+                          href={src} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="text-[9px] font-bold text-indigo-650 hover:text-indigo-700 uppercase"
+                          onClick={(e) => {
+                            if (isBroken) {
+                              e.preventDefault();
+                              alert('Attachment is no longer available.');
+                            }
+                          }}
+                        >
+                          View Full
+                        </a>
+                      )}
                     </div>
                   </div>
                 );

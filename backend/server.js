@@ -116,6 +116,12 @@ app.use((req, res, next) => {
 
 // Serve static uploaded photos with caching
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), { maxAge: '1d' }));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads'), { maxAge: '1d' }));
+
+// Friendly 404 error page if uploaded file is no longer available on disk
+app.get(['/uploads/*', '/api/uploads/*'], (req, res) => {
+  res.status(404).send('<html><head><title>Unavailable</title></head><body style="font-family:sans-serif; text-align:center; padding:50px; background:#f8fafc; color:#475569;"><div style="max-width:400px; margin:0 auto; background:white; padding:30px; border-radius:16px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;"><h1 style="color:#ef4444; margin-top:0;">Attachment Unavailable</h1><p style="font-size:14px; font-weight:600;">Attachment is no longer available.</p><p style="font-size:12px; color:#94a3b8;">The uploaded file was not found on the server.</p></div></body></html>');
+});
 
 // Database connection health check middleware to prevent 504 gateway timeouts when offline
 app.use('/api', (req, res, next) => {

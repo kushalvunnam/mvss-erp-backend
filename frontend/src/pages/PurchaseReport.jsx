@@ -43,7 +43,22 @@ export default function PurchaseReport({ token, user }) {
   const [purchaseHistory, setPurchaseHistory] = useState([]);
   const [reportsData, setReportsData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [brokenAttachments, setBrokenAttachments] = useState({});
   const [error, setError] = useState('');
+
+  const getAttachmentSrc = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) {
+      return url;
+    }
+    let path = url;
+    if (!path.startsWith('/uploads/') && !path.startsWith('uploads/')) {
+      path = `/uploads/${path}`;
+    } else if (path.startsWith('uploads/')) {
+      path = `/${path}`;
+    }
+    return `${API_BASE_URL.replace('/api', '')}${path}`;
+  };
 
   // Filtering & Search for History & Reports
   const [fromDate, setFromDate] = useState('');
@@ -2014,14 +2029,23 @@ export default function PurchaseReport({ token, user }) {
                             <td className="py-3 px-4 text-slate-800 dark:text-slate-300">
                               <div className="font-mono font-bold">{p.invoiceNo || 'N/A'}</div>
                               {p.attachmentUrl ? (
-                                <button
-                                  type="button"
-                                  onClick={() => window.open(p.attachmentUrl.startsWith('data:') ? p.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${p.attachmentUrl}`, '_blank')}
-                                  className="inline-flex items-center gap-1 mt-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/20 text-indigo-600 dark:text-indigo-400 rounded-lg text-[10px] font-black transition-all"
-                                  title={`View/Download Document: ${p.attachmentName || 'Attachment'}`}
-                                >
-                                  📎 View Invoice
-                                </button>
+                                brokenAttachments[p.attachmentUrl] ? (
+                                  <div className="text-[10px] text-red-500 font-semibold mt-1">
+                                    Attachment unavailable
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const src = getAttachmentSrc(p.attachmentUrl);
+                                      window.open(src, '_blank');
+                                    }}
+                                    className="inline-flex items-center gap-1 mt-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/20 text-indigo-650 dark:text-indigo-400 rounded-lg text-[10px] font-black transition-all"
+                                    title={`View/Download Document: ${p.attachmentName || 'Attachment'}`}
+                                  >
+                                    📎 View Invoice
+                                  </button>
+                                )
                               ) : (
                                 <div className="text-[10px] text-slate-400 italic font-semibold mt-1">
                                   No Invoice Attached
@@ -2571,21 +2595,37 @@ export default function PurchaseReport({ token, user }) {
                     <span className="font-bold text-slate-700 dark:text-slate-300 truncate max-w-xs flex-1">
                       📎 {selectedVoucher.attachmentName || 'purchase_document'}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => window.open(selectedVoucher.attachmentUrl.startsWith('data:') ? selectedVoucher.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${selectedVoucher.attachmentUrl}`, '_blank')}
-                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 dark:bg-indigo-955/40 dark:text-indigo-400 text-[10px] font-bold rounded-lg transition-all"
-                    >
-                      View / Download
-                    </button>
+                    {brokenAttachments[selectedVoucher.attachmentUrl] ? (
+                      <span className="text-[10px] font-bold text-red-500">
+                        Unavailable
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const src = getAttachmentSrc(selectedVoucher.attachmentUrl);
+                          window.open(src, '_blank');
+                        }}
+                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-650 dark:bg-indigo-955/40 dark:text-indigo-400 text-[10px] font-bold rounded-lg transition-all"
+                      >
+                        View / Download
+                      </button>
+                    )}
                   </div>
                   {!selectedVoucher.attachmentType?.includes('pdf') && (
-                    <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                      <img
-                        src={selectedVoucher.attachmentUrl.startsWith('data:') ? selectedVoucher.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${selectedVoucher.attachmentUrl}`}
-                        alt="Voucher document"
-                        className="h-full w-full object-contain"
-                      />
+                    <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+                      {brokenAttachments[selectedVoucher.attachmentUrl] ? (
+                        <span className="text-[10px] font-bold text-red-500">
+                          Attachment is no longer available.
+                        </span>
+                      ) : (
+                        <img
+                          src={getAttachmentSrc(selectedVoucher.attachmentUrl)}
+                          alt="Voucher document"
+                          onError={() => setBrokenAttachments(prev => ({ ...prev, [selectedVoucher.attachmentUrl]: true }))}
+                          className="h-full w-full object-contain"
+                        />
+                      )}
                     </div>
                   )}
                 </div>
