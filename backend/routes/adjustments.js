@@ -24,10 +24,14 @@ const generateAdjustmentNo = async () => {
 
 router.use(auth, restrictTo('Admin', 'Spares'));
 
-// List stock adjustments with search & type filter
+// List stock adjustments with search & type filter (with pagination)
 router.get('/', async (req, res) => {
   try {
     const { search, type, status } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
     let query = {};
 
     if (type) query.type = type;
@@ -43,11 +47,25 @@ router.get('/', async (req, res) => {
       ];
     }
 
+    const totalCount = await StockAdjustment.countDocuments(query);
+    const totalPages = Math.ceil(totalCount / limit);
+
     const adjustments = await StockAdjustment.find(query)
       .populate('partId')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
-    res.send(adjustments);
+    if (!req.query.page && !req.query.limit) {
+      res.send(adjustments);
+    } else {
+      res.send({
+        adjustments,
+        currentPage: page,
+        totalPages,
+        totalAdjustments: totalCount
+      });
+    }
   } catch (error) {
     res.status(500).send({ error: 'Failed to fetch stock adjustments.' });
   }

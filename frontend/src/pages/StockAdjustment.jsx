@@ -25,6 +25,10 @@ export default function StockAdjustment({ token, user }) {
   const { data: partsInventory } = useInventoryCache(token, 'parts');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [fetchError, setFetchError] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
 
@@ -39,9 +43,13 @@ export default function StockAdjustment({ token, user }) {
 
   const isWritable = user?.role === 'Admin' || user?.role === 'Accounts' || user?.role === 'Spares';
 
+  // Debounce search term to avoid hitting the API too frequently
   useEffect(() => {
-    fetchData();
-  }, [token, typeFilter]);
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (showModal) {
@@ -54,31 +62,58 @@ export default function StockAdjustment({ token, user }) {
     };
   }, [showModal]);
 
-  const fetchData = async () => {
+  const fetchData = async (pageToFetch = 1) => {
     setLoading(true);
+    setFetchError('');
     try {
-      let url = `${API_BASE_URL}/adjustments?`;
-      if (typeFilter) url += `type=${encodeURIComponent(typeFilter)}&`;
+      let url = `${API_BASE_URL}/adjustments?page=${pageToFetch}&limit=20`;
+      if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
+      if (debouncedSearchTerm) url += `&search=${encodeURIComponent(debouncedSearchTerm)}`;
 
-      const [adjRes, invRes] = await Promise.all([
-        fetch(url, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_BASE_URL}/inventory`, { headers: { Authorization: `Bearer ${token}` } })
-      ]);
-
-      if (adjRes.ok) {
-        const data = await adjRes.json();
-        setAdjustments(data);
-      }
-      if (invRes.ok) {
-        const data = await invRes.json();
-        setInventory(data);
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setAdjustments(data);
+          setTotalPages(1);
+          setCurrentPage(1);
+        } else {
+          setAdjustments(data.adjustments || []);
+          setTotalPages(data.totalPages || 1);
+          setCurrentPage(data.currentPage || 1);
+        }
+      } else {
+        setFetchError('Unable to load stock adjustments. Please try again.');
       }
     } catch (err) {
       console.error('Failed to fetch adjustments:', err);
+      setFetchError('Unable to load stock adjustments. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  const fetchInventory = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/inventory`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setInventory(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch inventory:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchData(1);
+  }, [token, typeFilter, debouncedSearchTerm]);
+
+  useEffect(() => {
+    if (showModal && inventory.length === 0) {
+      fetchInventory();
+    }
+  }, [showModal, inventory.length]);
 
   const handleOpenCreate = () => {
     setFormData({
@@ -139,17 +174,7 @@ export default function StockAdjustment({ token, user }) {
     }
   };
 
-  const filteredAdjustments = adjustments.filter(adj => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      adj.adjustmentNo?.toLowerCase().includes(term) ||
-      adj.partName?.toLowerCase().includes(term) ||
-      adj.partNumber?.toLowerCase().includes(term) ||
-      adj.reason?.toLowerCase().includes(term) ||
-      adj.createdBy?.toLowerCase().includes(term)
-    );
-  });
+  const filteredAdjustments = adjustments;
 
   return (
     <div className="space-y-6 animate-fade-in p-1">
@@ -205,10 +230,20 @@ export default function StockAdjustment({ token, user }) {
       {/* Adjustments Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-400 text-xs font-semibold">Loading stock adjustments...</div>
+          <div className="p-12 text-center text-slate-400 text-xs font-semibold animate-pulse">Loading stock adjustments...</div>
+        ) : fetchError ? (
+          <div className="p-12 text-center space-y-3">
+            <p className="text-sm font-bold text-rose-500">{fetchError}</p>
+            <button
+              onClick={() => fetchData(currentPage)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition-all"
+            >
+              Retry
+            </button>
+          </div>
         ) : filteredAdjustments.length === 0 ? (
           <div className="p-12 text-center space-y-2">
-            <p className="text-sm font-bold text-slate-600 dark:text-slate-300">No stock adjustments logged</p>
+            <p className="text-sm font-bold text-slate-600 dark:text-slate-300">No stock adjustments found.</p>
             <p className="text-xs text-slate-400">Click "New Stock Adjustment" to record an audit entry.</p>
           </div>
         ) : (
@@ -294,6 +329,41 @@ export default function StockAdjustment({ token, user }) {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {!loading && !fetchError && totalPages > 1 && (
+          <div className="flex items-center justify-between p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
+            <div className="text-xs text-slate-500 font-semibold">
+              Page {currentPage} of {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => {
+                  const nextPage = currentPage - 1;
+                  setCurrentPage(nextPage);
+                  fetchData(nextPage);
+                }}
+                className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={currentPage === totalPages}
+                onClick={() => {
+                  const nextPage = currentPage + 1;
+                  setCurrentPage(nextPage);
+                  fetchData(nextPage);
+                }}
+                className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>      {/* New Adjustment Modal */}

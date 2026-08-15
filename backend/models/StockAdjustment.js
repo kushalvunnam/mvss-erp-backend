@@ -19,15 +19,18 @@ const stockAdjustmentSchema = new mongoose.Schema({
   partNumber: {
     type: String,
     required: true,
+    index: true,
   },
   partName: {
     type: String,
     required: true,
+    index: true,
   },
   type: {
     type: String,
     enum: ['Stock Increase', 'Stock Decrease', 'Damaged Items', 'Missing Items', 'Returned Items', 'Manual Correction'],
     required: true,
+    index: true,
   },
   qty: {
     type: Number,
@@ -62,6 +65,7 @@ const stockAdjustmentSchema = new mongoose.Schema({
     type: String,
     enum: ['Pending', 'Approved', 'Rejected'],
     default: 'Approved',
+    index: true,
   },
   approvedBy: {
     type: String,
@@ -73,5 +77,7 @@ const stockAdjustmentSchema = new mongoose.Schema({
 }, {
   timestamps: true,
 });
+
+stockAdjustmentSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('StockAdjustment', stockAdjustmentSchema);
