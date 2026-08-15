@@ -1100,18 +1100,21 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
               Select Job Card
             </label>
-            <select
+            <SearchableDropdown
+              items={jobCards.map(jc => ({
+                ...jc,
+                vehicleNo: jc.vehicleId?.vehicleNumber || '',
+                customerName: jc.customerId?.name || '',
+                vehicleModel: jc.vehicleId ? `${jc.vehicleId.make} ${jc.vehicleId.model}` : '',
+                dateFormatted: new Date(jc.date || jc.createdAt).toLocaleDateString('en-IN'),
+              }))}
               value={selectedJcId}
-              onChange={(e) => handleJcChange(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
-            >
-              <option value="">-- Choose Job Card --</option>
-              {jobCards.map(jc => (
-                <option key={jc._id} value={jc._id}>
-                  {jc.jobCardNo} - {jc.vehicleId?.vehicleNumber} ({jc.customerId?.name})
-                </option>
-              ))}
-            </select>
+              onSelect={handleJcChange}
+              placeholder="Search job card no, vehicle plate, customer name..."
+              emptyOptionLabel="-- Choose Job Card --"
+              type="jobcards"
+              className="w-full"
+            />
           </div>
 
           {selectedCustomer?.type === 'Corporate' && (

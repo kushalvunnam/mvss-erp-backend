@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '../config';
 import InternationalPhoneInput from '../components/InternationalPhoneInput';
 import { Search, Plus, Calendar, Receipt, Download, FileText, CheckCircle2, XCircle, AlertCircle, Save, Edit2, Trash2, Eye, X, UserPlus } from 'lucide-react';
+import SearchableDropdown from '../components/SearchableDropdown';
 
 export default function Employees({ token, user }) {
   const [employees, setEmployees] = useState([]);
@@ -1747,14 +1748,15 @@ export default function Employees({ token, user }) {
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 bg-slate-50 dark:bg-slate-955 rounded-2xl border border-slate-150 dark:border-slate-800/30">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">Employee Filter</label>
-                  <select
+                  <SearchableDropdown
+                    items={attendanceEmployees}
                     value={selectedEmployeeFilter}
-                    onChange={(e) => setSelectedEmployeeFilter(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold focus:outline-none text-slate-800 dark:text-slate-100"
-                  >
-                    <option value="">All Employees</option>
-                    {attendanceEmployees.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}
-                  </select>
+                    onSelect={setSelectedEmployeeFilter}
+                    placeholder="Search employees..."
+                    emptyOptionLabel="All Employees"
+                    type="employees"
+                    className="w-full text-xs font-bold text-slate-800 dark:text-slate-100"
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider mb-1">Month</label>

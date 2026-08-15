@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../config';
 import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench } from 'lucide-react';
 import VehicleDamageCanvas from '../components/VehicleDamageCanvas';
 import SignaturePad from '../components/SignaturePad';
+import SearchableDropdown from '../components/SearchableDropdown';
 
 // Car silhouette components for 3D card
 const CarSilhouetteSUV = () => (
@@ -738,16 +739,15 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
 
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Customer</label>
-                <select
+                <SearchableDropdown
+                  items={customers}
                   value={selectedCustomerId}
-                  onChange={(e) => setSelectedCustomerId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-bold focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="">-- Choose Customer --</option>
-                  {customers.map(c => (
-                    <option key={c._id} value={c._id}>{c.name} ({c.mobile})</option>
-                  ))}
-                </select>
+                  onSelect={setSelectedCustomerId}
+                  placeholder="Search customer name, company, phone..."
+                  emptyOptionLabel="-- Choose Customer --"
+                  type="customers"
+                  className="w-full"
+                />
               </div>
 
               <div>

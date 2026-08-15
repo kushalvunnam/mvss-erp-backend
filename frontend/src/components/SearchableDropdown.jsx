@@ -9,6 +9,10 @@ const PART_SEARCH_FIELDS = ['partName', 'partNumber', 'partCode', 'oemBrand', 'h
 const LABOUR_SEARCH_FIELDS = ['partName', 'partNumber', 'partCode', 'category', 'hsnCode', 'model', 'alias', 'oemBrand', 'description'];
 const VENDOR_SEARCH_FIELDS = ['name', 'vendorCode', 'mobile', 'phone', 'city', 'supplierType'];
 const JOBCARD_SEARCH_FIELDS = ['jobCardNo', 'vehicleNo', 'customerName', 'vehicleModel', 'dateFormatted', 'status'];
+const CUSTOMER_SEARCH_FIELDS = ['name', 'mobile', 'email', 'gstNumber', 'companyName'];
+const VEHICLE_SEARCH_FIELDS = ['vehicleNumber', 'make', 'model', 'variant', 'chassisNumber'];
+const EMPLOYEE_SEARCH_FIELDS = ['name', 'email', 'phone', 'role', 'department', 'employeeId'];
+const INVOICE_SEARCH_FIELDS = ['invoiceNo', 'customerName', 'vehicleNo', 'invoiceType'];
 
 function buildMatcher(query, fields) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -36,6 +40,23 @@ function defaultRenderLabel(item, type = 'parts') {
   if (type === 'jobcards') {
     return `${item.jobCardNo} | Reg: ${item.vehicleNo} | Cust: ${item.customerName} | Vehicle: ${item.vehicleModel} | Date: ${item.dateFormatted} | Status: ${item.status}`;
   }
+  if (type === 'customers') {
+    const company = item.companyName ? `[${item.companyName}] ` : '';
+    const nameVal = item.name || '';
+    const mobileVal = item.mobile ? `- Phone: ${item.mobile}` : '';
+    return `${company}${nameVal} ${mobileVal}`.replace(/\s+/g, ' ').trim();
+  }
+  if (type === 'vehicles') {
+    const reg = item.vehicleNumber || '';
+    const modelInfo = `${item.make || ''} ${item.model || ''} ${item.variant || ''}`.trim();
+    return `${reg} (${modelInfo || 'Unknown Vehicle'})`.trim();
+  }
+  if (type === 'employees') {
+    return `${item.name || ''} (${item.role || ''} - Dept: ${item.department || 'General'})`.trim();
+  }
+  if (type === 'invoices') {
+    return `${item.invoiceNo} | ${item.invoiceType || ''} | Cust: ${item.customerName || ''} | Total: ₹${item.totals?.grandTotal?.toLocaleString() || '0'}`;
+  }
   const name = item.partName || item.name || '';
   const num = item.partNumber || '';
   const brand = item.brand ? `[${item.brand}]` : '';
@@ -55,7 +76,16 @@ export default function SearchableDropdown({
   className = '',
   type = 'parts',
 }) {
-  const fields = searchFields || (type === 'labour' ? LABOUR_SEARCH_FIELDS : type === 'vendors' ? VENDOR_SEARCH_FIELDS : type === 'jobcards' ? JOBCARD_SEARCH_FIELDS : PART_SEARCH_FIELDS);
+  const fields = searchFields || (
+    type === 'labour' ? LABOUR_SEARCH_FIELDS :
+    type === 'vendors' ? VENDOR_SEARCH_FIELDS :
+    type === 'jobcards' ? JOBCARD_SEARCH_FIELDS :
+    type === 'customers' ? CUSTOMER_SEARCH_FIELDS :
+    type === 'vehicles' ? VEHICLE_SEARCH_FIELDS :
+    type === 'employees' ? EMPLOYEE_SEARCH_FIELDS :
+    type === 'invoices' ? INVOICE_SEARCH_FIELDS :
+    PART_SEARCH_FIELDS
+  );
   const renderLabel = renderItemLabel || ((item) => defaultRenderLabel(item, type));
 
   const [open, setOpen] = useState(false);
@@ -296,7 +326,16 @@ export default function SearchableDropdown({
 
           {filtered.length === 0 ? (
             <div className="px-4 py-5 text-center text-xs text-slate-450 font-bold italic">
-              {type === 'labour' ? 'No services found.' : type === 'vendors' ? 'No vendors found.' : type === 'jobcards' ? 'No job cards found.' : 'No spare parts found.'}
+              {
+                type === 'labour' ? 'No services found.' :
+                type === 'vendors' ? 'No vendors found.' :
+                type === 'jobcards' ? 'No job cards found.' :
+                type === 'customers' ? 'No customers found.' :
+                type === 'vehicles' ? 'No vehicles found.' :
+                type === 'employees' ? 'No employees found.' :
+                type === 'invoices' ? 'No invoices found.' :
+                'No spare parts found.'
+              }
             </div>
           ) : (
             <div

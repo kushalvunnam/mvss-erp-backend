@@ -1245,30 +1245,26 @@ export default function PurchaseReport({ token, user }) {
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Supplier / Vendor <span className="text-rose-500">*</span>
                 </label>
-                <select
+                <SearchableDropdown
+                  items={vendorsList}
                   value={purchaseHeader.vendorId}
-                  onChange={(e) => {
+                  onSelect={(vId) => {
                     setInvoiceNoDuplicate(false);
-                    const selectedV = vendorsList.find(v => v._id === e.target.value);
+                    const selectedV = vendorsList.find(v => v._id === vId);
                     const isInter = selectedV && selectedV.gstNumber 
                       ? !selectedV.gstNumber.trim().startsWith('36') 
                       : false;
                     setPurchaseHeader({
                       ...purchaseHeader,
-                      vendorId: e.target.value,
+                      vendorId: vId,
                       billingType: isInter ? 'Inter-State' : 'Intra-State'
                     });
                   }}
-                  required
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">-- Select Vendor --</option>
-                  {vendorsList.map(v => (
-                    <option key={v._id} value={v._id}>
-                      {v.name} {v.companyName ? `(${v.companyName})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Search supplier name, code, contact..."
+                  emptyOptionLabel="-- Select Vendor --"
+                  type="vendors"
+                  className="w-full"
+                />
               </div>
 
               {/* Invoice Number */}
@@ -2227,16 +2223,15 @@ export default function PurchaseReport({ token, user }) {
               {/* Supplier / Vendor */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 mb-1">Supplier</label>
-                <select
+                <SearchableDropdown
+                  items={vendorsList}
                   value={vendorId}
-                  onChange={(e) => setVendorId(e.target.value)}
-                  className="w-full text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2 font-semibold text-slate-800 dark:text-white"
-                >
-                  <option value="">All Suppliers</option>
-                  {vendorsList.map(v => (
-                    <option key={v._id} value={v._id}>{v.name}</option>
-                  ))}
-                </select>
+                  onSelect={setVendorId}
+                  placeholder="Search supplier..."
+                  emptyOptionLabel="All Suppliers"
+                  type="vendors"
+                  className="w-full"
+                />
               </div>
 
               {/* Part Name / Number */}

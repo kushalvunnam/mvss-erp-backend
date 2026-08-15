@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '../config';
 import { Search, ShieldAlert, FileText, Upload, Calendar, CheckCircle2, User, Car, X } from 'lucide-react';
+import SearchableDropdown from '../components/SearchableDropdown';
 
 export default function Claims({ token, user }) {
   const [claims, setClaims] = useState([]);
@@ -611,17 +612,15 @@ export default function Claims({ token, user }) {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wide">Customer Owner</label>
-                <select
+                <SearchableDropdown
+                  items={customers}
                   value={addForm.customerId}
-                  required
-                  onChange={(e) => setAddForm({ ...addForm, customerId: e.target.value, vehicleId: '', invoiceId: '', jobCardId: '' })}
-                  className="mt-1 block w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-205 rounded-xl"
-                >
-                  <option value="">-- Choose Owner --</option>
-                  {customers.map(c => (
-                    <option key={c._id} value={c._id}>{c.name} ({c.mobile})</option>
-                  ))}
-                </select>
+                  onSelect={(cId) => setAddForm({ ...addForm, customerId: cId, vehicleId: '', invoiceId: '', jobCardId: '' })}
+                  placeholder="Search customer name, company, phone..."
+                  emptyOptionLabel="-- Choose Owner --"
+                  type="customers"
+                  className="mt-1 block w-full"
+                />
               </div>
 
               <div className="grid grid-cols-3 gap-4">

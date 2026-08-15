@@ -1215,17 +1215,15 @@ export default function Backlogs({ token, user }) {
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-350 mb-1.5">
                     Select Part Master (Auto-fills Part Details)
                   </label>
-                  <select
-                    onChange={(e) => handlePartSelectChange(e.target.value)}
-                    className="w-full text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-2 font-semibold text-slate-850 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="">-- Type Custom / New Part --</option>
-                    {inventoryList.map(p => (
-                      <option key={p._id} value={p._id}>
-                        {p.partName} ({p.partNumber})
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableDropdown
+                    items={inventoryList}
+                    value=""
+                    onSelect={handlePartSelectChange}
+                    placeholder="Search part name, number, OEM, HSN..."
+                    emptyOptionLabel="-- Type Custom / New Part --"
+                    type="parts"
+                    className="w-full"
+                  />
                 </div>
 
                 {estimateParts.length > 0 && (

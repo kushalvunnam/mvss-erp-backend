@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '../config';
 import { Search, Plus, Edit2, Calendar, FileText, ClipboardList, Trash2, X } from 'lucide-react';
-
 import { getCachedData, setCachedData } from '../utils/apiCache';
+import SearchableDropdown from '../components/SearchableDropdown';
 
 export default function Vehicles({ token, user }) {
   const [vehicles, setVehicles] = useState(() => getCachedData(`${API_BASE_URL}/vehicles?search=`) || []);
@@ -478,16 +478,16 @@ export default function Vehicles({ token, user }) {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wide">Owner / Customer</label>
-                  <select
+                  <SearchableDropdown
+                    items={customers}
                     value={formData.customerId}
-                    onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
+                    onSelect={(cId) => setFormData({ ...formData, customerId: cId })}
                     disabled={modalMode === 'edit'}
-                    className="mt-1 block w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-55"
-                  >
-                    {customers.map(c => (
-                      <option key={c._id} value={c._id}>{c.name} ({c.mobile})</option>
-                    ))}
-                  </select>
+                    placeholder="Search owner name, company, phone..."
+                    emptyOptionLabel="-- Choose Owner --"
+                    type="customers"
+                    className="mt-1 block w-full"
+                  />
                 </div>
               </div>
 
