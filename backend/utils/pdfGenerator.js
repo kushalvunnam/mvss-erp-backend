@@ -800,7 +800,7 @@ function drawInvoiceFooter(doc, y, isInvoice = false, invoice = null) {
          .text(`Prepared By: ${invoice.preparedBy || 'Staff Incharge'}`, 50, y + 45);
     }
   } else {
-    doc.text('Terms & Conditions:', 35, y + 10);
+    doc.font('Helvetica-Bold').text('TERMS AND CONDITIONS:', 35, y + 10);
     doc.font('Helvetica').fontSize(6.5).fillColor('#64748b')
        .text('1. All estimates are valid for 15 days only.', 35, y + 22)
        .text('2. Subject to changes in spare parts price at the time of delivery.', 35, y + 32)
@@ -929,6 +929,8 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
 
     // Parts Subtotal Row
     y = checkPageOverflow(doc, y, gstMode);
+    doc.strokeColor('#000000').lineWidth(1)
+       .moveTo(30, y).lineTo(565, y).stroke();
     drawPartsTotalRow(doc, y, partsTaxableSum, partsCgstSum, partsSgstSum, partsTotalSum, gstMode, partsIgstSum);
     y += 16;
   }
@@ -1003,6 +1005,8 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
 
     // Labour Subtotal Row
     y = checkPageOverflow(doc, y, gstMode);
+    doc.strokeColor('#000000').lineWidth(1)
+       .moveTo(30, y).lineTo(565, y).stroke();
     drawLabourTotalRow(doc, y, labourTaxableSum, labourCgstSum, labourSgstSum, labourTotalSum, gstMode, labourIgstSum);
     y += 16;
   }
