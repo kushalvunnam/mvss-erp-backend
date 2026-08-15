@@ -1367,63 +1367,7 @@ export default function PurchaseReport({ token, user }) {
                 />
               </div>
 
-              {/* Upload Invoice / Bill */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-355 mb-1.5">
-                  Upload Invoice / Bill
-                </label>
-                <div className="flex flex-col gap-1.5">
-                  {!attachment ? (
-                    <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-650 dark:text-slate-300 cursor-pointer transition-all hover:border-indigo-500 justify-center">
-                      <span>📎 Upload Invoice / Bill</span>
-                      <input
-                        type="file"
-                        accept=".jpg,.jpeg,.png,.webp,.pdf"
-                        onChange={handleFileChange}
-                        className="hidden"
-                      />
-                    </label>
-                  ) : (
-                    <div className="flex flex-col gap-1.5 p-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                      <div className="flex items-center justify-between gap-1.5 min-w-0">
-                        <span className="text-xs text-slate-850 dark:text-slate-200 truncate font-bold flex-1 pr-1" title={attachment.name}>
-                          📎 {attachment.name}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {attachment.status === 'uploaded' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (attachment.url) {
-                                  window.open(attachment.url.startsWith('data:') ? attachment.url : `${API_BASE_URL.replace('/api', '')}${attachment.url}`, '_blank');
-                                }
-                              }}
-                              className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500"
-                              title="Preview"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={handleRemoveAttachment}
-                            className="p-1 hover:bg-rose-100 dark:hover:bg-rose-955 text-rose-500 rounded"
-                            title="Remove"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wide">
-                        {attachment.status === 'uploading' ? 'Uploading...' : attachment.status === 'error' ? 'Failed' : 'Ready'}
-                      </span>
-                    </div>
-                  )}
-                  <span className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                    Upload the supplier invoice, bill, tax invoice, or other purchase document.
-                  </span>
-                </div>
-              </div>
+
             </div>
 
             <div className="flex flex-wrap items-center gap-6 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -1942,6 +1886,41 @@ export default function PurchaseReport({ token, user }) {
                   Cancel
                 </button>
 
+                {/* 📎 Attach Invoice/Bill Option Beside Save Button */}
+                <div className="flex items-center">
+                  {!attachment ? (
+                    <label className="w-full sm:w-auto px-5 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 text-slate-700 dark:text-slate-200">
+                      <span>📎 Attach Invoice/Bill</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.pdf"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </label>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-850 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-750">
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Invoice/Bill:</span>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate max-w-[140px] flex items-center gap-1" title={attachment.name}>
+                          📎 {attachment.name}
+                        </span>
+                      </div>
+                      {attachment.status === 'uploading' ? (
+                        <span className="text-[10px] text-slate-400 font-extrabold uppercase animate-pulse shrink-0">Uploading...</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleRemoveAttachment}
+                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-955/20 dark:text-rose-400 dark:hover:bg-rose-955/40 rounded-lg text-[10px] font-bold transition-all shrink-0"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="submit"
                   disabled={purchaseSubmitting || invoiceNoDuplicate}
@@ -2036,22 +2015,22 @@ export default function PurchaseReport({ token, user }) {
                               {p.vendorName || 'General Vendor'}
                             </td>
 
-                            <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300">
-                              <div className="flex items-center gap-1.5">
-                                <span>{p.invoiceNo || 'N/A'}</span>
-                                {p.attachmentUrl ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => window.open(p.attachmentUrl.startsWith('data:') ? p.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${p.attachmentUrl}`, '_blank')}
-                                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-indigo-600 dark:text-indigo-400 font-bold"
-                                    title={`View/Download Document: ${p.attachmentName || 'Attachment'}`}
-                                  >
-                                    📎
-                                  </button>
-                                ) : (
-                                  <span className="text-[9px] text-slate-400 italic font-semibold" title="No document">No document</span>
-                                )}
-                              </div>
+                            <td className="py-3 px-4 text-slate-800 dark:text-slate-300">
+                              <div className="font-mono font-bold">{p.invoiceNo || 'N/A'}</div>
+                              {p.attachmentUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => window.open(p.attachmentUrl.startsWith('data:') ? p.attachmentUrl : `${API_BASE_URL.replace('/api', '')}${p.attachmentUrl}`, '_blank')}
+                                  className="inline-flex items-center gap-1 mt-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/20 text-indigo-600 dark:text-indigo-400 rounded-lg text-[10px] font-black transition-all"
+                                  title={`View/Download Document: ${p.attachmentName || 'Attachment'}`}
+                                >
+                                  📎 View Invoice
+                                </button>
+                              ) : (
+                                <div className="text-[10px] text-slate-400 italic font-semibold mt-1">
+                                  No Invoice Attached
+                                </div>
+                              )}
                             </td>
 
                             <td className="py-3 px-4">
