@@ -47,6 +47,11 @@ const customerSchema = new mongoose.Schema({
     type: String,
     enum: ['Individual', 'Corporate', 'Insurance'],
     default: 'Individual',
+  },
+  companyName: {
+    type: String,
+    trim: true,
+    default: '',
   }
 }, {
   timestamps: true,

@@ -226,6 +226,11 @@ const invoiceSchema = new mongoose.Schema({
     enum: ['Proforma invoice', 'Tax Invoice', 'Retail invoice'],
     default: 'Tax Invoice',
   },
+  billingNameOption: {
+    type: String,
+    enum: ['CompanyName', 'ContactPerson'],
+    default: 'CompanyName',
+  },
   paymentStatus: {
     type: String,
     enum: ['Unpaid', 'Partially Paid', 'Paid'],

@@ -116,7 +116,8 @@ export default function Customers({ token, user }) {
       address: '',
       gstNumber: '',
       aadhaarPan: '',
-      type: 'Individual'
+      type: 'Individual',
+      companyName: ''
     });
     setModalMode('add');
     setShowModal(true);
@@ -132,7 +133,8 @@ export default function Customers({ token, user }) {
       address: c.address || '',
       gstNumber: c.gstNumber || '',
       aadhaarPan: c.aadhaarPan || '',
-      type: c.type || 'Individual'
+      type: c.type || 'Individual',
+      companyName: c.companyName || ''
     });
     setSelectedCustomer(c);
     setModalMode('edit');
@@ -303,7 +305,16 @@ export default function Customers({ token, user }) {
                         selectedCustomer?._id === c._id ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
                       }`}
                     >
-                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.name}</td>
+                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">
+                        {c.type === 'Corporate' && c.companyName ? (
+                          <div>
+                            <div>{c.companyName}</div>
+                            <div className="text-[10px] text-slate-400 font-semibold mt-0.5">Contact: {c.name}</div>
+                          </div>
+                        ) : (
+                          c.name
+                        )}
+                      </td>
                       <td className="p-4 font-medium text-slate-550 dark:text-slate-400">{c.mobile}</td>
                       <td className="p-4">
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
@@ -356,7 +367,16 @@ export default function Customers({ token, user }) {
           <div className="space-y-6">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">{selectedCustomer.type}</span>
-              <h3 className="text-lg font-black text-slate-800 dark:text-white mt-1">{selectedCustomer.name}</h3>
+              <h3 className="text-lg font-black text-slate-800 dark:text-white mt-1">
+                {selectedCustomer.type === 'Corporate' && selectedCustomer.companyName ? (
+                  <div>
+                    <div>{selectedCustomer.companyName}</div>
+                    <div className="text-xs text-slate-400 font-semibold mt-0.5">Contact: {selectedCustomer.name}</div>
+                  </div>
+                ) : (
+                  selectedCustomer.name
+                )}
+              </h3>
               <div className="space-y-0.5 mt-1">
                 <p className="text-xs text-slate-450 dark:text-slate-400 font-medium">Mobile: {selectedCustomer.mobile}</p>
                 {selectedCustomer.alternateNumber && (
@@ -475,14 +495,30 @@ export default function Customers({ token, user }) {
 
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {formData.type === 'Corporate' && (
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wide">Company Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.companyName || ''}
+                    onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                    placeholder="ABC Automobiles Private Limited"
+                    className="mt-1 block w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wide">Full Name</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wide">
+                  {formData.type === 'Corporate' ? 'Contact Person *' : 'Full Name *'}
+                </label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Rahul Sharma"
+                  placeholder={formData.type === 'Corporate' ? 'Ravi Kumar' : 'Rahul Sharma'}
                   className="mt-1 block w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500"
                 />
               </div>

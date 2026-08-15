@@ -1,7 +1,7 @@
 // Initial mock database state for offline demo testing
 export const initialCustomers = [
   { _id: 'cust_1', name: 'Rahul Sharma', mobile: '9949479765', email: 'rahul@example.com', address: 'Plot 45, Jubilee Hills, Hyderabad', gstNumber: '36AABCM1234F1Z0', type: 'Individual' },
-  { _id: 'cust_2', name: 'Mehta Logistics', mobile: '9848022338', email: 'billing@mehtalogistics.com', address: 'Survey 12, Medchal, Hyderabad', gstNumber: '27AAACM5555F1Z2', type: 'Corporate' },
+  { _id: 'cust_2', companyName: 'Mehta Logistics', name: 'Ravi Kumar', mobile: '9848022338', email: 'billing@mehtalogistics.com', address: 'Survey 12, Medchal, Hyderabad', gstNumber: '27AAACM5555F1Z2', type: 'Corporate' },
   { _id: 'cust_3', name: 'National Insurance Agency', mobile: '9900112233', email: 'claims@nationalins.com', address: 'Koti, Hyderabad', gstNumber: '36AAACN9999A1Z9', type: 'Insurance' }
 ];
 

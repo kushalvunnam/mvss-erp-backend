@@ -255,7 +255,7 @@ router.get('/:id', auth, async (req, res) => {
 // Create Invoice (can link to estimate)
 router.post('/', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
-    const { jobCardId, estimateId, parts, labour, gstDetails, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
+    const { jobCardId, estimateId, parts, labour, gstDetails, insuranceClaimDetails, invoiceType, billingNameOption, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     
     // Find customer & vehicle
     const jobCard = await JobCard.findById(jobCardId);
@@ -313,6 +313,7 @@ router.post('/', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), as
         customerPayableAmount: Math.max(0, calculations.totals.roundedGrandTotal - (Number(insuranceClaimDetails?.approvedAmount) || 0))
       },
       invoiceType: invoiceType || 'Tax Invoice',
+      billingNameOption: billingNameOption || 'CompanyName',
       status: 'Draft'
     };
 
@@ -358,7 +359,7 @@ router.post('/', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), as
 // Update / Finalize Invoice (Triggers Inventory stock deduction)
 router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
-    const { parts, labour, status, paymentStatus, paymentMethod, amountPaid, insuranceClaimDetails, invoiceType, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
+    const { parts, labour, status, paymentStatus, paymentMethod, amountPaid, insuranceClaimDetails, invoiceType, billingNameOption, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
 
@@ -433,6 +434,10 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
 
     if (invoiceType) {
       invoice.invoiceType = invoiceType;
+    }
+
+    if (billingNameOption !== undefined) {
+      invoice.billingNameOption = billingNameOption;
     }
 
     if (poNumber !== undefined) {

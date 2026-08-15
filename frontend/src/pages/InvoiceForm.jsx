@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
 import { Save, ShoppingBag, ShieldCheck, Scale, Receipt, Plus, Trash2, Activity, ShoppingCart } from 'lucide-react';
 import { calculatePricing } from '../utils/pricingEngine';
+import { useInventoryCache } from '../hooks/useInventoryCache';
 
 const STANDARD_SERVICES = [
   { description: 'General Servicing', rate: 1500, gstPercent: 18 },
@@ -43,6 +44,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
   const { data: labourInventory } = useInventoryCache(token, 'labour');
   const [gstDetails, setGstDetails] = useState({ customerGSTIN: '', isInterstate: false });
   const [invoiceType, setInvoiceType] = useState('Tax Invoice');
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [billingNameOption, setBillingNameOption] = useState('CompanyName');
   const [poNumber, setPoNumber] = useState('');
   const [roNumber, setRoNumber] = useState('');
   const [preparedBy, setPreparedBy] = useState('');
@@ -322,6 +325,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
             const jc = est.jobCardId || {};
             const cust = jc.customerId || {};
             const veh = jc.vehicleId || {};
+            setSelectedCustomer(cust && cust._id ? cust : null);
+            setBillingNameOption('CompanyName');
 
             setGstDetails({
               customerGSTIN: cust.gstNumber || '',
@@ -348,6 +353,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
             setSelectedJcId(inv.jobCardId?._id || inv.jobCardId || '');
             setSelectedEstimateId(inv.estimateId?._id || inv.estimateId || '');
             setInvoiceType(inv.invoiceType || 'Tax Invoice');
+            setSelectedCustomer(inv.customerId || null);
+            setBillingNameOption(inv.billingNameOption || 'CompanyName');
             setPoNumber(inv.poNumber || '');
             setRoNumber(inv.roNumber || '');
             setPreparedBy(inv.preparedBy || '');
@@ -622,6 +629,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     if (!jcId) {
       setPartsList([]);
       setLabourList([{ description: '', rate: '', gstPercent: '' }]);
+      setSelectedCustomer(null);
+      setBillingNameOption('CompanyName');
       setGstDetails({ customerGSTIN: '', isInterstate: false });
       setInsuranceDetails({
         claimNo: '',
@@ -641,6 +650,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
         const jc = await jcRes.json();
         const cust = jc.customerId || {};
         const veh = jc.vehicleId || {};
+        setSelectedCustomer(cust && cust._id ? cust : null);
+        setBillingNameOption('CompanyName');
 
         setGstDetails({
           customerGSTIN: cust.gstNumber || '',
@@ -1007,6 +1018,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
         approvedAmount: Number(insuranceDetails.approvedAmount) || 0
       },
       invoiceType,
+      billingNameOption,
       poNumber,
       roNumber,
       preparedBy,
@@ -1100,6 +1112,26 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               ))}
             </select>
           </div>
+
+          {selectedCustomer?.type === 'Corporate' && (
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+                Invoice To Name Option
+              </label>
+              <select
+                value={billingNameOption}
+                onChange={(e) => setBillingNameOption(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              >
+                <option value="CompanyName">
+                  Company: {selectedCustomer.companyName || selectedCustomer.name}
+                </option>
+                <option value="ContactPerson">
+                  Contact Person: {selectedCustomer.name}
+                </option>
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">

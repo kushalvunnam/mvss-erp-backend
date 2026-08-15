@@ -435,7 +435,7 @@ router.get('/:id/check-in-use', async (req, res) => {
 // Edit Purchase Entry
 router.put('/:id', async (req, res) => {
   try {
-    const editAuthorized = ['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager'].includes(req.user?.role);
+    const editAuthorized = ['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Spares', 'Accounts', 'Purchase Executive', 'Accounts Executive'].includes(req.user?.role);
     if (!editAuthorized) {
       return res.status(403).send({ error: 'You are not authorized to edit purchases.' });
     }

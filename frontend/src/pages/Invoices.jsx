@@ -136,7 +136,7 @@ export default function Invoices({ token, user, setActiveTab }) {
 
     if (shareModal.type === 'whatsapp') {
       console.log('[Invoice Action: WhatsApp Share Redirect]', inv);
-      const text = `Dear ${inv.customerId?.name || 'Customer'},\nYour vehicle ${inv.vehicleId?.vehicleNumber || 'TS09'} is ready! Invoice ${inv.invoiceNo} of amount ₹${inv.totals?.grandTotal?.toLocaleString()} generated. Download: ${API_BASE_URL}/invoices/${inv._id}/pdf\nThanks, MVSS Automobiles.`;
+      const text = `Dear ${inv.customerId?.type === 'Corporate' && inv.billingNameOption !== 'ContactPerson' && inv.customerId?.companyName ? inv.customerId.companyName : (inv.customerId?.name || 'Customer')},\nYour vehicle ${inv.vehicleId?.vehicleNumber || 'TS09'} is ready! Invoice ${inv.invoiceNo} of amount ₹${inv.totals?.grandTotal?.toLocaleString()} generated. Download: ${API_BASE_URL}/invoices/${inv._id}/pdf\nThanks, MVSS Automobiles.`;
       
       const phoneClean = sharePhone.replace(/[^0-9]/g, '');
       const formattedPhone = phoneClean.length === 10 ? `91${phoneClean}` : phoneClean;
@@ -715,7 +715,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                 <td>
                   <div class="section-title">Customer & Vehicle Details</div>
                   <table style="width:100%; border:none;">
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">Customer Name:</td><td style="border:none; padding:2px;">${inv.customerId?.name || 'N/A'}</td></tr>
+                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">Customer Name:</td><td style="border:none; padding:2px;">${inv.customerId?.type === 'Corporate' && inv.billingNameOption !== 'ContactPerson' && inv.customerId?.companyName ? inv.customerId.companyName : (inv.customerId?.name || 'N/A')}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Address:</td><td style="border:none; padding:2px;">${inv.customerId?.address || 'N/A'}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Mobile:</td><td style="border:none; padding:2px;">${inv.customerId?.mobile || 'N/A'}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Vehicle Reg No:</td><td style="border:none; padding:2px; font-family: monospace; font-weight:bold; font-size:11px;">${inv.vehicleId?.vehicleNumber || 'N/A'}</td></tr>
@@ -990,7 +990,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                             {inv.vehicleId?.vehicleNumber || 'N/A'}
                           </td>
                           <td className="p-4 font-medium text-slate-550 dark:text-slate-400">
-                            {inv.customerId?.name || 'Unknown'}
+                            {inv.customerId?.type === 'Corporate' && inv.billingNameOption !== 'ContactPerson' && inv.customerId?.companyName ? inv.customerId.companyName : (inv.customerId?.name || 'Unknown')}
                           </td>
                           <td className="p-4">
                             <span className="block font-extrabold text-slate-800 dark:text-slate-200">₹{inv.totals?.grandTotal?.toLocaleString('en-IN') || 0}</span>
@@ -1086,7 +1086,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                 <div className="space-y-3.5 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-bold">Customer Name:</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-black">{selectedInvoice.customerId?.name || 'Unknown'}</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-black">{selectedInvoice.customerId?.type === 'Corporate' && selectedInvoice.billingNameOption !== 'ContactPerson' && selectedInvoice.customerId?.companyName ? selectedInvoice.customerId.companyName : (selectedInvoice.customerId?.name || 'Unknown')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-bold">Registration Number:</span>
@@ -1291,7 +1291,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                     readOnly
                     value={
                       shareModal.type === 'whatsapp' 
-                        ? `Dear ${shareModal.invoice?.customerId?.name || 'Customer'},\nYour vehicle ${shareModal.invoice?.vehicleId?.vehicleNumber || 'TS09'} is ready! Invoice ${shareModal.invoice?.invoiceNo} of amount ₹${shareModal.invoice?.totals?.grandTotal?.toLocaleString()} generated. Download: ${API_BASE_URL}/invoices/${shareModal.invoice?._id}/pdf\nThanks, MVSS Automobiles.`
+                        ? `Dear ${shareModal.invoice?.customerId?.type === 'Corporate' && shareModal.invoice?.billingNameOption !== 'ContactPerson' && shareModal.invoice?.customerId?.companyName ? shareModal.invoice.customerId.companyName : (shareModal.invoice?.customerId?.name || 'Customer')},\nYour vehicle ${shareModal.invoice?.vehicleId?.vehicleNumber || 'TS09'} is ready! Invoice ${shareModal.invoice?.invoiceNo} of amount ₹${shareModal.invoice?.totals?.grandTotal?.toLocaleString()} generated. Download: ${API_BASE_URL}/invoices/${shareModal.invoice?._id}/pdf\nThanks, MVSS Automobiles.`
                         : `Subject: Tax Invoice - MVSS Automobiles\n\nDear Customer,\nPlease find attached your tax invoice details for repairs on vehicle ${shareModal.invoice?.vehicleId?.vehicleNumber || 'TS09'}.\nInvoice No: ${shareModal.invoice?.invoiceNo}\nNet Total: ₹${shareModal.invoice?.totals?.grandTotal?.toLocaleString()}\nDownload copy: ${API_BASE_URL}/invoices/${shareModal.invoice?._id}/pdf`
                     }
                     className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-[10px] font-medium text-slate-500 resize-none focus:outline-none"

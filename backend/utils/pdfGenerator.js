@@ -403,7 +403,15 @@ function drawMetadataGrid(doc, y, customer, vehicle, docNo, docDate, isInvoice, 
   // Left Column Customer Details
   let leftY = y + 5;
   doc.font('Helvetica-Bold').text('Name:', 35, leftY);
-  doc.font('Helvetica').text(customer.name || 'N/A', 95, leftY, { width: 195 });
+  let nameToDisplay = customer.name || 'N/A';
+  if (customer.type === 'Corporate') {
+    if (invoice && invoice.billingNameOption === 'ContactPerson') {
+      nameToDisplay = customer.name || 'N/A';
+    } else if (customer.companyName) {
+      nameToDisplay = customer.companyName;
+    }
+  }
+  doc.font('Helvetica').text(nameToDisplay, 95, leftY, { width: 195 });
   leftY += 12;
   
   doc.font('Helvetica-Bold').text('Address:', 35, leftY);
