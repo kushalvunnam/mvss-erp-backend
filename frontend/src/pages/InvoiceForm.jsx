@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../config';
 import { Save, ShoppingBag, ShieldCheck, Scale, Receipt, Plus, Trash2, Activity, ShoppingCart } from 'lucide-react';
 import { calculatePricing } from '../utils/pricingEngine';
 import { useInventoryCache } from '../hooks/useInventoryCache';
+import SearchableDropdown from '../components/SearchableDropdown';
 
 const STANDARD_SERVICES = [
   { description: 'General Servicing', rate: 1500, gstPercent: 18 },
