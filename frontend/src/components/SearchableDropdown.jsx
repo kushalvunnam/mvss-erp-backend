@@ -341,7 +341,7 @@ export default function SearchableDropdown({
             <div
               ref={listRef}
               onScroll={handleScroll}
-              className="overflow-y-auto"
+              className="overflow-auto scrollbar-thin"
               style={{ maxHeight: `calc(${coords.maxHeight} - 60px)` }}
             >
               {shouldVirtualize && (
@@ -354,7 +354,7 @@ export default function SearchableDropdown({
                           key={item._id}
                           onMouseDown={(e) => { e.preventDefault(); handleSelect(item); }}
                           onMouseEnter={() => setHighlightedIdx(realIdx)}
-                          className={`px-4 flex items-center text-xs font-semibold cursor-pointer truncate ${
+                          className={`px-4 flex items-center text-xs font-semibold cursor-pointer whitespace-nowrap w-fit min-w-full ${
                             realIdx === highlightedIdx
                               ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
                               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
@@ -373,7 +373,7 @@ export default function SearchableDropdown({
                   key={item._id}
                   onMouseDown={(e) => { e.preventDefault(); handleSelect(item); }}
                   onMouseEnter={() => setHighlightedIdx(idx)}
-                  className={`px-4 flex items-center text-xs font-semibold cursor-pointer truncate ${
+                  className={`px-4 flex items-center text-xs font-semibold cursor-pointer whitespace-nowrap w-fit min-w-full ${
                     idx === highlightedIdx
                       ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
