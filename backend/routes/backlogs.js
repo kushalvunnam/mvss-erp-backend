@@ -154,6 +154,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
     const { 
       vehicleNo, 
       customerName, 
+      customerMobile,
       jobCardNo, 
       vehicleModel, 
       vendorName, 
@@ -175,6 +176,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
     let serviceAdvisorId = req.user.role === 'Service' ? req.user.id : undefined;
     let serviceAdvisorName = req.user.role === 'Service' ? req.user.name : '';
     let finalCustomerName = customerName || '';
+    let finalCustomerMobile = customerMobile || '';
 
     if (jobCardNo) {
       try {
@@ -184,11 +186,12 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
           serviceAdvisorId = jc.serviceAdvisorId;
           serviceAdvisorName = jc.serviceAdvisorName;
           
-          if (!finalCustomerName && jc.customerId) {
+          if ((!finalCustomerName || !finalCustomerMobile) && jc.customerId) {
             const Customer = mongoose.model('Customer');
             const cust = await Customer.findById(jc.customerId);
             if (cust) {
-              finalCustomerName = cust.name;
+              if (!finalCustomerName) finalCustomerName = cust.name;
+              if (!finalCustomerMobile) finalCustomerMobile = cust.mobile || cust.phone || '';
             }
           }
         }
@@ -214,6 +217,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
           backlogId,
           vehicleNo,
           customerName: finalCustomerName,
+          customerMobile: finalCustomerMobile,
           jobCardNo,
           vehicleModel,
           partNumber: item.partNumber,
@@ -247,6 +251,7 @@ router.post('/', restrictTo('Admin', 'Accounts', 'Service', 'Body Shop', 'Spares
         backlogId: baseBacklogId,
         vehicleNo,
         customerName: finalCustomerName,
+        customerMobile: finalCustomerMobile,
         jobCardNo,
         vehicleModel,
         partNumber,
@@ -288,7 +293,7 @@ router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Servi
 
     if (isPostReceived) {
       const restrictedFields = [
-        'vehicleNo', 'customerName', 'jobCardNo', 'vehicleModel',
+        'vehicleNo', 'customerName', 'customerMobile', 'jobCardNo', 'vehicleModel',
         'partNumber', 'partName', 'brand', 'qty', 'vendorName',
         'vendorContact', 'poNumber', 'orderedDate'
       ];
@@ -301,7 +306,7 @@ router.put('/:id', restrictTo('Admin', 'Accounts', 'Body Shop', 'Spares', 'Servi
     }
 
     const updatableFields = [
-      'vehicleNo', 'customerName', 'jobCardNo', 'vehicleModel',
+      'vehicleNo', 'customerName', 'customerMobile', 'jobCardNo', 'vehicleModel',
       'partNumber', 'partName', 'brand', 'qty', 'vendorName',
       'vendorContact', 'poNumber', 'orderedDate', 'expectedDeliveryDate',
       'priority', 'remarks', 'status'

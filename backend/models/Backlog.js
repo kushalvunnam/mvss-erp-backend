@@ -17,6 +17,11 @@ const backlogSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  customerMobile: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   jobCardNo: {
     type: String,
     trim: true,
