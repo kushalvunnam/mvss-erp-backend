@@ -185,3 +185,65 @@ input:focus, select:focus, textarea:focus {
 .dark .international-phone-wrapper .PhoneInputCountrySelect {
   color: #f8fafc !important;
 }
+
+/* Global Print Styles to make printed tables/cards extremely clear and readable */
+@media print {
+  /* Hide typical non-printable layout elements */
+  nav, 
+  sidebar, 
+  header, 
+  button, 
+  .no-print, 
+  .print\:hidden,
+  .action-buttons, 
+  .toast, 
+  .filter-section, 
+  .tab-selector,
+  .sidebar,
+  .navbar,
+  .modal-close-btn,
+  .no-print-element {
+    display: none !important;
+  }
+
+  /* Reset layout for physical paper width and spacing */
+  body, html, #root {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    font-size: 11pt !important;
+  }
+
+  /* Force standard print colors and table structure layout */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin-bottom: 18px !important;
+    border: 1px solid #777777 !important;
+  }
+
+  th, td {
+    border: 1px solid #777777 !important;
+    padding: 6px 8px !important;
+    color: #000000 !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-weight: bold !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid !important;
+    color: #000000 !important;
+  }
+}
+

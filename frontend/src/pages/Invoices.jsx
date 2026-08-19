@@ -610,7 +610,7 @@ export default function Invoices({ token, user, setActiveTab }) {
               margin-bottom: 4px;
             }
             .meta-table td {
-              border: 1px solid #e5e7eb;
+              border: 1px solid #777777;
               padding: 10px;
               width: 50%;
               vertical-align: top;
@@ -636,7 +636,7 @@ export default function Invoices({ token, user, setActiveTab }) {
             }
             .items-table td {
               padding: 8px;
-              border: 1px solid #e5e7eb;
+              border: 1px solid #777777;
               text-align: center;
               vertical-align: middle;
             }
@@ -648,7 +648,7 @@ export default function Invoices({ token, user, setActiveTab }) {
             }
             .totals-table td {
               padding: 6px;
-              border: 1px solid #e5e7eb;
+              border: 1px solid #777777;
             }
             .totals-table tr.grand-total td {
               background: #f3f4f6;

@@ -305,22 +305,22 @@ export default function GatePasses({ token, user }) {
             .company-sub { font-size: 9px; color: #64748b; margin-top: 2px; text-transform: uppercase; font-weight: 700; }
             .document-title { font-size: 14px; font-weight: 900; background: #000; color: #fff; padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; display: inline-block; margin-top: 5px; }
             
-            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; }
+            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px; border: 1px solid #777777; padding: 12px; border-radius: 6px; }
             .meta-item { display: flex; justify-content: space-between; border-bottom: 1px dashed #e2e8f0; padding: 4px 0; }
             .meta-item:last-child { border-bottom: none; }
             .meta-label { font-weight: bold; color: #475569; text-transform: uppercase; font-size: 9px; }
             .meta-val { font-weight: 700; color: #0f172a; text-transform: uppercase; }
 
             .materials-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-            .materials-table th { background: #f1f5f9; text-align: left; padding: 8px; font-size: 9px; text-transform: uppercase; border: 1px solid #cbd5e1; font-weight: 900; }
-            .materials-table td { padding: 10px 8px; border: 1px solid #cbd5e1; font-weight: bold; }
+            .materials-table th { background: #f1f5f9; text-align: left; padding: 8px; font-size: 9px; text-transform: uppercase; border: 1px solid #777777; font-weight: 900; }
+            .materials-table td { padding: 10px 8px; border: 1px solid #777777; font-weight: bold; }
 
             .sign-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 50px; }
-            .sign-box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: space-between; }
+            .sign-box { border: 1px solid #777777; border-radius: 6px; padding: 10px; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: space-between; }
             .sign-box img { max-height: 50px; object-fit: contain; margin: auto; }
             .sign-title { font-size: 9px; font-weight: 900; text-transform: uppercase; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 6px; }
 
-            .tc-box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; margin-top: 25px; background: #fafafa; }
+            .tc-box { border: 1px solid #777777; border-radius: 6px; padding: 10px; margin-top: 25px; background: #fafafa; }
             .tc-title { font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
             .tc-text { font-size: 8px; color: #64748b; line-height: 1.3; margin: 0; }
           </style>

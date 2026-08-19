@@ -870,7 +870,7 @@ export default function Reports({ token, user }) {
             .meta { margin-bottom: 25px; font-size: 10px; color: #666; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
             table { width: 100%; border-collapse: collapse; margin-top: 15px; }
             th { background: #1e3a8a; color: white; padding: 8px; font-size: 9px; border: 1px solid #1e3a8a; text-transform: uppercase; }
-            td { padding: 8px; border: 1px solid #e5e7eb; text-align: center; }
+            td { padding: 8px; border: 1px solid #777777; text-align: center; }
             tr:nth-child(even) { background: #f9fafb; }
             @media print {
               button { display: none; }
