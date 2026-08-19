@@ -1280,6 +1280,21 @@ export default function PurchaseReport({ token, user }) {
                   type="vendors"
                   className="w-full"
                 />
+                {purchaseHeader.vendorId && (() => {
+                  const vendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+                  if (!vendor) return null;
+                  return (
+                    <div className="mt-2.5 p-3 bg-indigo-50/50 dark:bg-indigo-955/20 border border-indigo-100 dark:border-indigo-900/40 rounded-xl text-[11px] space-y-1 text-slate-655 dark:text-slate-350">
+                      <p className="font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest text-[9px] mb-1">Selected Vendor Details</p>
+                      <p><strong>Name:</strong> {vendor.name}</p>
+                      {vendor.vendorCode && <p><strong>Code:</strong> {vendor.vendorCode}</p>}
+                      {vendor.mobile && <p><strong>Phone:</strong> {vendor.mobile}</p>}
+                      {vendor.email && <p><strong>Email:</strong> {vendor.email}</p>}
+                      {vendor.gstNumber && <p><strong>GSTIN:</strong> {vendor.gstNumber}</p>}
+                      {vendor.address && <p><strong>Address:</strong> {vendor.address}</p>}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Invoice Number */}
@@ -2472,7 +2487,20 @@ export default function PurchaseReport({ token, user }) {
                 <div>
                   <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 block mb-1">SUPPLIER DETAILS</span>
                   <p className="font-bold text-sm text-slate-900 dark:text-white">{selectedVoucher.vendorName}</p>
-                  <p className="text-slate-500">Invoice Ref: {selectedVoucher.invoiceNo || 'N/A'}</p>
+                  {(() => {
+                    const vendor = vendorsList.find(v => v._id === selectedVoucher.vendorId || v.name === selectedVoucher.vendorName);
+                    if (!vendor) return null;
+                    return (
+                      <div className="text-[11px] text-slate-500 space-y-0.5 mt-1">
+                        {vendor.vendorCode && <p><strong>Code:</strong> {vendor.vendorCode}</p>}
+                        {vendor.mobile && <p><strong>Phone:</strong> {vendor.mobile}</p>}
+                        {vendor.email && <p><strong>Email:</strong> {vendor.email}</p>}
+                        {vendor.gstNumber && <p><strong>GSTIN:</strong> {vendor.gstNumber}</p>}
+                        {vendor.address && <p><strong>Address:</strong> {vendor.address}</p>}
+                      </div>
+                    );
+                  })()}
+                  <p className="text-slate-500 mt-2">Invoice Ref: {selectedVoucher.invoiceNo || 'N/A'}</p>
                 </div>
 
                 <div className="text-right">
