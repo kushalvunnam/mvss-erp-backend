@@ -3,6 +3,19 @@ const numberToWords = require('./numberToWords');
 const fs = require('fs');
 const path = require('path');
 
+function addPageNumbers(doc) {
+  try {
+    const range = doc.bufferedPageRange();
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i);
+      doc.fillColor('#333333').font('Helvetica').fontSize(7)
+         .text(`Page ${i + 1} of ${range.count}`, 480, 796, { width: 85, align: 'right' });
+    }
+  } catch (err) {
+    console.error('Error adding page numbers:', err);
+  }
+}
+
 const checkIsInterstate = (customer) => {
   if (!customer) return false;
   if (customer.gstNumber && customer.gstNumber.trim() !== '') {
@@ -25,8 +38,8 @@ const checkIsInterstate = (customer) => {
 
 // Helper to draw horizontal lines
 function drawLine(doc, y) {
-  doc.strokeColor('#cccccc')
-     .lineWidth(1)
+  doc.strokeColor('#333333')
+     .lineWidth(0.6)
      .moveTo(30, y)
      .lineTo(565, y)
      .stroke();
@@ -80,7 +93,7 @@ function drawDocumentHeader(doc, title, number, date, isInvoice = false) {
 
 // Generate Job Card PDF
 function generateJobCardPDF(jobCard, customer, vehicle, stream) {
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
   doc.pipe(stream);
 
   drawDocumentHeader(doc, 'DIGITAL JOB CARD', jobCard.jobCardNo, jobCard.date);
@@ -338,6 +351,7 @@ function generateJobCardPDF(jobCard, customer, vehicle, stream) {
     doc.strokeColor('#cccccc').dash(3, {space: 3}).moveTo(400, currentY + 38).lineTo(500, currentY + 38).stroke().undash();
   }
 
+  addPageNumbers(doc);
   doc.end();
 }
 
@@ -351,7 +365,7 @@ function drawVerticalLines(doc, yStart, yEnd, gstMode = 'cgst_sgst') {
     // none mode
     xCoords = [30, 50, 175, 210, 235, 255, 295, 340, 385, 565];
   }
-  doc.strokeColor('#777777').lineWidth(0.7);
+  doc.strokeColor('#333333').lineWidth(0.6);
   xCoords.forEach(x => {
     doc.moveTo(x, yStart).lineTo(x, yEnd).stroke();
   });
@@ -579,7 +593,7 @@ function drawTableRow(doc, y, index, desc, hsn, uom, qty, rate, partsTaxable, la
     doc.text(total, 385, y + 4, { width: 177, align: 'right' });
   }
   
-  doc.strokeColor('#777777').lineWidth(0.7)
+  doc.strokeColor('#333333').lineWidth(0.6)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
   
   drawVerticalLines(doc, y, y + 16, gstMode);
@@ -827,13 +841,13 @@ function drawInvoiceFooter(doc, y, isInvoice = false, invoice = null) {
     console.error('Error drawing admin signature on PDF:', sigErr);
   }
        
-  doc.strokeColor('#cccccc').dash(2, {space: 2})
+  doc.strokeColor('#666666').dash(2, {space: 2})
      .moveTo(350, y + 60).lineTo(520, y + 60).stroke().undash();
       
   doc.font('Helvetica').fontSize(7)
      .text('Authorized Signatory', 350, y + 65);
       
-  doc.strokeColor('#cccccc').dash(2, {space: 2})
+  doc.strokeColor('#666666').dash(2, {space: 2})
      .moveTo(50, y + 60).lineTo(200, y + 60).stroke().undash();
       
   doc.font('Helvetica').fontSize(7).text('Customer Signature', 50, y + 65);
@@ -841,7 +855,7 @@ function drawInvoiceFooter(doc, y, isInvoice = false, invoice = null) {
 
 // Generate Estimate PDF
 function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
   doc.pipe(stream);
 
   // draw Page 1 outer border
@@ -879,7 +893,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
     doc.text('PARTS', 53, y + 4);
     
     // draw horizontal line at y + 16
-    doc.strokeColor('#777777').lineWidth(0.7)
+    doc.strokeColor('#333333').lineWidth(0.6)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawVerticalLines(doc, y, y + 16, gstMode);
     y += 16;
@@ -955,7 +969,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5);
     doc.text('LABOUR CHARGES', 53, y + 4);
     
-    doc.strokeColor('#777777').lineWidth(0.7)
+    doc.strokeColor('#333333').lineWidth(0.6)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawVerticalLines(doc, y, y + 16, gstMode);
     y += 16;
@@ -1051,12 +1065,13 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
   y = drawSummaryBlock(doc, y, summaryTotals, isInterstate, grandTotalWords);
   drawInvoiceFooter(doc, y, false);
 
+  addPageNumbers(doc);
   doc.end();
 }
 
 // Generate GST Tax Invoice PDF
 function generateInvoicePDF(invoice, customer, vehicle, stream) {
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
   doc.pipe(stream);
 
   // Page 1 border
@@ -1095,7 +1110,7 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
     doc.text('PARTS', 53, y + 4);
     
     // draw horizontal line at y + 16
-    doc.strokeColor('#777777').lineWidth(0.7)
+    doc.strokeColor('#333333').lineWidth(0.6)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawVerticalLines(doc, y, y + 16, gstMode);
     y += 16;
@@ -1173,7 +1188,7 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5);
     doc.text('LABOUR CHARGES', 53, y + 4);
     
-    doc.strokeColor('#777777').lineWidth(0.7)
+    doc.strokeColor('#333333').lineWidth(0.6)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawVerticalLines(doc, y, y + 16, gstMode);
     y += 16;
@@ -1283,12 +1298,13 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
   y = drawSummaryBlock(doc, y, summaryTotals, isInterstate, grandTotalWords);
   drawInvoiceFooter(doc, y, true, invoice);
 
+  addPageNumbers(doc);
   doc.end();
 }
 
 // Generate Gate Pass PDF
 function generateGatePassPDF(docData, customer, vehicle, stream) {
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
   doc.pipe(stream);
 
   // Page 1 border
@@ -1380,18 +1396,19 @@ function generateGatePassPDF(docData, customer, vehicle, stream) {
     console.error('Error drawing admin signature on Gate Pass PDF:', sigErr);
   }
 
-  doc.strokeColor('#cccccc').dash(2, {space: 2})
+  doc.strokeColor('#666666').dash(2, {space: 2})
      .moveTo(50, y + 90).lineTo(170, y + 90).stroke()
      .moveTo(230, y + 90).lineTo(350, y + 90).stroke()
      .moveTo(410, y + 90).lineTo(530, y + 90).stroke()
      .undash();
 
+  addPageNumbers(doc);
   doc.end();
 }
 
 function drawCustomerVerticalLines(doc, yStart, yEnd) {
   const xCoords = [30, 60, 390, 420, 480, 565];
-  doc.strokeColor('#777777').lineWidth(0.7);
+  doc.strokeColor('#333333').lineWidth(0.6);
   xCoords.forEach(x => {
     doc.moveTo(x, yStart).lineTo(x, yEnd).stroke();
   });
@@ -1406,7 +1423,7 @@ function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, total) {
   doc.text(unitPrice, 420, y + 4, { width: 55, align: 'right' });
   doc.text(total, 480, y + 4, { width: 80, align: 'right' });
   
-  doc.strokeColor('#777777').lineWidth(0.7)
+  doc.strokeColor('#333333').lineWidth(0.6)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
   
   drawCustomerVerticalLines(doc, y, y + 16);
@@ -1571,7 +1588,7 @@ function drawCustomerSummaryBlock(doc, y, totals, grandTotalWords) {
 }
 
 function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
   doc.pipe(stream);
 
   // draw outer border
@@ -1598,7 +1615,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
     doc.text('PARTS', 53, y + 4);
     
-    doc.strokeColor('#777777').lineWidth(0.7)
+    doc.strokeColor('#333333').lineWidth(0.6)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawCustomerVerticalLines(doc, y, y + 16);
     y += 16;
@@ -1649,7 +1666,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
     doc.text('LABOUR CHARGES', 53, y + 4);
     
-    doc.strokeColor('#777777').lineWidth(0.7)
+    doc.strokeColor('#333333').lineWidth(0.6)
        .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
     drawCustomerVerticalLines(doc, y, y + 16);
     y += 16;
@@ -1707,6 +1724,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
   y = drawCustomerSummaryBlock(doc, y, summaryTotals, grandTotalWords);
   drawInvoiceFooter(doc, y, false);
 
+  addPageNumbers(doc);
   doc.end();
 }
 

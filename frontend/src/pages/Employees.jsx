@@ -888,12 +888,17 @@ export default function Employees({ token, user }) {
             .info-table, .statement-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
             .info-table td { padding: 6px; border: none; }
             .info-table td.label { font-weight: bold; width: 20%; }
-            .statement-table th, .statement-table td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+            .statement-table th, .statement-table td { border: 1px solid #111111; padding: 10px; text-align: left; }
             .statement-table th { bg-color: #f5f5f5; font-weight: bold; }
             .right { text-align: right; }
             .total-row { font-weight: bold; font-size: 14px; background-color: #f9f9f9; }
-            .footer { margin-top: 60px; display: flex; justify-content: space-between; }
-            .sig-box { width: 200px; border-top: 1px solid #333; text-align: center; padding-top: 8px; font-weight: bold; }
+            .footer { margin-top: 60px; display: flex; justify-content: space-between; page-break-inside: avoid; }
+            .sig-box { width: 200px; border-top: 1px solid #111111; text-align: center; padding-top: 8px; font-weight: bold; page-break-inside: avoid; }
+            @media print {
+              tr { page-break-inside: avoid; }
+              thead { display: table-header-group; }
+              .footer, .sig-box, .statement-table { page-break-inside: avoid; }
+            }
           </style>
         </head>
         <body>
@@ -1025,12 +1030,17 @@ export default function Employees({ token, user }) {
             .info-table, .statement-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
             .info-table td { padding: 6px; border: none; }
             .info-table td.label { font-weight: bold; width: 20%; }
-            .statement-table th, .statement-table td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+            .statement-table th, .statement-table td { border: 1px solid #111111; padding: 10px; text-align: left; }
             .statement-table th { bg-color: #f5f5f5; font-weight: bold; }
             .right { text-align: right; }
             .total-row { font-weight: bold; font-size: 14px; background-color: #f9f9f9; }
-            .footer { margin-top: 60px; display: flex; justify-content: space-between; }
-            .sig-box { width: 200px; border-top: 1px solid #333; text-align: center; padding-top: 8px; font-weight: bold; }
+            .footer { margin-top: 60px; display: flex; justify-content: space-between; page-break-inside: avoid; }
+            .sig-box { width: 200px; border-top: 1px solid #111111; text-align: center; padding-top: 8px; font-weight: bold; page-break-inside: avoid; }
+            @media print {
+              tr { page-break-inside: avoid; }
+              thead { display: table-header-group; }
+              .footer, .sig-box, .statement-table { page-break-inside: avoid; }
+            }
           </style>
         </head>
         <body>

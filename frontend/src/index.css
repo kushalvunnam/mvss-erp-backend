@@ -207,13 +207,19 @@ input:focus, select:focus, textarea:focus {
   }
 
   /* Reset layout for physical paper width and spacing */
-  body, html, #root {
+  body, html, #root, .app-container, .main-content, .scrollable-container, [class*="h-screen"], [class*="overflow-hidden"], [class*="overflow-y-auto"] {
     background: #ffffff !important;
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
     font-size: 11pt !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-y: visible !important;
+    position: static !important;
   }
 
   /* Force standard print colors and table structure layout */
