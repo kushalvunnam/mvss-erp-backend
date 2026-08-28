@@ -36,11 +36,13 @@ const generateJobCardNo = async () => {
 // List all job cards with search & filters
 router.get('/', auth, async (req, res) => {
   try {
-    const { search, status, advisor } = req.query;
+    const { search, status, advisor, excludeDelivered } = req.query;
     let query = {};
 
     if (status) {
       query.status = status;
+    } else if (excludeDelivered === 'true') {
+      query.status = { $nin: ['Delivered', 'Closed'] };
     }
 
     if (advisor) {

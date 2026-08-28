@@ -298,5 +298,8 @@ invoiceSchema.pre('validate', function(next) {
 
 invoiceSchema.index({ paymentStatus: 1 });
 invoiceSchema.index({ status: 1 });
+invoiceSchema.index({ status: 1, date: 1 });
+invoiceSchema.index({ status: 1, paymentStatus: 1 });
+invoiceSchema.index({ date: 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

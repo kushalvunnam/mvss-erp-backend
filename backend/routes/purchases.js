@@ -331,9 +331,10 @@ router.post('/', async (req, res) => {
       amountPaid: paidAmt,
       notes: notes || '',
       createdBy: req.user ? req.user.name : 'Staff',
-      attachmentUrl: req.body.attachmentUrl || '',
-      attachmentName: req.body.attachmentName || '',
-      attachmentType: req.body.attachmentType || ''
+      attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? req.body.attachments[0].url : ''),
+      attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? req.body.attachments[0].name : ''),
+      attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? req.body.attachments[0].type : ''),
+      attachments: req.body.attachments || []
     });
 
     await purchase.save();
@@ -681,9 +682,16 @@ router.put('/:id', async (req, res) => {
     purchase.amountPaid = paidAmt;
     purchase.notes = notes || '';
     purchase.updatedBy = req.user ? req.user.name : 'Staff';
-    if (req.body.attachmentUrl !== undefined) purchase.attachmentUrl = req.body.attachmentUrl;
-    if (req.body.attachmentName !== undefined) purchase.attachmentName = req.body.attachmentName;
-    if (req.body.attachmentType !== undefined) purchase.attachmentType = req.body.attachmentType;
+    if (req.body.attachments !== undefined) {
+      purchase.attachments = req.body.attachments;
+      purchase.attachmentUrl = req.body.attachments.length > 0 ? req.body.attachments[0].url : '';
+      purchase.attachmentName = req.body.attachments.length > 0 ? req.body.attachments[0].name : '';
+      purchase.attachmentType = req.body.attachments.length > 0 ? req.body.attachments[0].type : '';
+    } else {
+      if (req.body.attachmentUrl !== undefined) purchase.attachmentUrl = req.body.attachmentUrl;
+      if (req.body.attachmentName !== undefined) purchase.attachmentName = req.body.attachmentName;
+      if (req.body.attachmentType !== undefined) purchase.attachmentType = req.body.attachmentType;
+    }
 
     await purchase.save();
 

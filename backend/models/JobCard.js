@@ -341,4 +341,8 @@ JobCardSchema.pre('save', function(next) {
   next();
 });
 
+JobCardSchema.index({ status: 1 });
+JobCardSchema.index({ status: 1, updatedAt: 1 });
+JobCardSchema.index({ createdAt: 1 });
+
 module.exports = mongoose.model('JobCard', JobCardSchema);

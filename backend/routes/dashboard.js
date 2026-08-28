@@ -64,33 +64,70 @@ router.get('/stats', auth, async (req, res) => {
     }
 
     const queryFilter = isHistorical ? { createdAt: { $lte: endOfDay } } : {};
-    const invoiceFilter = isHistorical ? { date: { $lte: endOfDay } } : {};
 
-    const totalCustomers = await Customer.countDocuments(queryFilter);
-    const totalVehicles = await Vehicle.countDocuments(queryFilter);
-    
-    let activeJobCards, completedJobCards, pendingJobCards, bodyShopJobs;
-    if (isHistorical) {
-      activeJobCards = await JobCard.countDocuments({
+    const VendorModel = require('../models/Vendor');
+    const PurchaseModel = require('../models/Purchase');
+
+    const startOfMonth = new Date(targetDate);
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0,0,0,0);
+
+    const startOfYear = new Date(targetDate);
+    startOfYear.setMonth(0);
+    startOfYear.setDate(1);
+    startOfYear.setHours(0,0,0,0);
+
+    // Run all database operations in parallel using Promise.all
+    const [
+      totalCustomers,
+      totalVehicles,
+      activeJobCards,
+      completedJobCards,
+      pendingJobCards,
+      bodyShopJobs,
+      waitingPartsJobCards,
+      revenueThisMonthAgg,
+      revenueThisYearAgg,
+      pendingPaymentsAgg,
+      inventoryStatsAgg,
+      lowStockItemsListQuery,
+      totalVendors,
+      recentPurchases,
+      insuranceClaims,
+      totalGatePasses,
+      issuedToday,
+      pendingReturns,
+      returnedMaterials,
+      latestAuditLogs
+    ] = await Promise.all([
+      Customer.countDocuments(queryFilter),
+      Vehicle.countDocuments(queryFilter),
+      
+      isHistorical ? JobCard.countDocuments({
         createdAt: { $lte: endOfDay },
         $or: [
           { status: { $ne: 'Delivered' } },
           { updatedAt: { $gt: endOfDay } }
         ]
-      });
-      completedJobCards = await JobCard.countDocuments({
+      }) : JobCard.countDocuments({ status: { $in: ['Work in Progress', 'Work In Progress', 'Body Shop', 'Repair', 'Quality Test', 'Quality Check', 'Ready for Delivery'] } }),
+      
+      isHistorical ? JobCard.countDocuments({
         status: 'Delivered',
         updatedAt: { $lte: endOfDay }
-      });
-      pendingJobCards = await JobCard.countDocuments({
+      }) : JobCard.countDocuments({ status: { $in: ['Delivered', 'Closed'] } }),
+      
+      isHistorical ? JobCard.countDocuments({
         createdAt: { $lte: endOfDay },
         status: { $in: ['Created', 'Inspect Stage', 'Estimation', 'Customer Approval'] },
         $or: [
           { status: { $ne: 'Delivered' } },
           { updatedAt: { $gt: endOfDay } }
         ]
-      });
-      bodyShopJobs = await JobCard.countDocuments({
+      }) : JobCard.countDocuments({
+        status: { $in: ['Waiting for Customer Approval', 'Created', 'Inspect Stage', 'Estimation', 'Customer Approval'] }
+      }),
+      
+      isHistorical ? JobCard.countDocuments({
         createdAt: { $lte: endOfDay },
         $or: [
           { status: 'Body Shop' },
@@ -100,113 +137,155 @@ router.get('/stats', auth, async (req, res) => {
           { status: { $ne: 'Delivered' } },
           { updatedAt: { $gt: endOfDay } }
         ]
-      });
-    } else {
-      activeJobCards = await JobCard.countDocuments({ status: { $in: ['Work in Progress', 'Work In Progress', 'Body Shop', 'Repair', 'Quality Test', 'Quality Check', 'Ready for Delivery'] } });
-      completedJobCards = await JobCard.countDocuments({ status: { $in: ['Delivered', 'Closed'] } });
-      pendingJobCards = await JobCard.countDocuments({
-        status: { $in: ['Waiting for Customer Approval', 'Created', 'Inspect Stage', 'Estimation', 'Customer Approval'] }
-      });
-      bodyShopJobs = await JobCard.countDocuments({
+      }) : JobCard.countDocuments({
         $or: [
           { status: 'Body Shop' },
           { workCategory: 'B/P' }
         ]
-      });
-    }
+      }),
 
-    // Revenue This Month relative to targetDate
-    const startOfMonth = new Date(targetDate);
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0,0,0,0);
-    const monthlyInvoices = await Invoice.find({
-      status: 'Finalized',
-      date: { $gte: startOfMonth, $lte: endOfDay }
-    }).select('totals');
-    const revenueThisMonth = monthlyInvoices.reduce((sum, inv) => sum + inv.totals.grandTotal, 0);
+      isHistorical ? Promise.resolve(0) : JobCard.countDocuments({ status: 'Parts Procuring' }),
 
-    // Revenue This Year relative to targetDate
-    const startOfYear = new Date(targetDate);
-    startOfYear.setMonth(0);
-    startOfYear.setDate(1);
-    startOfYear.setHours(0,0,0,0);
-    const yearlyInvoices = await Invoice.find({
-      status: 'Finalized',
-      date: { $gte: startOfYear, $lte: endOfDay }
-    }).select('totals');
-    const revenueThisYear = yearlyInvoices.reduce((sum, inv) => sum + inv.totals.grandTotal, 0);
+      Invoice.aggregate([
+        { $match: { status: 'Finalized', date: { $gte: startOfMonth, $lte: endOfDay } } },
+        { $group: { _id: null, total: { $sum: '$totals.grandTotal' } } }
+      ]),
 
-    // Pending Payments as of endOfDay
-    let unpaidInvoices;
-    if (isHistorical) {
-      unpaidInvoices = await Invoice.find({
-        status: 'Finalized',
-        date: { $lte: endOfDay },
+      Invoice.aggregate([
+        { $match: { status: 'Finalized', date: { $gte: startOfYear, $lte: endOfDay } } },
+        { $group: { _id: null, total: { $sum: '$totals.grandTotal' } } }
+      ]),
+
+      Invoice.aggregate([
+        {
+          $match: isHistorical ? {
+            status: 'Finalized',
+            date: { $lte: endOfDay },
+            $or: [
+              { paymentStatus: { $ne: 'Paid' } },
+              { updatedAt: { $gt: endOfDay } }
+            ]
+          } : {
+            status: 'Finalized',
+            paymentStatus: { $ne: 'Paid' }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $cond: [
+                  { $ifNull: ['$balanceDue', false] },
+                  '$balanceDue',
+                  { $subtract: ['$totals.roundedGrandTotal', { $ifNull: ['$advanceReceived', 0] }] }
+                ]
+              }
+            }
+          }
+        }
+      ]),
+
+      Inventory.aggregate([
+        { $match: isHistorical ? { createdAt: { $lte: endOfDay } } : {} },
+        {
+          $group: {
+            _id: null,
+            inventoryValue: {
+              $sum: { $multiply: [ { $ifNull: ['$stockQuantity', 0] }, { $ifNull: ['$purchasePrice', 0] } ] }
+            },
+            sellingValuation: {
+              $sum: { $multiply: [ { $ifNull: ['$stockQuantity', 0] }, { $ifNull: ['$sellingPrice', 0] } ] }
+            },
+            lowStockItems: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $gt: [{ $ifNull: ['$stockQuantity', 0] }, 0] },
+                      { $lte: [{ $ifNull: ['$stockQuantity', 0] }, { $ifNull: ['$lowStockThreshold', 5] }] }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            outOfStockItems: {
+              $sum: {
+                $cond: [
+                  { $lte: [{ $ifNull: ['$stockQuantity', 0] }, 0] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]),
+
+      Inventory.find({
         $or: [
-          { paymentStatus: { $ne: 'Paid' } },
-          { updatedAt: { $gt: endOfDay } }
+          { $expr: { $lte: ["$currentStock", "$minimumStock"] } },
+          { $expr: { $lte: ["$stockQuantity", "$lowStockThreshold"] } }
         ]
-      }).select('balanceDue totals advanceReceived');
-    } else {
-      unpaidInvoices = await Invoice.find({
-        status: 'Finalized',
-        paymentStatus: { $ne: 'Paid' }
-      }).select('balanceDue totals advanceReceived');
-    }
-    const pendingPayments = unpaidInvoices.reduce((sum, inv) => sum + (inv.balanceDue !== undefined ? inv.balanceDue : (inv.totals.roundedGrandTotal - (inv.advanceReceived || 0))), 0);
+      })
+      .select('partName partNumber currentStock stockQuantity minimumStock lowStockThreshold')
+      .lean(),
 
-    const VendorModel = require('../models/Vendor');
-    const PurchaseModel = require('../models/Purchase');
-    const allInventory = await Inventory.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {})
-      .select('partName partNumber stockQuantity purchasePrice sellingPrice lowStockThreshold');
-    const inventoryValue = allInventory.reduce((sum, item) => sum + ((item.stockQuantity || 0) * (item.purchasePrice || 0)), 0);
-    const sellingValuation = allInventory.reduce((sum, item) => sum + ((item.stockQuantity || 0) * (item.sellingPrice || 0)), 0);
-    const lowStockItems = allInventory.filter(item => (item.stockQuantity || 0) <= (item.lowStockThreshold || 5) && (item.stockQuantity || 0) > 0).length;
-    const outOfStockItems = allInventory.filter(item => (item.stockQuantity || 0) <= 0).length;
-    
-    const totalVendors = await VendorModel.countDocuments(isHistorical ? { createdAt: { $lte: endOfDay } } : {});
-    const recentPurchases = await PurchaseModel.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {}).sort({ createdAt: -1 }).limit(5);
+      VendorModel.countDocuments(isHistorical ? { createdAt: { $lte: endOfDay } } : {}),
 
-    const insuranceClaims = await InsuranceClaim.countDocuments(isHistorical ? { createdAt: { $lte: endOfDay } } : {});
+      PurchaseModel.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {})
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
 
-    // Gate passes
-    const totalGatePasses = await GatePass.countDocuments(isHistorical ? { createdAt: { $lte: endOfDay } } : {});
-    const issuedToday = await GatePass.countDocuments({
-      createdAt: { $gte: startOfDay, $lte: endOfDay }
-    });
-    
-    let pendingReturns, returnedMaterials;
-    if (isHistorical) {
-      pendingReturns = await GatePass.countDocuments({
+      InsuranceClaim.countDocuments(isHistorical ? { createdAt: { $lte: endOfDay } } : {}),
+
+      GatePass.countDocuments(isHistorical ? { createdAt: { $lte: endOfDay } } : {}),
+      
+      GatePass.countDocuments({
+        createdAt: { $gte: startOfDay, $lte: endOfDay }
+      }),
+
+      isHistorical ? GatePass.countDocuments({
         createdAt: { $lte: endOfDay },
         status: 'Pending',
         $or: [
           { status: 'Pending' },
           { updatedAt: { $gt: endOfDay } }
         ]
-      });
-      returnedMaterials = await GatePass.countDocuments({
+      }) : GatePass.countDocuments({ status: 'Pending' }),
+
+      isHistorical ? GatePass.countDocuments({
         status: 'Returned',
         updatedAt: { $lte: endOfDay }
-      });
-    } else {
-      pendingReturns = await GatePass.countDocuments({ status: 'Pending' });
-      returnedMaterials = await GatePass.countDocuments({ status: 'Returned' });
-    }
+      }) : GatePass.countDocuments({ status: 'Returned' }),
 
-    const latestAuditLogs = await AuditLog.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {})
-      .sort({ createdAt: -1 })
-      .limit(10);
+      AuditLog.find(isHistorical ? { createdAt: { $lte: endOfDay } } : {})
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean()
+    ]);
 
-    const lowStockItemsList = allInventory
-      .filter(item => (item.currentStock || item.stockQuantity || 0) <= (item.minimumStock || item.lowStockThreshold || 5))
-      .map(item => ({
+    const revenueThisMonth = revenueThisMonthAgg[0] ? revenueThisMonthAgg[0].total : 0;
+    const revenueThisYear = revenueThisYearAgg[0] ? revenueThisYearAgg[0].total : 0;
+    const pendingPayments = pendingPaymentsAgg[0] ? pendingPaymentsAgg[0].total : 0;
+
+    const valStats = inventoryStatsAgg[0] || { inventoryValue: 0, sellingValuation: 0, lowStockItems: 0, outOfStockItems: 0 };
+    const { inventoryValue, sellingValuation, lowStockItems, outOfStockItems } = valStats;
+
+    const lowStockItemsList = lowStockItemsListQuery.map(item => {
+      const curStock = item.currentStock !== undefined ? item.currentStock : item.stockQuantity;
+      const minStock = item.minimumStock !== undefined ? item.minimumStock : item.lowStockThreshold;
+      return {
         partName: item.partName,
         partNumber: item.partNumber,
-        currentStock: item.currentStock || item.stockQuantity || 0,
-        minimumStock: item.minimumStock || item.lowStockThreshold || 5,
-        severity: (item.currentStock || item.stockQuantity || 0) === 0 ? 'CRITICAL' : 'WARNING'
-      }));
+        currentStock: curStock,
+        minimumStock: minStock,
+        severity: curStock === 0 ? 'CRITICAL' : 'WARNING'
+      };
+    });
 
     res.send({
       noData,
@@ -215,7 +294,7 @@ router.get('/stats', auth, async (req, res) => {
       activeJobCards,
       completedJobCards,
       pendingJobCards,
-      waitingPartsJobCards: isHistorical ? 0 : (await JobCard.countDocuments({ status: 'Parts Procuring' })),
+      waitingPartsJobCards,
       deliveredJobCards: completedJobCards,
       revenueThisMonth: Math.round(revenueThisMonth * 100) / 100,
       revenueThisYear: Math.round(revenueThisYear * 100) / 100,
@@ -260,10 +339,74 @@ router.get('/charts', auth, async (req, res) => {
     sixMonthsAgo.setDate(1);
     sixMonthsAgo.setHours(0,0,0,0);
 
-    const invoices = await Invoice.find({
-      status: 'Finalized',
-      date: { $gte: sixMonthsAgo, $lte: endOfDay }
-    });
+    // Fetch all aggregations in parallel
+    const [
+      monthlyRevenueAgg,
+      serviceTypeAgg,
+      topPartsAgg,
+      billingBreakdownAgg
+    ] = await Promise.all([
+      Invoice.aggregate([
+        {
+          $match: {
+            status: 'Finalized',
+            date: { $gte: sixMonthsAgo, $lte: endOfDay }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              year: { $year: '$date' },
+              month: { $month: '$date' }
+            },
+            total: { $sum: '$totals.grandTotal' }
+          }
+        }
+      ]),
+      JobCard.aggregate(
+        isHistorical
+          ? [
+              { $match: { createdAt: { $lte: endOfDay } } },
+              { $group: { _id: '$serviceType', count: { $sum: 1 } } }
+            ]
+          : [
+              { $group: { _id: '$serviceType', count: { $sum: 1 } } }
+            ]
+      ),
+      Invoice.aggregate([
+        {
+          $match: {
+            status: 'Finalized',
+            date: { $lte: endOfDay }
+          }
+        },
+        { $unwind: '$parts' },
+        {
+          $group: {
+            _id: '$parts.name',
+            qty: { $sum: '$parts.qty' }
+          }
+        },
+        { $sort: { qty: -1 } },
+        { $limit: 5 }
+      ]),
+      Invoice.aggregate([
+        {
+          $match: {
+            status: 'Finalized',
+            date: { $lte: endOfDay }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            parts: { $sum: '$totals.partsTotal' },
+            labour: { $sum: '$totals.labourTotal' },
+            gst: { $sum: '$totals.gstTotal' }
+          }
+        }
+      ])
+    ]);
 
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const revenueMap = {};
@@ -276,11 +419,13 @@ router.get('/charts', auth, async (req, res) => {
       revenueMap[key] = 0;
     }
 
-    invoices.forEach(inv => {
-      const d = new Date(inv.date);
-      const key = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-      if (revenueMap[key] !== undefined) {
-        revenueMap[key] += inv.totals.grandTotal;
+    monthlyRevenueAgg.forEach(item => {
+      if (item._id && item._id.month) {
+        const mIdx = item._id.month - 1;
+        const key = `${monthNames[mIdx]} ${item._id.year}`;
+        if (revenueMap[key] !== undefined) {
+          revenueMap[key] = item.total;
+        }
       }
     });
 
@@ -289,59 +434,21 @@ router.get('/charts', auth, async (req, res) => {
       amount: Math.round(amount * 100) / 100
     }));
 
-    // 2. Service Type Analytics (grouped by job cards created on or before endOfDay)
-    let serviceTypeAgg;
-    if (isHistorical) {
-      serviceTypeAgg = await JobCard.aggregate([
-        { $match: { createdAt: { $lte: endOfDay } } },
-        { $group: { _id: '$serviceType', count: { $sum: 1 } } }
-      ]);
-    } else {
-      serviceTypeAgg = await JobCard.aggregate([
-        { $group: { _id: '$serviceType', count: { $sum: 1 } } }
-      ]);
-    }
     const serviceTypeChart = serviceTypeAgg.map(item => ({
       name: item._id || 'General Servicing',
       value: item.count
     }));
 
-    // 3. Top Used Spare Parts (finalized on or before endOfDay)
-    const partUsage = {};
-    const finalizedInvsWithParts = await Invoice.find({
-      status: 'Finalized',
-      date: { $lte: endOfDay }
-    });
-    finalizedInvsWithParts.forEach(inv => {
-      inv.parts.forEach(part => {
-        if (partUsage[part.name]) {
-          partUsage[part.name] += part.qty;
-        } else {
-          partUsage[part.name] = part.qty;
-        }
-      });
-    });
+    const topPartsChart = topPartsAgg.map(item => ({
+      name: item._id,
+      qty: item.qty
+    }));
 
-    const topPartsChart = Object.entries(partUsage)
-      .map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 5);
-
-    // 4. Domain spent/billed breakdown
-    let totalSpentParts = 0;
-    let totalSpentLabour = 0;
-    let totalSpentGst = 0;
-
-    finalizedInvsWithParts.forEach(inv => {
-      totalSpentParts += inv.totals.partsTotal || 0;
-      totalSpentLabour += inv.totals.labourTotal || 0;
-      totalSpentGst += inv.totals.gstTotal || 0;
-    });
-
+    const breakdown = billingBreakdownAgg[0] || { parts: 0, labour: 0, gst: 0 };
     const billingBreakdown = {
-      spareParts: Math.round(totalSpentParts * 100) / 100,
-      labour: Math.round(totalSpentLabour * 100) / 100,
-      gst: Math.round(totalSpentGst * 100) / 100
+      spareParts: Math.round((breakdown.parts || 0) * 100) / 100,
+      labour: Math.round((breakdown.labour || 0) * 100) / 100,
+      gst: Math.round((breakdown.gst || 0) * 100) / 100
     };
 
     res.send({
@@ -673,62 +780,78 @@ router.get('/summary', auth, async (req, res) => {
     const Expense = require('../models/Expense');
 
     const getDashboardSummaryData = async (s, e) => {
-      const closedCards = await JobCard.find({
-        status: { $in: ['Delivered', 'Closed'] },
-        updatedAt: { $gte: s, $lte: e }
-      });
+      // Run both aggregation pipelines in parallel
+      const [summaryAgg, expensesAgg] = await Promise.all([
+        JobCard.aggregate([
+          {
+            $match: {
+              status: { $in: ['Delivered', 'Closed'] },
+              updatedAt: { $gte: s, $lte: e }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              salePartsValue: { $sum: { $toDouble: { $ifNull: ['$billingSummary.partsSaleAmount', 0] } } },
+              purchasePartsValue: { $sum: { $toDouble: { $ifNull: ['$billingSummary.partsPurchaseAmount', 0] } } },
+              labourRevenue: { $sum: { $toDouble: { $ifNull: ['$billingSummary.labourAmount', 0] } } },
+              grossProfit: { $sum: { $toDouble: { $ifNull: ['$billingSummary.grossProfit', 0] } } },
+              gstCollected: { $sum: { $toDouble: { $ifNull: ['$billingSummary.totalGST', 0] } } },
+              discounts: { $sum: { $toDouble: { $ifNull: ['$billingSummary.totalDiscount', 0] } } },
+              totalBilling: { $sum: { $toDouble: { $ifNull: ['$billingSummary.grandTotal', 0] } } }
+            }
+          }
+        ]),
+        Expense.aggregate([
+          {
+            $match: {
+              date: { $gte: s, $lte: e }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: '$amount' }
+            }
+          }
+        ])
+      ]);
 
-      let closedJobCardsCount = closedCards.length;
-      let salePartsValue = 0;
-      let purchasePartsValue = 0;
-      let labourRevenue = 0;
-      let grossProfit = 0;
-      let gstCollected = 0;
-      let discounts = 0;
-      let totalBilling = 0;
+      const data = summaryAgg[0] || {
+        count: 0,
+        salePartsValue: 0,
+        purchasePartsValue: 0,
+        labourRevenue: 0,
+        grossProfit: 0,
+        gstCollected: 0,
+        discounts: 0,
+        totalBilling: 0
+      };
 
-      closedCards.forEach(jc => {
-        const summary = jc.billingSummary || {};
-        salePartsValue += Number(summary.partsSaleAmount) || 0;
-        purchasePartsValue += Number(summary.partsPurchaseAmount) || 0;
-        labourRevenue += Number(summary.labourAmount) || 0;
-        grossProfit += Number(summary.grossProfit) || 0;
-        gstCollected += Number(summary.totalGST) || 0;
-        discounts += Number(summary.totalDiscount) || 0;
-        totalBilling += Number(summary.grandTotal) || 0;
-      });
-
-      const expenses = await Expense.find({
-        date: { $gte: s, $lte: e }
-      });
-      const totalExpenses = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
-      const netProfit = grossProfit - totalExpenses;
+      const totalExpenses = expensesAgg[0] ? expensesAgg[0].total : 0;
+      const netProfit = data.grossProfit - totalExpenses;
 
       return {
-        closedJobCardsCount,
-        salePartsValue: Math.round(salePartsValue * 100) / 100,
-        purchasePartsValue: Math.round(purchasePartsValue * 100) / 100,
-        labourRevenue: Math.round(labourRevenue * 100) / 100,
-        grossProfit: Math.round(grossProfit * 100) / 100,
+        closedJobCardsCount: data.count,
+        salePartsValue: Math.round(data.salePartsValue * 100) / 100,
+        purchasePartsValue: Math.round(data.purchasePartsValue * 100) / 100,
+        labourRevenue: Math.round(data.labourRevenue * 100) / 100,
+        grossProfit: Math.round(data.grossProfit * 100) / 100,
         netProfit: Math.round(netProfit * 100) / 100,
-        gstCollected: Math.round(gstCollected * 100) / 100,
-        discounts: Math.round(discounts * 100) / 100,
-        totalBilling: Math.round(totalBilling * 100) / 100,
+        gstCollected: Math.round(data.gstCollected * 100) / 100,
+        discounts: Math.round(data.discounts * 100) / 100,
+        totalBilling: Math.round(data.totalBilling * 100) / 100,
         totalExpenses: Math.round(totalExpenses * 100) / 100
       };
     };
 
-    // Filtered Period Stats
-    const periodStats = await getDashboardSummaryData(start, end);
-
-    // Today's Stats
+    // Parallelize all three calls to getDashboardSummaryData
     const todayStart = new Date(targetDate);
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(targetDate);
     todayEnd.setHours(23, 59, 59, 999);
-    const todayStats = await getDashboardSummaryData(todayStart, todayEnd);
 
-    // Monthly Stats
     const monthStart = new Date(targetDate);
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
@@ -736,7 +859,12 @@ router.get('/summary', auth, async (req, res) => {
     monthEnd.setMonth(monthEnd.getMonth() + 1);
     monthEnd.setDate(0);
     monthEnd.setHours(23, 59, 59, 999);
-    const monthlyStats = await getDashboardSummaryData(monthStart, monthEnd);
+
+    const [periodStats, todayStats, monthlyStats] = await Promise.all([
+      getDashboardSummaryData(start, end),
+      getDashboardSummaryData(todayStart, todayEnd),
+      getDashboardSummaryData(monthStart, monthEnd)
+    ]);
 
     res.json({
       success: true,
@@ -769,14 +897,15 @@ router.get('/reports', auth, async (req, res) => {
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const closedCards = await JobCard.find({
-      status: { $in: ['Delivered', 'Closed'] },
-      updatedAt: { $lte: endOfDay }
-    });
-
-    const expenses = await Expense.find({
-      date: { $lte: endOfDay }
-    });
+    const [closedCards, expenses] = await Promise.all([
+      JobCard.find({
+        status: { $in: ['Delivered', 'Closed'] },
+        updatedAt: { $lte: endOfDay }
+      }).select('billingSummary updatedAt').lean(),
+      Expense.find({
+        date: { $lte: endOfDay }
+      }).select('amount date').lean()
+    ]);
 
     const groups = {};
 

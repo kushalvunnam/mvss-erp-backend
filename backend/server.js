@@ -209,7 +209,12 @@ app.get('/', (req, res) => {
 
 // Base API route
 app.get('/api', (req, res) => {
-  res.json({ success: true, message: 'AutoWorkshop Pro API is running.' });
+  res.json({ 
+    success: true, 
+    message: 'AutoWorkshop Pro API is running.',
+    commit: '2f2c2c0',
+    description: 'Thicken table borders to 1.5 & increase signature spacing to 105'
+  });
 });
 
 // JSON 404 Handler for all unmatched API routes across ALL HTTP methods (GET, POST, PUT, DELETE)
