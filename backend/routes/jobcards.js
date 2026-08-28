@@ -13,9 +13,11 @@ const router = express.Router();
 
 // Multer Local Storage Config
 const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (mkdirErr) {}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -398,6 +400,8 @@ router.put('/:id', auth, async (req, res) => {
   } catch (error) {
     res.status(400).send({ error: 'Failed to update job card: ' + error.message });
   }
+});
+
 // Search Job Cards for Dropdown
 router.get('/search', auth, async (req, res) => {
   try {
@@ -410,14 +414,23 @@ router.get('/search', auth, async (req, res) => {
 
     if (q && q.trim() !== '') {
       const term = q.trim();
+      const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       
       // Find matching customers and vehicles concurrently using Promise.all and lean()
       const [customers, vehicles] = await Promise.all([
         Customer.find({
-          name: { $regex: term, $options: 'i' }
+          $or: [
+            { name: { $regex: escapedTerm, $options: 'i' } },
+            { companyName: { $regex: escapedTerm, $options: 'i' } },
+            { mobile: { $regex: escapedTerm, $options: 'i' } }
+          ]
         }).select('_id').lean(),
         Vehicle.find({
-          vehicleNumber: { $regex: term, $options: 'i' }
+          $or: [
+            { vehicleNumber: { $regex: escapedTerm, $options: 'i' } },
+            { make: { $regex: escapedTerm, $options: 'i' } },
+            { model: { $regex: escapedTerm, $options: 'i' } }
+          ]
         }).select('_id').lean()
       ]);
 
@@ -425,16 +438,16 @@ router.get('/search', auth, async (req, res) => {
       const vehicleIds = vehicles.map(v => v._id);
 
       query.$or = [
-        { jobCardNo: { $regex: term, $options: 'i' } },
+        { jobCardNo: { $regex: escapedTerm, $options: 'i' } },
         { customerId: { $in: customerIds } },
         { vehicleId: { $in: vehicleIds } }
       ];
     }
 
-    // Limit results for dropdown search (e.g. max 50 for quick rendering)
+    // Limit results for dropdown search (max 50 for rapid rendering)
     const jobCards = await JobCard.find(query)
       .select('jobCardNo status vehicleId customerId date createdAt')
-      .populate('customerId', 'name')
+      .populate('customerId', 'name companyName mobile')
       .populate('vehicleId', 'vehicleNumber make model')
       .sort({ createdAt: -1 })
       .limit(50)
@@ -446,8 +459,8 @@ router.get('/search', auth, async (req, res) => {
       jobCardNo: jc.jobCardNo,
       status: jc.status,
       vehicleNo: jc.vehicleId?.vehicleNumber || '',
-      customerName: jc.customerId?.name || '',
-      vehicleModel: jc.vehicleId ? `${jc.vehicleId.make} ${jc.vehicleId.model}` : '',
+      customerName: jc.customerId?.name || jc.customerId?.companyName || 'Unknown Customer',
+      vehicleModel: jc.vehicleId ? `${jc.vehicleId.make || ''} ${jc.vehicleId.model || ''}`.trim() : '',
       dateFormatted: new Date(jc.date || jc.createdAt).toLocaleDateString('en-IN')
     }));
 
