@@ -5,8 +5,8 @@ const fetchStatus = async () => {
     if (res.ok) {
       const data = await res.json();
       console.log('Current status:', data);
-      if (data.commit === '2f2c2c0') {
-        console.log('DEPLOYMENT IS LIVE!');
+      if (data.commit) {
+        console.log('DEPLOYMENT IS LIVE! Version:', data.commit);
         process.exit(0);
       }
     }

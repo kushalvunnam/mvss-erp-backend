@@ -398,6 +398,64 @@ router.put('/:id', auth, async (req, res) => {
   } catch (error) {
     res.status(400).send({ error: 'Failed to update job card: ' + error.message });
   }
+// Search Job Cards for Dropdown
+router.get('/search', auth, async (req, res) => {
+  try {
+    const { q, excludeDelivered } = req.query;
+    let query = {};
+
+    if (excludeDelivered === 'true') {
+      query.status = { $nin: ['Delivered', 'Closed'] };
+    }
+
+    if (q && q.trim() !== '') {
+      const term = q.trim();
+      
+      // Find matching customers and vehicles concurrently using Promise.all and lean()
+      const [customers, vehicles] = await Promise.all([
+        Customer.find({
+          name: { $regex: term, $options: 'i' }
+        }).select('_id').lean(),
+        Vehicle.find({
+          vehicleNumber: { $regex: term, $options: 'i' }
+        }).select('_id').lean()
+      ]);
+
+      const customerIds = customers.map(c => c._id);
+      const vehicleIds = vehicles.map(v => v._id);
+
+      query.$or = [
+        { jobCardNo: { $regex: term, $options: 'i' } },
+        { customerId: { $in: customerIds } },
+        { vehicleId: { $in: vehicleIds } }
+      ];
+    }
+
+    // Limit results for dropdown search (e.g. max 50 for quick rendering)
+    const jobCards = await JobCard.find(query)
+      .select('jobCardNo status vehicleId customerId date createdAt')
+      .populate('customerId', 'name')
+      .populate('vehicleId', 'vehicleNumber make model')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    // Map to required structure
+    const mapped = jobCards.map(jc => ({
+      _id: jc._id,
+      jobCardNo: jc.jobCardNo,
+      status: jc.status,
+      vehicleNo: jc.vehicleId?.vehicleNumber || '',
+      customerName: jc.customerId?.name || '',
+      vehicleModel: jc.vehicleId ? `${jc.vehicleId.make} ${jc.vehicleId.model}` : '',
+      dateFormatted: new Date(jc.date || jc.createdAt).toLocaleDateString('en-IN')
+    }));
+
+    res.json(mapped);
+  } catch (error) {
+    console.error('JobCard search error:', error);
+    res.status(500).send({ error: 'Failed to search job cards: ' + error.message });
+  }
 });
 
 // Get Single Job Card Details
