@@ -559,7 +559,7 @@ function drawTableHeader(doc, y, gstMode = 'cgst_sgst') {
     doc.text('Total (Rs.)', 385, y + 9, { width: 180, align: 'center' });
   }
   
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y).lineTo(565, y).stroke()
      .moveTo(30, y + 25).lineTo(565, y + 25).stroke();
      
@@ -593,7 +593,7 @@ function drawTableRow(doc, y, index, desc, hsn, uom, qty, rate, partsTaxable, la
     doc.text(total, 385, y + 4, { width: 177, align: 'right' });
   }
   
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
   
   drawVerticalLines(doc, y, y + 16, gstMode);
@@ -616,7 +616,7 @@ function drawPartsTotalRow(doc, y, taxableSum, cgstSum, sgstSum, totalSum, gstMo
     doc.text(totalSum.toFixed(2), 385, y + 4, { width: 177, align: 'right' });
   }
 
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
   drawVerticalLines(doc, y, y + 16, gstMode);
 }
@@ -638,7 +638,7 @@ function drawLabourTotalRow(doc, y, taxableSum, cgstSum, sgstSum, totalSum, gstM
     doc.text(totalSum.toFixed(2), 385, y + 4, { width: 177, align: 'right' });
   }
 
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
   drawVerticalLines(doc, y, y + 16, gstMode);
 }
@@ -801,56 +801,63 @@ function drawSummaryBlock(doc, y, totals, isInterstate, grandTotalWords) {
 }
 
 function drawInvoiceFooter(doc, y, isInvoice = false, invoice = null) {
-  if (y > 690) {
+  // Generous gap above Terms & Conditions / Footer section
+  y += 25;
+
+  if (y > 650) {
     doc.addPage();
-    doc.strokeColor('#000000').lineWidth(1.5)
+    doc.strokeColor('#000000').lineWidth(2.0)
        .rect(30, 30, 535, 782).stroke();
     y = 40;
   }
   
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y).lineTo(565, y).stroke();
       
   doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5);
   
   if (isInvoice) {
-    doc.text('Declaration:', 35, y + 10);
+    doc.text('Declaration:', 35, y + 12);
     doc.font('Helvetica').fontSize(6.5).fillColor('#64748b')
-       .text('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.', 35, y + 22, { width: 250 });
+       .text('We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.', 35, y + 24, { width: 250 });
     if (invoice) {
       doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7)
-         .text(`Prepared By: ${invoice.preparedBy || 'Staff Incharge'}`, 50, y + 45);
+         .text(`Prepared By: ${invoice.preparedBy || 'Staff Incharge'}`, 50, y + 47);
     }
   } else {
-    doc.font('Helvetica-Bold').text('TERMS AND CONDITIONS:', 35, y + 10);
+    doc.font('Helvetica-Bold').text('TERMS AND CONDITIONS:', 35, y + 12);
     doc.font('Helvetica').fontSize(6.5).fillColor('#64748b')
-       .text('1. All estimates are valid for 15 days only.', 35, y + 22)
-       .text('2. Subject to changes in spare parts price at the time of delivery.', 35, y + 32)
-       .text('3. Demurrage charges applicable if vehicle not picked up within 3 days of ready alert.', 35, y + 42);
+       .text('1. All estimates are valid for 15 days only.', 35, y + 24)
+       .text('2. Subject to changes in spare parts price at the time of delivery.', 35, y + 34)
+       .text('3. Demurrage charges applicable if vehicle not picked up within 3 days of ready alert.', 35, y + 44);
   }
     doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5)
-      .text('For MVSS Automobiles Private Limited', 350, y + 10);
+      .text('For MVSS Automobiles Private Limited', 350, y + 12);
 
   // Draw the admin signature if it exists
   try {
     const signaturePath = path.join(__dirname, '../uploads/admin_signature.png');
     if (fs.existsSync(signaturePath)) {
-      doc.image(signaturePath, 390, y + 20, { fit: [90, 36], align: 'center' });
+      doc.image(signaturePath, 390, y + 67, { fit: [90, 36], align: 'center' });
     }
   } catch (sigErr) {
     console.error('Error drawing admin signature on PDF:', sigErr);
   }
        
-  doc.strokeColor('#666666').dash(2, {space: 2})
-     .moveTo(350, y + 105).lineTo(520, y + 105).stroke().undash();
+  // Customer Signature & Authorized Signatory section with gap above
+  const sigY = y + 120;
+
+  doc.strokeColor('#000000').lineWidth(1.5).dash(3, {space: 3})
+     .moveTo(350, sigY).lineTo(520, sigY).stroke().undash();
       
-  doc.font('Helvetica').fontSize(7)
-     .text('Authorized Signatory', 350, y + 112);
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000000')
+     .text('Authorized Signatory', 350, sigY + 7);
         
-  doc.strokeColor('#666666').dash(2, {space: 2})
-     .moveTo(50, y + 105).lineTo(200, y + 105).stroke().undash();
+  doc.strokeColor('#000000').lineWidth(1.5).dash(3, {space: 3})
+     .moveTo(50, sigY).lineTo(200, sigY).stroke().undash();
         
-  doc.font('Helvetica').fontSize(7).text('Customer Signature', 50, y + 112);
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000000')
+     .text('Customer Signature', 50, sigY + 7);
 }
 
 // Generate Estimate PDF
@@ -1034,7 +1041,7 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
   }
 
   // Draw vertical line borders to close the table cells bottom
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y).lineTo(565, y).stroke();
 
   // Calculate gross parts and labour discount
@@ -1423,7 +1430,7 @@ function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, total) {
   doc.text(unitPrice, 420, y + 4, { width: 55, align: 'right' });
   doc.text(total, 480, y + 4, { width: 80, align: 'right' });
   
-  doc.strokeColor('#000000').lineWidth(1.5)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
   
   drawCustomerVerticalLines(doc, y, y + 16);
@@ -1455,7 +1462,7 @@ function drawCustomerTableHeader(doc, y) {
   doc.text('Unit Price (Rs.)', 420, y + 9, { width: 55, align: 'right' });
   doc.text('Line Total (Rs.)', 480, y + 9, { width: 80, align: 'right' });
   
-  doc.strokeColor('#000000').lineWidth(1)
+  doc.strokeColor('#000000').lineWidth(2.0)
      .moveTo(30, y).lineTo(565, y).stroke()
      .moveTo(30, y + 25).lineTo(565, y + 25).stroke();
        
