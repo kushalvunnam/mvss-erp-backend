@@ -838,7 +838,7 @@ function drawInvoiceFooter(doc, y, isInvoice = false, invoice = null) {
   try {
     const signaturePath = path.join(__dirname, '../uploads/admin_signature.png');
     if (fs.existsSync(signaturePath)) {
-      doc.image(signaturePath, 390, y + 67, { fit: [90, 36], align: 'center' });
+      doc.image(signaturePath, 390, y + 72, { fit: [90, 36], align: 'center' });
     }
   } catch (sigErr) {
     console.error('Error drawing admin signature on PDF:', sigErr);
