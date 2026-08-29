@@ -222,7 +222,7 @@ router.get('/', async (req, res) => {
     }
 
     const invoices = await Invoice.find(query)
-      .select('invoiceNo jobCardId customerId vehicleId totals invoiceType paymentStatus paymentMethod amountPaid advanceReceived balanceDue isSent sentStatus status date createdAt')
+      .select('invoiceNo jobCardId customerId vehicleId totals parts labour invoiceType paymentStatus paymentMethod amountPaid advanceReceived balanceDue isSent sentStatus status date createdAt')
       .populate('customerId')
       .populate('vehicleId')
       .sort({ createdAt: -1 })
