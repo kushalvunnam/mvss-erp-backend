@@ -67,7 +67,7 @@ router.get('/attachment/:fileId', async (req, res) => {
     const { fileId } = req.params;
     
     // Check if ID is a valid ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(fileId)) {
+    if (!mongoose.isValidObjectId(fileId)) {
       const safeFileName = path.basename(fileId);
       const localPath = path.join(__dirname, '../uploads', safeFileName);
       if (fs.existsSync(localPath)) {
