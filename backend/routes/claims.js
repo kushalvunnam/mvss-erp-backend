@@ -15,9 +15,11 @@ router.use((req, res, next) => {
 router.use(auth, restrictTo('Admin', 'Service', 'Body Shop', 'Accounts Executive'));
 
 const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (mkdirErr) {}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

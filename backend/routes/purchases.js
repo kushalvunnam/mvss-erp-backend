@@ -11,22 +11,15 @@ const fs = require('fs');
 
 const router = express.Router();
 
-// Configure storage for Purchase attachments
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const { uploadFile, downloadFileStream, fileExists } = require('../utils/gridfs');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'purchase-' + uniqueSuffix + path.extname(file.originalname));
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // limit files to 10MB
   }
 });
-const upload = multer({ storage: storage });
 
 router.use((req, res, next) => {
   console.log(`[PURCHASES] Route request received: ${req.method} ${req.baseUrl}${req.path}`);
@@ -47,12 +40,52 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
     if (!req.file) {
       return res.status(400).send({ error: 'No file uploaded.' });
     }
-    const attachmentUrl = `/uploads/${req.file.filename}`;
+    // Upload buffer to GridFS
+    const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    
+    const attachmentUrl = `/api/purchases/attachment/${fileId}`;
     const attachmentName = req.file.originalname;
     const attachmentType = req.file.mimetype;
     res.status(200).send({ attachmentUrl, attachmentName, attachmentType });
   } catch (error) {
     res.status(500).send({ error: 'Upload failed: ' + error.message });
+  }
+});
+
+// Get attachment by fileId (Download/Stream)
+router.get('/attachment/:fileId', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    
+    // Check if ID is a valid ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(fileId)) {
+      return res.status(400).json({ error: 'Invalid file ID format.' });
+    }
+
+    // Check if file exists in GridFS
+    const file = await fileExists(fileId);
+    if (!file) {
+      console.warn(`[Attachment 404] File ${fileId} not found in GridFS database.`);
+      return res.status(404).json({ error: 'Attachment file not found in persistent database.' });
+    }
+
+    // Set correct Content-Type and stream the file directly
+    res.set('Content-Type', file.contentType || 'application/octet-stream');
+    res.set('Content-Length', file.length);
+    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
+    
+    const downloadStream = downloadFileStream(fileId);
+    downloadStream.on('error', (err) => {
+      console.error(`[Attachment Stream Error] fileId: ${fileId}:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream attachment.' });
+      }
+    });
+    
+    downloadStream.pipe(res);
+  } catch (error) {
+    console.error('Download attachment error:', error);
+    res.status(500).send({ error: 'Failed to download attachment: ' + error.message });
   }
 });
 

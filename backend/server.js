@@ -39,14 +39,19 @@ mongoose.model = function(name, schema) {
 // Mock mongoose.Types.ObjectId
 mongoose.Types = mongoose.Types || {};
 const originalObjectId = mongoose.Types.ObjectId;
-mongoose.Types.ObjectId = function(id) {
-  if (global.isInMemoryFallback) {
-    if (id) return id;
-    const { generateId } = require('./utils/inMemoryDB');
-    return generateId();
-  }
-  return originalObjectId ? new originalObjectId(id) : id;
-};
+if (originalObjectId) {
+  const MockedObjectId = function(id) {
+    if (global.isInMemoryFallback) {
+      if (id) return id;
+      const { generateId } = require('./utils/inMemoryDB');
+      return generateId();
+    }
+    return new originalObjectId(id);
+  };
+  Object.assign(MockedObjectId, originalObjectId);
+  MockedObjectId.prototype = originalObjectId.prototype;
+  mongoose.Types.ObjectId = MockedObjectId;
+}
 
 // Mock mongoose.connect if in-memory fallback
 if (global.isInMemoryFallback) {

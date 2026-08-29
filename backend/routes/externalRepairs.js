@@ -6,13 +6,6 @@ require('../models/JobCard');
 require('../models/Vendor');
 require('../models/Vehicle');
 
-// Auto-create collection in DB if missing
-if (typeof ExternalRepair.createCollection === 'function') {
-  ExternalRepair.createCollection().catch(err => {
-    console.log('ExternalRepair collection auto-creation:', err.message);
-  });
-}
-
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
 const { getNextSequence } = require('../utils/documentNumbering');
