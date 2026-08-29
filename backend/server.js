@@ -212,6 +212,28 @@ app.get('/', (req, res) => {
   });
 });
 
+app.get('/api/debug-route', (req, res) => {
+  try {
+    const layers = req.app._router.stack;
+    const purchasesLayer = layers.find(l => l.regexp && l.regexp.test('/api/purchases'));
+    if (!purchasesLayer) {
+      return res.send('Purchases layer not found in app router. Available layers: ' + layers.map(l => l.name || 'anonymous').join(', '));
+    }
+    const subRouter = purchasesLayer.handle;
+    if (!subRouter || !subRouter.stack) {
+      return res.send('Sub-router stack not found.');
+    }
+    const targetRoute = subRouter.stack.find(r => r.route && r.route.path === '/attachment/:fileId');
+    if (!targetRoute) {
+      return res.send('/attachment/:fileId route not found in purchases router. Available routes: ' + subRouter.stack.map(r => r.route?.path).filter(Boolean).join(', '));
+    }
+    res.set('Content-Type', 'text/plain');
+    res.send(targetRoute.route.stack[0].handle.toString());
+  } catch (err) {
+    res.send('Error: ' + err.message);
+  }
+});
+
 // Base API route
 app.get('/api', (req, res) => {
   res.json({ 
