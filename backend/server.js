@@ -36,21 +36,20 @@ mongoose.model = function(name, schema) {
   return originalModel(name, schema);
 };
 
-// Mock mongoose.Types.ObjectId
-mongoose.Types = mongoose.Types || {};
-const originalObjectId = mongoose.Types.ObjectId;
-if (originalObjectId) {
-  const MockedObjectId = function(id) {
-    if (global.isInMemoryFallback) {
+// Mock mongoose.Types.ObjectId if in-memory fallback is active
+if (global.isInMemoryFallback) {
+  mongoose.Types = mongoose.Types || {};
+  const originalObjectId = mongoose.Types.ObjectId;
+  if (originalObjectId) {
+    const MockedObjectId = function(id) {
       if (id) return id;
       const { generateId } = require('./utils/inMemoryDB');
       return generateId();
-    }
-    return new originalObjectId(id);
-  };
-  Object.assign(MockedObjectId, originalObjectId);
-  MockedObjectId.prototype = originalObjectId.prototype;
-  mongoose.Types.ObjectId = MockedObjectId;
+    };
+    Object.setPrototypeOf(MockedObjectId, originalObjectId);
+    MockedObjectId.prototype = originalObjectId.prototype;
+    mongoose.Types.ObjectId = MockedObjectId;
+  }
 }
 
 // Mock mongoose.connect if in-memory fallback
@@ -208,7 +207,7 @@ app.get('/', (req, res) => {
   res.json({
     status: "ok",
     service: "MVSS ERP Backend",
-    version: "production-v1.0.3"
+    version: "production-v1.0.4"
   });
 });
 
