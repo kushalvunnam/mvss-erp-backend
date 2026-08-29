@@ -40,13 +40,22 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
     if (!req.file) {
       return res.status(400).send({ error: 'No file uploaded.' });
     }
+    
+    // Validate MIME type
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      return res.status(400).send({ error: 'Invalid file type. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.' });
+    }
+
     // Upload buffer to GridFS
     const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     
-    const attachmentUrl = `/api/purchases/attachment/${fileId}`;
-    const attachmentName = req.file.originalname;
-    const attachmentType = req.file.mimetype;
-    res.status(200).send({ attachmentUrl, attachmentName, attachmentType, size: req.file.size });
+    res.status(200).send({
+      key: fileId.toString(),
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size
+    });
   } catch (error) {
     res.status(500).send({ error: 'Upload failed: ' + error.message });
   }
@@ -59,7 +68,18 @@ router.get('/attachment/:fileId', async (req, res) => {
     
     // Check if ID is a valid ObjectId format
     if (!mongoose.Types.ObjectId.isValid(fileId)) {
-      return res.status(400).json({ error: 'Invalid file ID format.' });
+      const safeFileName = path.basename(fileId);
+      const localPath = path.join(__dirname, '../uploads', safeFileName);
+      if (fs.existsSync(localPath)) {
+        const mimeType = fileId.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+        res.set('Content-Type', mimeType);
+        res.set('Content-Disposition', `inline; filename="${encodeURIComponent(safeFileName)}"`);
+        if (req.method === 'HEAD') {
+          return res.end();
+        }
+        return fs.createReadStream(localPath).pipe(res);
+      }
+      return res.status(404).json({ error: 'Attachment file not found.' });
     }
 
     // Check if file exists in GridFS
@@ -368,21 +388,29 @@ router.post('/', async (req, res) => {
       amountPaid: paidAmt,
       notes: notes || '',
       createdBy: req.user ? req.user.name : 'Staff',
-      attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? req.body.attachments[0] : req.body.attachments[0].url) : ''),
-      attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : req.body.attachments[0].name) : ''),
-      attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : req.body.attachments[0].type) : ''),
+      attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? req.body.attachments[0] : (req.body.attachments[0].url || `/api/purchases/attachment/${req.body.attachments[0].key}`)) : ''),
+      attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : (req.body.attachments[0].originalName || req.body.attachments[0].name)) : ''),
+      attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : (req.body.attachments[0].mimeType || req.body.attachments[0].type)) : ''),
       attachments: Array.isArray(req.body.attachments)
         ? req.body.attachments.map(att => {
             if (typeof att === 'string') {
-              return { url: att, name: 'Attached Document', type: att.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg', size: 0 };
+              const fileKey = att.includes('/api/purchases/attachment/')
+                ? att.split('/api/purchases/attachment/')[1].split('?')[0]
+                : att.split('/').pop();
+              return {
+                key: fileKey || att,
+                originalName: 'Attached Document',
+                mimeType: att.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
+                size: 0
+              };
             }
             return {
-              url: att.url || '',
-              name: att.name || 'Attached Document',
-              type: att.type || (att.url?.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+              key: att.key || att.url?.split('/').pop() || '',
+              originalName: att.originalName || att.name || 'Attached Document',
+              mimeType: att.mimeType || att.type || (att.url?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
               size: Number(att.size) || 0
             };
-          })
+          }).filter(att => att.key)
         : []
     });
 
@@ -735,20 +763,28 @@ router.put('/:id', async (req, res) => {
       const parsedAttachments = Array.isArray(req.body.attachments)
         ? req.body.attachments.map(att => {
             if (typeof att === 'string') {
-              return { url: att, name: 'Attached Document', type: att.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg', size: 0 };
+              const fileKey = att.includes('/api/purchases/attachment/')
+                ? att.split('/api/purchases/attachment/')[1].split('?')[0]
+                : att.split('/').pop();
+              return {
+                key: fileKey || att,
+                originalName: 'Attached Document',
+                mimeType: att.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
+                size: 0
+              };
             }
             return {
-              url: att.url || '',
-              name: att.name || 'Attached Document',
-              type: att.type || (att.url?.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+              key: att.key || att.url?.split('/').pop() || '',
+              originalName: att.originalName || att.name || 'Attached Document',
+              mimeType: att.mimeType || att.type || (att.url?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
               size: Number(att.size) || 0
             };
-          })
+          }).filter(att => att.key)
         : [];
       purchase.attachments = parsedAttachments;
-      purchase.attachmentUrl = parsedAttachments.length > 0 ? parsedAttachments[0].url : '';
-      purchase.attachmentName = parsedAttachments.length > 0 ? parsedAttachments[0].name : '';
-      purchase.attachmentType = parsedAttachments.length > 0 ? parsedAttachments[0].type : '';
+      purchase.attachmentUrl = parsedAttachments.length > 0 ? (parsedAttachments[0].url || `/api/purchases/attachment/${parsedAttachments[0].key}`) : '';
+      purchase.attachmentName = parsedAttachments.length > 0 ? parsedAttachments[0].originalName : '';
+      purchase.attachmentType = parsedAttachments.length > 0 ? parsedAttachments[0].mimeType : '';
     } else {
       if (req.body.attachmentUrl !== undefined) purchase.attachmentUrl = req.body.attachmentUrl;
       if (req.body.attachmentName !== undefined) purchase.attachmentName = req.body.attachmentName;
