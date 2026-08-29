@@ -364,10 +364,10 @@ router.post('/', async (req, res) => {
       amountPaid: paidAmt,
       notes: notes || '',
       createdBy: req.user ? req.user.name : 'Staff',
-      attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? req.body.attachments[0].url : ''),
-      attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? req.body.attachments[0].name : ''),
-      attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? req.body.attachments[0].type : ''),
-      attachments: req.body.attachments || []
+      attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? req.body.attachments[0] : req.body.attachments[0].url) : ''),
+      attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : req.body.attachments[0].name) : ''),
+      attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : req.body.attachments[0].type) : ''),
+      attachments: Array.isArray(req.body.attachments) ? req.body.attachments.map(att => typeof att === 'string' ? att : (att.url || '')) : []
     });
 
     await purchase.save();
@@ -716,10 +716,13 @@ router.put('/:id', async (req, res) => {
     purchase.notes = notes || '';
     purchase.updatedBy = req.user ? req.user.name : 'Staff';
     if (req.body.attachments !== undefined) {
-      purchase.attachments = req.body.attachments;
-      purchase.attachmentUrl = req.body.attachments.length > 0 ? req.body.attachments[0].url : '';
-      purchase.attachmentName = req.body.attachments.length > 0 ? req.body.attachments[0].name : '';
-      purchase.attachmentType = req.body.attachments.length > 0 ? req.body.attachments[0].type : '';
+      const urls = Array.isArray(req.body.attachments)
+        ? req.body.attachments.map(att => typeof att === 'string' ? att : (att.url || ''))
+        : [];
+      purchase.attachments = urls;
+      purchase.attachmentUrl = urls.length > 0 ? urls[0] : '';
+      purchase.attachmentName = urls.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : (req.body.attachments[0].name || 'Attached Document')) : '';
+      purchase.attachmentType = urls.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : (req.body.attachments[0].type || 'image/jpeg')) : '';
     } else {
       if (req.body.attachmentUrl !== undefined) purchase.attachmentUrl = req.body.attachmentUrl;
       if (req.body.attachmentName !== undefined) purchase.attachmentName = req.body.attachmentName;
