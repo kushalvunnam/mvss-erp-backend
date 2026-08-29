@@ -195,7 +195,12 @@ const purchaseSchema = new mongoose.Schema({
     default: ''
   },
   attachments: {
-    type: [String],
+    type: [{
+      url: { type: String, required: true },
+      name: { type: String, default: '' },
+      type: { type: String, default: '' },
+      size: { type: Number, default: 0 }
+    }],
     default: []
   }
 }, {

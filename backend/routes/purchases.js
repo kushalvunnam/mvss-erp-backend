@@ -46,7 +46,7 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
     const attachmentUrl = `/api/purchases/attachment/${fileId}`;
     const attachmentName = req.file.originalname;
     const attachmentType = req.file.mimetype;
-    res.status(200).send({ attachmentUrl, attachmentName, attachmentType });
+    res.status(200).send({ attachmentUrl, attachmentName, attachmentType, size: req.file.size });
   } catch (error) {
     res.status(500).send({ error: 'Upload failed: ' + error.message });
   }
@@ -73,6 +73,10 @@ router.get('/attachment/:fileId', async (req, res) => {
     res.set('Content-Type', file.contentType || 'application/octet-stream');
     res.set('Content-Length', file.length);
     res.set('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
+    
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
     
     const downloadStream = downloadFileStream(fileId);
     downloadStream.on('error', (err) => {
@@ -367,7 +371,19 @@ router.post('/', async (req, res) => {
       attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? req.body.attachments[0] : req.body.attachments[0].url) : ''),
       attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : req.body.attachments[0].name) : ''),
       attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : req.body.attachments[0].type) : ''),
-      attachments: Array.isArray(req.body.attachments) ? req.body.attachments.map(att => typeof att === 'string' ? att : (att.url || '')) : []
+      attachments: Array.isArray(req.body.attachments)
+        ? req.body.attachments.map(att => {
+            if (typeof att === 'string') {
+              return { url: att, name: 'Attached Document', type: att.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg', size: 0 };
+            }
+            return {
+              url: att.url || '',
+              name: att.name || 'Attached Document',
+              type: att.type || (att.url?.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+              size: Number(att.size) || 0
+            };
+          })
+        : []
     });
 
     await purchase.save();
@@ -716,13 +732,23 @@ router.put('/:id', async (req, res) => {
     purchase.notes = notes || '';
     purchase.updatedBy = req.user ? req.user.name : 'Staff';
     if (req.body.attachments !== undefined) {
-      const urls = Array.isArray(req.body.attachments)
-        ? req.body.attachments.map(att => typeof att === 'string' ? att : (att.url || ''))
+      const parsedAttachments = Array.isArray(req.body.attachments)
+        ? req.body.attachments.map(att => {
+            if (typeof att === 'string') {
+              return { url: att, name: 'Attached Document', type: att.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg', size: 0 };
+            }
+            return {
+              url: att.url || '',
+              name: att.name || 'Attached Document',
+              type: att.type || (att.url?.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+              size: Number(att.size) || 0
+            };
+          })
         : [];
-      purchase.attachments = urls;
-      purchase.attachmentUrl = urls.length > 0 ? urls[0] : '';
-      purchase.attachmentName = urls.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : (req.body.attachments[0].name || 'Attached Document')) : '';
-      purchase.attachmentType = urls.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : (req.body.attachments[0].type || 'image/jpeg')) : '';
+      purchase.attachments = parsedAttachments;
+      purchase.attachmentUrl = parsedAttachments.length > 0 ? parsedAttachments[0].url : '';
+      purchase.attachmentName = parsedAttachments.length > 0 ? parsedAttachments[0].name : '';
+      purchase.attachmentType = parsedAttachments.length > 0 ? parsedAttachments[0].type : '';
     } else {
       if (req.body.attachmentUrl !== undefined) purchase.attachmentUrl = req.body.attachmentUrl;
       if (req.body.attachmentName !== undefined) purchase.attachmentName = req.body.attachmentName;
