@@ -65,7 +65,7 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
 router.get('/attachment/:fileId', async (req, res) => {
   try {
     const { fileId } = req.params;
-    
+    console.log(`[ATTACHMENT_DOWNLOAD] fileId requested: ${fileId}`);
     // Check if ID is a valid ObjectId format
     if (!mongoose.isValidObjectId(fileId)) {
       const safeFileName = path.basename(fileId);
