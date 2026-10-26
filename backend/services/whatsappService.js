@@ -63,17 +63,22 @@ const getMetaErrorDetails = (err) => {
         }
     }
 
+    const type = metaError?.type ?? null;
     const code = metaError?.code ?? null;
     const subcode = metaError?.error_subcode ?? null;
+    const errorData = metaError?.error_data ? (typeof metaError.error_data === 'object' ? JSON.stringify(metaError.error_data) : String(metaError.error_data)) : null;
     const fbtraceId = metaError?.fbtrace_id ?? null;
     const status = err.response?.status ?? null;
 
-    const formatted = `${status ? `HTTP ${status} ` : ''}${code ? `Code ${code}${subcode ? `:${subcode}` : ''} - ` : ''}${message}${fbtraceId ? ` (fbtrace_id: ${fbtraceId})` : ''}`;
+    const formatted = `${status ? `HTTP ${status} ` : ''}${code ? `Code ${code}${subcode ? `:${subcode}` : ''} ` : ''}${type ? `[${type}] ` : ''}- ${message}${errorData ? ` (details: ${errorData})` : ''}${fbtraceId ? ` (fbtrace_id: ${fbtraceId})` : ''}`;
 
     return {
         message,
+        type,
         code,
         subcode,
+        errorData,
+        error_data: errorData,
         fbtraceId,
         fbtrace_id: fbtraceId,
         status,
