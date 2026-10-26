@@ -1,26 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const WhatsAppLog = require('../models/WhatsAppLog');
-const { auth } = require('../middleware/auth');
-const { sendTemplateMessage } = require('../services/whatsappService');
+const { auth, restrictTo } = require('../middleware/auth');
+const { sendTemplateMessage, syncMetaTemplates } = require('../services/whatsappService');
+
+// Automatically run startup Meta audit & template synchronization
+if (process.env.META_WA_ACCESS_TOKEN && process.env.META_WA_BUSINESS_ACCOUNT_ID) {
+    setTimeout(() => {
+        syncMetaTemplates().catch(err => {
+            console.warn('[WhatsApp] Startup Meta sync warning:', err.message);
+        });
+    }, 2000);
+}
 
 // =========================================================================
 // PHASE 10: WEBHOOK VERIFICATION (GET)
 // =========================================================================
-router.get('/debug-templates', async (req, res) => {
-    if (req.query.secret !== 'debug_meta_123') return res.status(403).send('Forbidden');
-    try {
-        const axios = require('axios');
-        const token = process.env.META_WA_ACCESS_TOKEN;
-        const wabaId = process.env.META_WA_BUSINESS_ACCOUNT_ID;
-        const url = `https://graph.facebook.com/v17.0/${wabaId}/message_templates`;
-        const response = await axios.get(url, { headers: { 'Authorization': `Bearer ${token}` } });
-        res.json(response.data);
-    } catch (e) {
-        res.status(500).json({ error: e.response?.data || e.message });
-    }
-});
-
 router.get('/webhook', (req, res) => {
     const VERIFY_TOKEN = process.env.META_WA_VERIFY_TOKEN;
 
@@ -65,7 +60,7 @@ router.post('/webhook', async (req, res) => {
 
                             // Update our log asynchronously
                             await WhatsAppLog.findOneAndUpdate({ messageId }, updatePayload);
-                            console.log(`[WhatsApp] Message ${messageId} status updated to: ${statusString}`);
+                            console.log(`[WhatsApp Webhook] Message ${messageId} delivery status: ${statusString}`);
                         }
                     }
 
@@ -80,7 +75,8 @@ router.post('/webhook', async (req, res) => {
                             const existingInbound = await WhatsAppLog.findOne({ messageId });
                             if (existingInbound) continue;
                             
-                            console.log(`[WhatsApp] Inbound message received from ${fromPhone}`);
+                            const maskedFrom = fromPhone ? fromPhone.substring(0, 3) + '****' + fromPhone.slice(-3) : 'unknown';
+                            console.log(`[WhatsApp Webhook] Inbound message received from ${maskedFrom}`);
 
                             // Store inbound message in WhatsAppLog
                             const logEntry = new WhatsAppLog({
@@ -102,21 +98,29 @@ router.post('/webhook', async (req, res) => {
             return res.sendStatus(404);
         }
     } catch (error) {
-        console.error('[WhatsApp] Webhook processing error:', error);
+        console.error('[WhatsApp Webhook] Processing error:', error);
         // Do not break the webhook acknowledgment
         return res.status(500).send('ERROR');
     }
 });
 
 // =========================================================================
-// PHASE 12: ADMIN TEST ENDPOINT
+// PHASE 12: AUTHENTICATED ADMIN META STATUS AUDIT ENDPOINT
 // =========================================================================
-router.post('/test', async (req, res) => {
-    // Only allow admin roles to trigger tests OR a secret query param for debugging
-    if (req.query.secret !== 'debug_meta_123') {
-        return res.status(403).json({ error: 'Unauthorized to use test endpoint.' });
+router.get('/meta-status', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    try {
+        const result = await syncMetaTemplates();
+        return res.json(result);
+    } catch (error) {
+        console.error('[WhatsApp] meta-status error:', error);
+        return res.status(500).json({ error: error.message || 'Internal Server Error' });
     }
+});
 
+// =========================================================================
+// PHASE 13: AUTHENTICATED ADMIN PRODUCTION TEST ENDPOINT
+// =========================================================================
+router.post('/test', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
     try {
         const { phone, templateName, parameters } = req.body;
         
@@ -136,19 +140,24 @@ router.post('/test', async (req, res) => {
             to: phone,
             templateName,
             components,
-            recipientName: 'Test Admin',
+            recipientName: req.user.name || 'Test Admin',
             idempotencyKey: `test_message_${Date.now()}`
         });
 
-        if (result.success) {
-            return res.json({ success: true, messageId: result.messageId, details: result.data });
-        } else {
-            return res.status(500).json({ success: false, error: result.error });
-        }
+        return res.json({
+            success: true,
+            messageId: result.messageId,
+            language: result.language,
+            details: result.data
+        });
 
     } catch (error) {
-        console.error('[WhatsApp] Test endpoint error:', error);
-        return res.status(500).json({ error: 'Internal Server Error' });
+        const maskedRecipient = req.body?.phone ? req.body.phone.substring(0, 3) + '****' + req.body.phone.slice(-3) : 'unknown';
+        console.error(`[WhatsApp] Test endpoint error for ${maskedRecipient}:`, error.message);
+        return res.status(500).json({
+            success: false,
+            error: error.message || 'Internal Server Error'
+        });
     }
 });
 
