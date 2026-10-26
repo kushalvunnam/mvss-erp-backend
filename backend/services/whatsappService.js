@@ -1,6 +1,10 @@
 const axios = require('axios');
 const WhatsAppLog = require('../models/WhatsAppLog');
 
+// Centralized Graph API version configuration (default: v25.0)
+const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v25.0';
+const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+
 /**
  * Utility to normalize Indian phone numbers to E.164 format (without the +) -> 91XXXXXXXXXX
  */
@@ -39,7 +43,47 @@ const TEMPLATE_CONFIG = {
 const dynamicTemplateMap = new Map();
 
 /**
+ * Safely extracts error details from a Meta Graph API or network error without leaking secrets or tokens.
+ */
+const getMetaErrorDetails = (err) => {
+    const metaError = err.response?.data?.error;
+    let message = metaError?.message;
+
+    if (!message) {
+        if (typeof err.response?.data === 'string') {
+            message = err.response.data.substring(0, 300);
+        } else if (err.response?.data) {
+            try {
+                message = JSON.stringify(err.response.data);
+            } catch {
+                message = err.message;
+            }
+        } else {
+            message = err.message || 'Unknown Network Error';
+        }
+    }
+
+    const code = metaError?.code ?? null;
+    const subcode = metaError?.error_subcode ?? null;
+    const fbtraceId = metaError?.fbtrace_id ?? null;
+    const status = err.response?.status ?? null;
+
+    const formatted = `${status ? `HTTP ${status} ` : ''}${code ? `Code ${code}${subcode ? `:${subcode}` : ''} - ` : ''}${message}${fbtraceId ? ` (fbtrace_id: ${fbtraceId})` : ''}`;
+
+    return {
+        message,
+        code,
+        subcode,
+        fbtraceId,
+        fbtrace_id: fbtraceId,
+        status,
+        formatted
+    };
+};
+
+/**
  * Fetch and verify production configuration and approved templates directly from Meta Graph API.
+ * Uses centralized GRAPH_API_BASE_URL.
  * Distinguishes permission failures from invalid IDs, tests for Business Portfolio vs WABA IDs,
  * and preserves the static TEMPLATE_CONFIG baseline if dynamic audit cannot complete.
  */
@@ -55,6 +99,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
 
     const auditReport = {
         timestamp: new Date().toISOString(),
+        graphApiVersion: GRAPH_API_VERSION,
         tokenPermissions: {},
         phoneVerification: { configuredId: phoneNumberId, verified: false, details: null, error: null },
         wabaVerification: { configuredId: configuredWabaId, verified: false, isWaba: false, isBusinessPortfolio: false, resolvedWabaId: null, error: null },
@@ -62,11 +107,11 @@ const syncMetaTemplates = async (customAxios = axios) => {
         fallbackConfigActive: true
     };
 
-    console.log(`[WhatsApp Meta Audit] === Starting Meta Production Audit ===`);
+    console.log(`[WhatsApp Meta Audit] === Starting Meta Production Audit (${GRAPH_API_VERSION}) ===`);
 
     // 1. Inspect Token Scopes via /me/permissions
     try {
-        const permRes = await customAxios.get('https://graph.facebook.com/v17.0/me/permissions', {
+        const permRes = await customAxios.get(`${GRAPH_API_BASE_URL}/me/permissions`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const permissions = permRes.data?.data || [];
@@ -84,25 +129,24 @@ const syncMetaTemplates = async (customAxios = axios) => {
             console.warn('[WhatsApp Meta Audit] PERMISSION NOTICE: Access token lacks "whatsapp_business_management" scope. Dynamic template listing and WABA metadata inspection may be restricted by Meta.');
         }
     } catch (permErr) {
-        const pMsg = permErr.response?.data?.error?.message || permErr.message;
-        console.warn('[WhatsApp Meta Audit] Could not inspect token permissions via /me/permissions:', pMsg);
-        auditReport.tokenPermissions = { error: pMsg };
+        const errDetails = getMetaErrorDetails(permErr);
+        console.warn('[WhatsApp Meta Audit] Could not inspect token permissions via /me/permissions:', errDetails.formatted);
+        auditReport.tokenPermissions = { error: errDetails.message };
     }
 
-    // 2. Inspect Phone Number ID via /v17.0/${phoneNumberId}
+    // 2. Inspect Phone Number ID via /${phoneNumberId}
     if (phoneNumberId) {
         try {
-            const phoneRes = await customAxios.get(`https://graph.facebook.com/v17.0/${phoneNumberId}?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating`, {
+            const phoneRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneNumberId}?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             auditReport.phoneVerification.verified = true;
             auditReport.phoneVerification.details = phoneRes.data;
             console.log(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} verified on Meta: Display=${phoneRes.data.display_phone_number || 'N/A'} | Verified Name=${phoneRes.data.verified_name || 'N/A'} | Status=${phoneRes.data.code_verification_status || 'VERIFIED'} | Quality=${phoneRes.data.quality_rating || 'N/A'}`);
         } catch (phoneErr) {
-            const phoneErrMsg = phoneErr.response?.data?.error?.message || phoneErr.message;
-            const phoneErrCode = phoneErr.response?.data?.error?.code;
-            auditReport.phoneVerification.error = `${phoneErrCode ? `(Code ${phoneErrCode}) ` : ''}${phoneErrMsg}`;
-            console.warn(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} check failed:`, auditReport.phoneVerification.error);
+            const errDetails = getMetaErrorDetails(phoneErr);
+            auditReport.phoneVerification.error = errDetails.formatted;
+            console.warn(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} check failed:`, errDetails.formatted);
         }
     } else {
         auditReport.phoneVerification.error = 'META_WA_PHONE_NUMBER_ID is not configured in environment';
@@ -114,7 +158,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
     if (configuredWabaId) {
         // First, test whether configuredWabaId is directly a WhatsApp Business Account
         try {
-            const wabaDirectRes = await customAxios.get(`https://graph.facebook.com/v17.0/${configuredWabaId}?fields=id,name,currency,timezone_id`, {
+            const wabaDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredWabaId}?fields=id,name,currency,timezone_id`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             auditReport.wabaVerification.verified = true;
@@ -123,14 +167,13 @@ const syncMetaTemplates = async (customAxios = axios) => {
             effectiveWabaId = configuredWabaId;
             console.log(`[WhatsApp Meta Audit] ID ${configuredWabaId} confirmed as valid WhatsApp Business Account: Name=${wabaDirectRes.data?.name || 'N/A'}`);
         } catch (wabaErr) {
-            const wabaMsg = wabaErr.response?.data?.error?.message || wabaErr.message;
-            const wabaCode = wabaErr.response?.data?.error?.code;
-            console.warn(`[WhatsApp Meta Audit] Direct WABA check on ${configuredWabaId} returned: ${wabaCode ? `Code ${wabaCode} - ` : ''}${wabaMsg}`);
+            const wabaErrDetails = getMetaErrorDetails(wabaErr);
+            console.warn(`[WhatsApp Meta Audit] Direct WABA check on ${configuredWabaId} returned:`, wabaErrDetails.formatted);
 
             // If direct WABA check fails, check if configuredWabaId is a Meta Business Portfolio ID
             try {
                 console.log(`[WhatsApp Meta Audit] Testing if ${configuredWabaId} is a Business Portfolio ID via /owned_whatsapp_business_accounts...`);
-                const portfolioRes = await customAxios.get(`https://graph.facebook.com/v17.0/${configuredWabaId}/owned_whatsapp_business_accounts`, {
+                const portfolioRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredWabaId}/owned_whatsapp_business_accounts`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const ownedWabas = portfolioRes.data?.data || [];
@@ -145,9 +188,9 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     console.warn(`[WhatsApp Meta Audit] Business Portfolio ${configuredWabaId} returned 0 owned WhatsApp Business Accounts.`);
                 }
             } catch (portfolioErr) {
-                const portMsg = portfolioErr.response?.data?.error?.message || portfolioErr.message;
-                auditReport.wabaVerification.error = `Direct check: "${wabaMsg}", Portfolio check: "${portMsg}"`;
-                console.warn(`[WhatsApp Meta Audit] Portfolio check on ${configuredWabaId} also failed:`, portMsg);
+                const portErrDetails = getMetaErrorDetails(portfolioErr);
+                auditReport.wabaVerification.error = `Direct: "${wabaErrDetails.formatted}", Portfolio: "${portErrDetails.formatted}"`;
+                console.warn(`[WhatsApp Meta Audit] Portfolio check on ${configuredWabaId} also failed:`, portErrDetails.formatted);
             }
         }
     } else {
@@ -158,7 +201,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
     // 4. Fetch Message Templates using effectiveWabaId (if verified)
     if (effectiveWabaId && auditReport.wabaVerification.verified) {
         try {
-            const templatesRes = await customAxios.get(`https://graph.facebook.com/v17.0/${effectiveWabaId}/message_templates?limit=100`, {
+            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${effectiveWabaId}/message_templates?limit=100`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const metaTemplates = templatesRes.data?.data || [];
@@ -206,9 +249,9 @@ const syncMetaTemplates = async (customAxios = axios) => {
                 }
             }
         } catch (tplErr) {
-            const tplErrMsg = tplErr.response?.data?.error?.message || tplErr.message;
-            auditReport.templatesAudit.error = tplErrMsg;
-            console.warn(`[WhatsApp Meta Audit] Failed to retrieve message templates from WABA ${effectiveWabaId}:`, tplErrMsg);
+            const tplErrDetails = getMetaErrorDetails(tplErr);
+            auditReport.templatesAudit.error = tplErrDetails.formatted;
+            console.warn(`[WhatsApp Meta Audit] Failed to retrieve message templates from WABA ${effectiveWabaId}:`, tplErrDetails.formatted);
             console.warn('[WhatsApp Meta Audit] Preserving static TEMPLATE_CONFIG baseline (en).');
         }
     } else {
@@ -232,10 +275,10 @@ const sendTemplateMessage = async ({
     relatedEntity,
     onModel,
     idempotencyKey
-}) => {
+}, customAxios = axios) => {
     // Masked recipient for privacy-safe diagnostic logging
     const maskedTo = to ? to.substring(0, 3) + '****' + to.slice(-3) : 'unknown';
-    console.log(`[WhatsApp] Attempting send -> Event: ${onModel || 'Manual'}, Template: ${templateName}, To: ${maskedTo}`);
+    console.log(`[WhatsApp] Attempting send -> Event: ${onModel || 'Manual'}, Template: ${templateName}, To: ${maskedTo}, Version: ${GRAPH_API_VERSION}`);
 
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
@@ -340,10 +383,10 @@ const sendTemplateMessage = async ({
             }
         };
 
-        const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
+        const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
 
-        console.log(`[WhatsApp] Sending request to Meta Graph API for template '${templateName}' [lang: ${finalLanguageCode}]`);
-        const response = await axios.post(url, payload, {
+        console.log(`[WhatsApp] Sending request to Meta Graph API (${GRAPH_API_VERSION}) for template '${templateName}' [lang: ${finalLanguageCode}]`);
+        const response = await customAxios.post(url, payload, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -358,19 +401,16 @@ const sendTemplateMessage = async ({
         logEntry.status = 'sent';
         await logEntry.save();
 
-        console.log(`[WhatsApp] Successfully sent template '${templateName}' to ${maskedTo} | HTTP: ${httpStatus} | wamid: ${messageId}`);
+        console.log(`[WhatsApp] Successfully sent template '${templateName}' to ${maskedTo} | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
         return { success: true, messageId, data: response.data, language: finalLanguageCode };
 
     } catch (error) {
-        let errorMsg = error.message;
-        let metaErrorCode = null;
+        const errDetails = getMetaErrorDetails(error);
 
-        if (error.response?.data) {
-            errorMsg = error.response.data?.error?.message || JSON.stringify(error.response.data);
-            metaErrorCode = error.response.data?.error?.code;
-            console.error(`[WhatsApp] Meta API Error: HTTP ${error.response.status} | Code: ${metaErrorCode} | Msg: ${errorMsg}`);
+        if (errDetails.status) {
+            console.error(`[WhatsApp] Meta API Error -> To: ${maskedTo} | Version: ${GRAPH_API_VERSION} | ${errDetails.formatted}`);
         } else {
-            console.error(`[WhatsApp] Internal/Network Error: ${errorMsg}`);
+            console.error(`[WhatsApp] Internal/Network Error -> To: ${maskedTo} | Msg: ${errDetails.message}`);
         }
         
         // Mark log as failed
@@ -379,7 +419,7 @@ const sendTemplateMessage = async ({
                 const existing = await WhatsAppLog.findOne({ idempotencyKey });
                 if (existing) {
                     existing.status = 'failed';
-                    existing.errorMessage = errorMsg;
+                    existing.errorMessage = errDetails.formatted;
                     await existing.save();
                 } else {
                     await WhatsAppLog.create({
@@ -392,7 +432,7 @@ const sendTemplateMessage = async ({
                         relatedEntity,
                         onModel,
                         idempotencyKey,
-                        errorMessage: errorMsg
+                        errorMessage: errDetails.formatted
                     });
                 }
             } catch (logErr) {
@@ -408,6 +448,9 @@ module.exports = {
     sendTemplateMessage,
     normalizePhoneNumber,
     syncMetaTemplates,
+    getMetaErrorDetails,
     TEMPLATE_CONFIG,
-    dynamicTemplateMap
+    dynamicTemplateMap,
+    GRAPH_API_VERSION,
+    GRAPH_API_BASE_URL
 };
