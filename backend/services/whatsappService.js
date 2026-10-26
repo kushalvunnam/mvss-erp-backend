@@ -541,72 +541,30 @@ const sendTemplateMessage = async ({
         });
         await logEntry.save();
 
-        // Build candidate languages for automatic fallback on Code 132001
-        const candidateLanguages = [initialLanguage];
-        const englishVariants = ['en', 'en_US', 'en_GB'];
-        if (englishVariants.includes(initialLanguage)) {
-            for (const variant of englishVariants) {
-                if (!candidateLanguages.includes(variant)) {
-                    candidateLanguages.push(variant);
-                }
+        // Construct Meta API Payload with configured template and language
+        const payload = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedPhone,
+            type: 'template',
+            template: {
+                name: finalTemplateName,
+                language: {
+                    code: initialLanguage
+                },
+                components: components
             }
-        }
+        };
 
-        let response = null;
-        let lastError = null;
-        let successfulLanguage = initialLanguage;
         const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
+        console.log(`[WhatsApp] Sending request to Meta Graph API (${GRAPH_API_VERSION}) for template '${finalTemplateName}' [lang: ${initialLanguage}]`);
 
-        for (let langIdx = 0; langIdx < candidateLanguages.length; langIdx++) {
-            const currentLang = candidateLanguages[langIdx];
-            const payload = {
-                messaging_product: 'whatsapp',
-                recipient_type: 'individual',
-                to: normalizedPhone,
-                type: 'template',
-                template: {
-                    name: finalTemplateName,
-                    language: {
-                        code: currentLang
-                    },
-                    components: components
-                }
-            };
-
-            console.log(`[WhatsApp] Sending request to Meta Graph API (${GRAPH_API_VERSION}) for template '${finalTemplateName}' [lang: ${currentLang}] (attempt ${langIdx + 1}/${candidateLanguages.length})`);
-
-            try {
-                response = await customAxios.post(url, payload, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                successfulLanguage = currentLang;
-                lastError = null;
-                // Cache the verified winning language into dynamicTemplateMap
-                dynamicTemplateMap.set(finalTemplateName, {
-                    name: finalTemplateName,
-                    language: successfulLanguage,
-                    status: 'APPROVED',
-                    paramCount: expectedParamCount
-                });
-                break; // Message accepted by Meta!
-            } catch (postErr) {
-                lastError = postErr;
-                const errDetails = getMetaErrorDetails(postErr);
-                const isTranslationError = errDetails.code === 132001 || (errDetails.message && errDetails.message.includes('132001'));
-                if (isTranslationError && langIdx < candidateLanguages.length - 1) {
-                    console.warn(`[WhatsApp] Meta rejected template '${finalTemplateName}' for language '${currentLang}' with Code 132001. Retrying with next candidate '${candidateLanguages[langIdx + 1]}'`);
-                    continue;
-                }
-                break;
+        const response = await customAxios.post(url, payload, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             }
-        }
-
-        if (lastError || !response) {
-            throw lastError;
-        }
+        });
 
         const messageId = response.data.messages?.[0]?.id;
         const httpStatus = response.status;
@@ -616,8 +574,8 @@ const sendTemplateMessage = async ({
         logEntry.status = 'sent';
         await logEntry.save();
 
-        console.log(`[WhatsApp] Successfully sent template '${finalTemplateName}' to ${maskedTo} [lang: ${successfulLanguage}] | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
-        return { success: true, messageId, data: response.data, language: successfulLanguage };
+        console.log(`[WhatsApp] Successfully sent template '${finalTemplateName}' to ${maskedTo} [lang: ${initialLanguage}] | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
+        return { success: true, messageId, data: response.data, language: initialLanguage };
 
     } catch (error) {
         const errDetails = getMetaErrorDetails(error);

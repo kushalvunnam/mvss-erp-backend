@@ -31,7 +31,7 @@ const mockMeta404Error = {
                 type: 'OAuthException',
                 code: 132001,
                 error_subcode: 0,
-                error_data: { details: 'No such template found' },
+                error_data: { details: 'template name (mvss_job_card_created) does not exist in en' },
                 fbtrace_id: 'A7x9B2kLmNp'
             }
         }
@@ -45,7 +45,7 @@ assert.strictEqual(errDetails.fbtrace_id, 'A7x9B2kLmNp');
 assert.strictEqual(errDetails.message, '(#132001) Template name does not exist in the translation');
 assert(errDetails.formatted.includes('HTTP 404'));
 assert(errDetails.formatted.includes('Code 132001'));
-assert(errDetails.formatted.includes('details: {"details":"No such template found"}'));
+assert(errDetails.formatted.includes('details: {"details":"template name (mvss_job_card_created) does not exist in en"}'));
 assert(errDetails.formatted.includes('fbtrace_id: A7x9B2kLmNp'));
 console.log('✔ Test 2 Passed: Meta 404 error details and fbtrace_id correctly extracted without [Object] masking.');
 
@@ -182,80 +182,69 @@ async function testOutbound404Handling() {
     }
 }
 
-// Test 6: Automatic English locale fallback on Error 132001
-async function testAutomaticLocaleFallback() {
+// Test 6: Template configuration error 132001 fails fast with exact details (no blind retries)
+async function testError132001FastFail() {
     process.env.META_WA_ACCESS_TOKEN = 'test_token';
     process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-    dynamicTemplateMap.clear();
 
-    const attempts = [];
+    let attemptCount = 0;
     const mockAxios = {
         post: async (url, payload) => {
-            const lang = payload.template.language.code;
-            attempts.push(lang);
-            if (lang === 'en') {
-                // First attempt with 'en' fails with 132001
-                const err = new Error('Request failed with status code 404');
-                err.response = {
-                    status: 404,
-                    data: {
-                        error: {
-                            message: '(#132001) Template name does not exist in the translation',
-                            code: 132001,
-                            fbtrace_id: 'Trace132001'
-                        }
+            attemptCount++;
+            const err = new Error('Request failed with status code 404');
+            err.response = {
+                status: 404,
+                data: {
+                    error: {
+                        message: '(#132001) Template name does not exist in the translation',
+                        type: 'OAuthException',
+                        code: 132001,
+                        error_data: { details: 'template name (mvss_job_card_created) does not exist in en' },
+                        fbtrace_id: 'Trace132001'
                     }
-                };
-                throw err;
-            } else if (lang === 'en_US') {
-                // Second attempt with 'en_US' succeeds!
-                return {
-                    status: 200,
-                    data: {
-                        messaging_product: 'whatsapp',
-                        messages: [{ id: 'wamid.SUCCESS_EN_US_FALLBACK' }]
-                    }
-                };
-            }
-            throw new Error(`Unexpected language: ${lang}`);
+                }
+            };
+            throw err;
         }
     };
 
-    const idempotencyKey = `test_fallback_${Date.now()}`;
-    const res = await sendTemplateMessage({
-        to: '8008092742',
-        templateName: 'mvss_job_card_created',
-        components: [
-            {
-                type: 'body',
-                parameters: [
-                    { type: 'text', text: 'Kushal' },
-                    { type: 'text', text: 'JC-1002' },
-                    { type: 'text', text: 'AP01AB1234' },
-                    { type: 'text', text: 'General Service' }
-                ]
-            }
-        ],
-        recipientName: 'Kushal',
-        idempotencyKey
-    }, mockAxios);
-
-    assert.strictEqual(res.success, true);
-    assert.strictEqual(res.messageId, 'wamid.SUCCESS_EN_US_FALLBACK');
-    assert.strictEqual(res.language, 'en_US', 'Winning language should be en_US');
-    assert.deepStrictEqual(attempts, ['en', 'en_US'], 'Should have attempted en then en_US');
-    // Verify that winning language was cached in dynamicTemplateMap
-    assert.strictEqual(dynamicTemplateMap.get('mvss_job_card_created')?.language, 'en_US');
-
-    await WhatsAppLog.deleteMany({ idempotencyKey });
-    console.log('✔ Test 6 Passed: Automatic English locale fallback recovered seamlessly from 132001 and delivered message.');
+    const idempotencyKey = `test_132001_${Date.now()}`;
+    try {
+        await sendTemplateMessage({
+            to: '8008092742',
+            templateName: 'mvss_job_card_created',
+            components: [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: 'Kushal' },
+                        { type: 'text', text: 'JC-1002' },
+                        { type: 'text', text: 'AP01AB1234' },
+                        { type: 'text', text: 'General Service' }
+                    ]
+                }
+            ],
+            recipientName: 'Kushal',
+            idempotencyKey
+        }, mockAxios);
+        assert.fail('Must throw on 132001 error');
+    } catch (e) {
+        assert.strictEqual(attemptCount, 1, 'Must fail fast without blind retrying');
+        assert(e instanceof Error);
+        assert.strictEqual(e.metaError.code, 132001);
+        assert(e.message.includes('HTTP 404 Code 132001'));
+        assert(e.message.includes('template name (mvss_job_card_created) does not exist in en'));
+        console.log('✔ Test 6 Passed: Error 132001 fails fast and surfaces exact template translation details without blind retries.');
+    } finally {
+        await WhatsAppLog.deleteMany({ idempotencyKey });
+    }
 }
 
 async function run() {
     await mongoose.connect(process.env.MONGODB_URI);
     await testSuccessfulSend();
     await testOutbound404Handling();
-    await testAutomaticLocaleFallback();
+    await testError132001FastFail();
     await mongoose.disconnect();
     console.log('--- All WhatsApp Version & Error Handling Tests Passed Successfully ---');
 }
