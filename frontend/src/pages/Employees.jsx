@@ -54,6 +54,7 @@ export default function Employees({ token, user }) {
     panNumber: '',
     dateOfBirth: '',
     designation: '',
+    monthlySalary: '',
   });
   const [editForm, setEditForm] = useState({
     _id: '',
@@ -71,6 +72,7 @@ export default function Employees({ token, user }) {
     panNumber: '',
     dateOfBirth: '',
     designation: '',
+    monthlySalary: '',
   });
   const [resumeFile, setResumeFile] = useState(null);
   const [editResumeFile, setEditResumeFile] = useState(null);
@@ -215,10 +217,11 @@ export default function Employees({ token, user }) {
   const [activeHistoryEmployee, setActiveHistoryEmployee] = useState(null);
   const [activeSubTab, setActiveSubTab] = useState('logger'); // 'logger' or 'analytics'
 
-  // Salary states
   const [salaryForm, setSalaryForm] = useState({
     employeeId: '',
     monthYear: new Date().toISOString().substring(0, 7), // YYYY-MM
+    salaryStartDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().substring(0, 10),
+    salaryEndDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().substring(0, 10),
     basicSalary: '',
     advances: '',
     deductions: '',
@@ -232,6 +235,11 @@ export default function Employees({ token, user }) {
     leavesCount: 0,
     exemptedLeaves: 1,
     calculatedNetSalary: 0,
+    calculatedEligibleDays: 0,
+    calculatedDaysInMonth: 0,
+    calculatedDailySalary: 0,
+    calculatedPayableSalary: 0,
+    calculatedEffectiveStartDate: '',
   });
   const [selectedSalaryEmployee, setSelectedSalaryEmployee] = useState(null);
 
@@ -398,19 +406,52 @@ export default function Employees({ token, user }) {
         ...prev,
         leavesCount: 0,
         exemptedLeaves: 1,
-        calculatedNetSalary: 0
+        calculatedNetSalary: 0,
+        calculatedEligibleDays: 0,
+        calculatedDaysInMonth: 0,
+        calculatedDailySalary: 0,
+        calculatedPayableSalary: 0,
+        calculatedEffectiveStartDate: '',
       }));
       return;
     }
 
-    const emp = employees.find(e => e._id === salaryForm.employeeId);
+    const emp = attendanceEmployees.find(e => e._id === salaryForm.employeeId);
     setSelectedSalaryEmployee(emp);
     if (!emp) return;
 
-    // Count leaves (Absent = 1, Half Day = 0.5, Leave = 1) for specified monthYear with Sunday as default Weekly Off
     const [year, month] = salaryForm.monthYear.split('-').map(Number);
-    const endDate = new Date(year, month, 0); // last day of month
+    const monthStartD = new Date(year, month - 1, 1);
     
+    let startD, endD;
+    if (salaryForm.salaryStartDate && salaryForm.salaryEndDate) {
+      const providedStart = new Date(salaryForm.salaryStartDate);
+      startD = new Date(Math.max(monthStartD.getTime(), providedStart.getTime()));
+      endD = new Date(salaryForm.salaryEndDate);
+    } else {
+      startD = monthStartD;
+      endD = new Date(year, month, 0);
+    }
+
+    const doj = new Date(emp.dateOfJoining || Date.now());
+    let effectiveStartD = new Date(startD);
+    const doJOnly = new Date(doj.getFullYear(), doj.getMonth(), doj.getDate());
+    const startDOnly = new Date(startD.getFullYear(), startD.getMonth(), startD.getDate());
+    if (doJOnly > startDOnly) {
+       effectiveStartD = doJOnly;
+    }
+    const endDOnly = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate());
+
+    let eligibleDays = 0;
+    if (endDOnly >= effectiveStartD) {
+      eligibleDays = Math.max(0, Math.floor((endDOnly - effectiveStartD) / (1000 * 60 * 60 * 24)) + 1);
+    }
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const monthlySalary = Number(salaryForm.basicSalary) || 0;
+    const dailySalary = daysInMonth ? (monthlySalary / daysInMonth) : 0;
+    const payableSalary = dailySalary * eligibleDays;
+
     let absentCount = 0;
     let halfDayCount = 0;
     let leaveCount = 0;
@@ -424,11 +465,10 @@ export default function Employees({ token, user }) {
       attendanceMap[`${yyyy}-${mm}-${dd}`] = a.status;
     });
 
-    for (let day = 1; day <= endDate.getDate(); day++) {
-      const currentDate = new Date(year, month - 1, day);
-      const yyyy = currentDate.getFullYear();
-      const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(currentDate.getDate()).padStart(2, '0');
+    for (let d = new Date(effectiveStartD); d <= endDOnly; d.setDate(d.getDate() + 1)) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
       const key = `${yyyy}-${mm}-${dd}`;
       
       const status = attendanceMap[key];
@@ -445,40 +485,42 @@ export default function Employees({ token, user }) {
     
     const leaves = absentCount + leaveCount + 0.5 * halfDayCount;
 
-    // Calculate service duration in months from dateOfJoining
-    const doj = new Date(emp.dateOfJoining || Date.now());
-    const targetDate = new Date(year, month - 1, 1);
+    const targetDate = new Date(endDOnly.getFullYear(), endDOnly.getMonth(), 1);
     const diffYears = targetDate.getFullYear() - doj.getFullYear();
     const diffMonths = targetDate.getMonth() - doj.getMonth() + (diffYears * 12);
     const exempted = diffMonths >= 6 ? 2 : 1;
 
     const excessLeaves = Math.max(0, leaves - exempted);
 
-    const basic = Number(salaryForm.basicSalary) || 0;
     const adv = Number(salaryForm.advances) || 0;
     const special = Number(salaryForm.specialAllowance) || 0;
     const other = Number(salaryForm.otherAllowance) || 0;
     
     const epfPercent = Number(salaryForm.epfPercent) || 0;
-    const epfAmount = Math.round(basic * (epfPercent / 100));
+    const epfAmount = Math.round(payableSalary * (epfPercent / 100));
     const professionalTax = Number(salaryForm.professionalTax) || 0;
     const additionalDeductionsSum = (salaryForm.additionalDeductions || []).reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
 
-    // Per day leave deduction (assumes 30 days)
-    const leaveDeduction = excessLeaves > 0 ? (basic / 30) * excessLeaves : 0;
+    const leaveDeduction = excessLeaves > 0 ? dailySalary * excessLeaves : 0;
     
-    // Net Pay calculation
-    const net = Math.round(Math.max(0, basic + special + other - adv - leaveDeduction - epfAmount - professionalTax - additionalDeductionsSum));
+    const net = Math.round(Math.max(0, payableSalary + special + other - adv - leaveDeduction - epfAmount - professionalTax - additionalDeductionsSum));
 
     setSalaryForm(prev => ({
       ...prev,
       leavesCount: leaves,
       exemptedLeaves: exempted,
-      calculatedNetSalary: net
+      calculatedNetSalary: net,
+      calculatedEligibleDays: eligibleDays,
+      calculatedDaysInMonth: daysInMonth,
+      calculatedDailySalary: dailySalary,
+      calculatedPayableSalary: payableSalary,
+      calculatedEffectiveStartDate: effectiveStartD.toISOString().substring(0, 10),
     }));
   }, [
     salaryForm.employeeId,
     salaryForm.monthYear,
+    salaryForm.salaryStartDate,
+    salaryForm.salaryEndDate,
     salaryForm.basicSalary,
     salaryForm.advances,
     salaryForm.specialAllowance,
@@ -516,6 +558,7 @@ export default function Employees({ token, user }) {
       formData.append('dateOfBirth', addForm.dateOfBirth);
     }
     formData.append('designation', addForm.designation || '');
+    formData.append('monthlySalary', addForm.monthlySalary || '');
 
     if (resumeFile) formData.append('resume', resumeFile);
     if (aadharFile) formData.append('aadharDoc', aadharFile);
@@ -576,6 +619,7 @@ export default function Employees({ token, user }) {
       panNumber: emp.panNumber || '',
       dateOfBirth: emp.dateOfBirth ? emp.dateOfBirth.split('T')[0] : '',
       designation: emp.designation || '',
+      monthlySalary: emp.monthlySalary || '',
     });
     setErrorMsg('');
     setSuccessMsg('');
@@ -610,6 +654,7 @@ export default function Employees({ token, user }) {
     formData.append('panNumber', editForm.panNumber || '');
     formData.append('dateOfBirth', editForm.dateOfBirth || '');
     formData.append('designation', editForm.designation || '');
+    formData.append('monthlySalary', editForm.monthlySalary || '');
 
     if (editResumeFile) formData.append('resume', editResumeFile);
     if (editAadharFile) formData.append('aadharDoc', editAadharFile);
@@ -826,6 +871,11 @@ export default function Employees({ token, user }) {
   const handleSaveSalarySlip = async (e) => {
     e.preventDefault();
     if (!salaryForm.employeeId) return;
+    
+    if (new Date(salaryForm.salaryStartDate) > new Date(salaryForm.salaryEndDate)) {
+      alert("Validation Error: Joining Date cannot be after Salary End Date.");
+      return;
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/employees/${salaryForm.employeeId}/salary`, {
@@ -836,6 +886,8 @@ export default function Employees({ token, user }) {
         },
         body: JSON.stringify({
           monthYear: salaryForm.monthYear,
+          salaryStartDate: salaryForm.salaryStartDate,
+          salaryEndDate: salaryForm.salaryEndDate,
           basicSalary: Number(salaryForm.basicSalary) || 0,
           advances: Number(salaryForm.advances) || 0,
           specialAllowance: Number(salaryForm.specialAllowance) || 0,
@@ -864,14 +916,14 @@ export default function Employees({ token, user }) {
     const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
 
     const excessLeaves = Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves);
-    const leaveDeduct = (salaryForm.basicSalary / 30) * excessLeaves;
+    const leaveDeduct = salaryForm.calculatedDailySalary * excessLeaves;
     const special = Number(salaryForm.specialAllowance) || 0;
     const other = Number(salaryForm.otherAllowance) || 0;
     const otherDesc = salaryForm.otherAllowanceDescription || '';
     const deductionsDesc = salaryForm.deductionsDescription || '';
     
     const epfPercent = Number(salaryForm.epfPercent) || 0;
-    const epfAmount = Math.round(Number(salaryForm.basicSalary || 0) * (epfPercent / 100));
+    const epfAmount = Math.round(salaryForm.calculatedPayableSalary * (epfPercent / 100));
     const ptAmount = Number(salaryForm.professionalTax) || 0;
     const additionalDeductions = salaryForm.additionalDeductions || [];
 
@@ -933,8 +985,12 @@ export default function Employees({ token, user }) {
             </thead>
             <tbody>
               <tr>
-                <td>Basic Monthly Wage</td>
+                <td>Monthly Salary</td>
                 <td class="right">₹${Number(salaryForm.basicSalary).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td>Gross Salary (${salaryForm.calculatedEligibleDays} eligible days)</td>
+                <td class="right">₹${salaryForm.calculatedPayableSalary.toFixed(2)}</td>
               </tr>
               ${special > 0 ? `
               <tr>
@@ -1813,7 +1869,7 @@ export default function Employees({ token, user }) {
               </div>
 
               {selectedEmployeeFilter ? (() => {
-                const emp = employees.find(e => e._id === selectedEmployeeFilter);
+                const emp = attendanceEmployees.find(e => e._id === selectedEmployeeFilter);
                 if (!emp) return <p className="text-center text-slate-400 italic">Select a valid employee.</p>;
                 
                 const list = getMonthlyDetails(emp);
@@ -2019,23 +2075,69 @@ export default function Employees({ token, user }) {
                     <select
                       required
                       value={salaryForm.employeeId}
-                      onChange={(e) => setSalaryForm({ ...salaryForm, employeeId: e.target.value })}
+                      onChange={(e) => {
+                        const empId = e.target.value;
+                        const emp = attendanceEmployees.find(emp => emp._id === empId);
+                        let defaultDoj = salaryForm.salaryStartDate;
+                        if (emp && emp.dateOfJoining) {
+                          defaultDoj = emp.dateOfJoining.split('T')[0];
+                        }
+                        setSalaryForm({ 
+                          ...salaryForm, 
+                          employeeId: empId,
+                          basicSalary: emp?.monthlySalary ? emp.monthlySalary.toString() : '',
+                          salaryStartDate: defaultDoj
+                        });
+                      }}
                       className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
                     >
                       <option value="">-- Select Staff Member --</option>
-                      {employees.map(e => (
+                      {attendanceEmployees.map(e => (
                         <option key={e._id} value={e._id}>{e.name} ({e.status || 'Active'})</option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Select Month & Year</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Salary Month</label>
                     <input
                       type="month"
                       required
                       value={salaryForm.monthYear}
-                      onChange={(e) => setSalaryForm({ ...salaryForm, monthYear: e.target.value })}
+                      onChange={(e) => {
+                        const newMonthYear = e.target.value;
+                        const [year, month] = newMonthYear.split('-').map(Number);
+                        const endOfMonth = new Date(year, month, 0); // Gets the last day of the month
+                        const newEndDate = `${year}-${String(month).padStart(2, '0')}-${String(endOfMonth.getDate()).padStart(2, '0')}`;
+                        
+                        setSalaryForm({ 
+                          ...salaryForm, 
+                          monthYear: newMonthYear,
+                          salaryEndDate: newEndDate
+                        });
+                      }}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Joining Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={salaryForm.salaryStartDate}
+                      onChange={(e) => setSalaryForm({ ...salaryForm, salaryStartDate: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Salary End Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={salaryForm.salaryEndDate}
+                      onChange={(e) => setSalaryForm({ ...salaryForm, salaryEndDate: e.target.value })}
                       className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
                     />
                   </div>
@@ -2047,15 +2149,16 @@ export default function Employees({ token, user }) {
                 <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block">2. Earnings & Allowances</span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Basic Monthly Salary (₹)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Monthly Salary (₹)</label>
                     <input
                       type="text"
                       inputMode="decimal"
                       required
+                      readOnly={!!selectedSalaryEmployee?.monthlySalary}
                       value={salaryForm.basicSalary}
                       onChange={(e) => handleSalaryNumericChange(e, 'basicSalary', true)}
                       placeholder="Enter amount"
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none font-mono"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold focus:outline-none font-mono ${selectedSalaryEmployee?.monthlySalary ? 'bg-slate-100 dark:bg-slate-900 text-slate-500 border-transparent cursor-not-allowed' : 'bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800'}`}
                     />
                   </div>
 
@@ -2205,7 +2308,7 @@ export default function Employees({ token, user }) {
                 <div className="text-right">
                   <span className="font-semibold text-slate-500 block">Auto Leave Deduction:</span>
                   <span className="font-bold text-red-500 block mt-1">
-                    - ₹{Math.round((salaryForm.basicSalary / 30) * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}
+                    - ₹{Math.round(salaryForm.calculatedDailySalary * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -2233,20 +2336,35 @@ export default function Employees({ token, user }) {
               {selectedSalaryEmployee ? (
                 <div className="space-y-4">
                   {/* Staff Info block */}
-                  <div className="bg-slate-950/40 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between">
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Employee Name</span>
-                      <span className="text-sm font-black text-white">{selectedSalaryEmployee.name}</span>
+                  <div className="bg-slate-950/40 p-3.5 rounded-2xl border border-slate-800 flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Employee Name</span>
+                        <span className="text-sm font-black text-white">{selectedSalaryEmployee.name}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Joining Date</span>
+                        <span className="text-xs font-mono text-indigo-300 font-bold">{new Date(selectedSalaryEmployee.dateOfJoining || Date.now()).toLocaleDateString('en-GB')}</span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Period</span>
-                      <span className="text-[11px] font-mono text-indigo-300 font-bold uppercase">{
-                        (() => {
-                          const [year, month] = salaryForm.monthYear.split('-');
-                          if (!year || !month) return salaryForm.monthYear;
-                          return new Date(year, month - 1).toLocaleString('default', { month: 'short', year: 'numeric' });
-                        })()
-                      }</span>
+                    
+                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-800">
+                      <div>
+                        <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Salary Period</span>
+                        <span className="text-xs font-mono text-slate-300">{new Date(salaryForm.salaryStartDate).toLocaleDateString('en-GB')} - {new Date(salaryForm.salaryEndDate).toLocaleDateString('en-GB')}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Effective Start Date</span>
+                        <span className="text-xs font-mono text-slate-300">{salaryForm.calculatedEffectiveStartDate ? new Date(salaryForm.calculatedEffectiveStartDate).toLocaleDateString('en-GB') : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Payable Days / Month</span>
+                        <span className="text-xs font-mono text-slate-300">{salaryForm.calculatedEligibleDays} / {salaryForm.calculatedDaysInMonth}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] text-slate-400 block font-black uppercase tracking-wider">Daily Salary</span>
+                        <span className="text-xs font-mono text-slate-300">₹{salaryForm.calculatedDailySalary.toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -2255,8 +2373,13 @@ export default function Employees({ token, user }) {
                     <span className="text-[10px] text-slate-400 block font-extrabold uppercase tracking-wider">Earnings & Allowances</span>
                     
                     <div className="flex justify-between text-xs font-medium text-slate-300">
-                      <span>Base Salary:</span>
-                      <span className="font-mono text-white">₹{salaryForm.basicSalary.toLocaleString()}</span>
+                      <span>Monthly Salary:</span>
+                      <span className="font-mono text-slate-400">₹{Number(salaryForm.basicSalary).toLocaleString()}</span>
+                    </div>
+
+                    <div className="flex justify-between text-xs font-bold text-white">
+                      <span>Gross Salary:</span>
+                      <span className="font-mono text-white">₹{Math.round(salaryForm.calculatedPayableSalary).toLocaleString()}</span>
                     </div>
 
                     {Number(salaryForm.specialAllowance) > 0 && (
@@ -2293,7 +2416,7 @@ export default function Employees({ token, user }) {
                     {Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves) > 0 && (
                       <div className="flex justify-between text-xs font-medium text-rose-400">
                         <span>Leave Deduction ({Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)}d excess):</span>
-                        <span className="font-mono">- ₹{Math.round((salaryForm.basicSalary / 30) * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}</span>
+                        <span className="font-mono">- ₹{Math.round(salaryForm.calculatedDailySalary * Math.max(0, salaryForm.leavesCount - salaryForm.exemptedLeaves)).toLocaleString()}</span>
                       </div>
                     )}
 
@@ -2307,7 +2430,7 @@ export default function Employees({ token, user }) {
                     {Number(salaryForm.epfPercent) > 0 && (
                       <div className="flex justify-between text-xs font-medium text-rose-400">
                         <span>EPF Deduction ({salaryForm.epfPercent}%):</span>
-                        <span className="font-mono">- ₹{Math.round(Number(salaryForm.basicSalary) * (Number(salaryForm.epfPercent) / 100)).toLocaleString()}</span>
+                        <span className="font-mono">- ₹{Math.round(salaryForm.calculatedPayableSalary * (Number(salaryForm.epfPercent) / 100)).toLocaleString()}</span>
                       </div>
                     )}
 
@@ -2555,6 +2678,18 @@ export default function Employees({ token, user }) {
                         <option value="Active">Active</option>
                         <option value="Inactive">Inactive</option>
                       </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Monthly Salary (₹)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={addForm.monthlySalary}
+                        onChange={(e) => setAddForm({ ...addForm, monthlySalary: e.target.value })}
+                        placeholder="e.g. 30000"
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-colors"
+                      />
                     </div>
                   </div>
                 </div>
@@ -2866,6 +3001,18 @@ export default function Employees({ token, user }) {
                         <option value="Active">Active</option>
                         <option value="Inactive">Inactive</option>
                       </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Monthly Salary (₹)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editForm.monthlySalary}
+                        onChange={(e) => setEditForm({ ...editForm, monthlySalary: e.target.value })}
+                        placeholder="e.g. 30000"
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500 transition-colors"
+                      />
                     </div>
                   </div>
                 </div>

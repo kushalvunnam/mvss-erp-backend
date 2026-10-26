@@ -138,6 +138,41 @@ router.put('/:id', auth, async (req, res) => {
 
     await claim.save();
     
+    // WhatsApp Integration: Insurance Claim Update
+    if (status && status !== oldStatus) {
+      try {
+        const JobCard = require('../models/JobCard');
+        const Customer = require('../models/Customer');
+        const VehicleModel = require('../models/Vehicle');
+        const jc = await JobCard.findById(claim.jobCardId);
+        if (jc) {
+          const customerRecord = await Customer.findById(jc.customerId);
+          const vehicle = await VehicleModel.findById(jc.vehicleId);
+          if (customerRecord && (customerRecord.mobile || customerRecord.phone)) {
+            const { sendTemplateMessage } = require('../services/whatsappService');
+            sendTemplateMessage({
+              to: customerRecord.mobile || customerRecord.phone,
+              templateName: 'mvss_insurance_claim_update',
+              components: [
+                { type: 'body', parameters: [
+                  { type: 'text', text: customerRecord.name },
+                  { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+                  { type: 'text', text: claim.claimNumber },
+                  { type: 'text', text: claim.status }
+                ]}
+              ],
+              recipientName: customerRecord.name,
+              relatedEntity: claim._id,
+              onModel: 'InsuranceClaim',
+              idempotencyKey: `insurance_claim_update_${claim._id}_${claim.status.replace(/\s+/g, '')}`
+            }).catch(err => console.error('[WhatsApp] Async insurance claim update error:', err));
+          }
+        }
+      } catch (waError) {
+        console.error('[WhatsApp] Failed to trigger insurance claim update message:', waError);
+      }
+    }
+
     const populated = await InsuranceClaim.findById(claim._id)
       .populate('customerId')
       .populate('vehicleId')

@@ -135,6 +135,42 @@ router.post('/', auth, async (req, res) => {
     });
     await notification.save();
 
+    // WhatsApp Integration: Gate Pass Generated
+    try {
+      if (gatepass.jobCardId) {
+        const JobCard = require('../models/JobCard');
+        const Customer = require('../models/Customer');
+        const VehicleModel = require('../models/Vehicle');
+        
+        const jc = await JobCard.findById(gatepass.jobCardId);
+        if (jc) {
+          const customerRecord = await Customer.findById(jc.customerId);
+          const vehicle = await VehicleModel.findById(jc.vehicleId);
+          if (customerRecord && (customerRecord.mobile || customerRecord.phone)) {
+            const { sendTemplateMessage } = require('../services/whatsappService');
+            sendTemplateMessage({
+              to: customerRecord.mobile || customerRecord.phone,
+              templateName: 'mvss_gate_pass_generated',
+              components: [
+                { type: 'body', parameters: [
+                  { type: 'text', text: customerRecord.name },
+                  { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+                  { type: 'text', text: jc.jobCardNo },
+                  { type: 'text', text: gatepass.gatePassNo }
+                ]}
+              ],
+              recipientName: customerRecord.name,
+              relatedEntity: gatepass._id,
+              onModel: 'GatePass',
+              idempotencyKey: `gate_pass_generated_${gatepass._id}`
+            }).catch(err => console.error('[WhatsApp] Async gate pass generated error:', err));
+          }
+        }
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger gate pass message:', waError);
+    }
+
     // Log action in audit log
     await logAction(req.user, 'GATEPASS_CREATE', `Created Gate Pass ${gatepass.gatePassNo} for vehicle ${gatepass.vehicleNumber}`, req);
 

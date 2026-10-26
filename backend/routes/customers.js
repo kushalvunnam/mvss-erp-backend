@@ -145,6 +145,30 @@ router.post('/', auth, async (req, res) => {
     const customer = new Customer(req.body);
     await customer.save();
     
+    // WhatsApp Integration: Customer Created
+    try {
+      const { sendTemplateMessage } = require('../services/whatsappService');
+      const mobile = customer.mobile || customer.phone;
+      if (mobile) {
+        sendTemplateMessage({
+          to: mobile,
+          templateName: 'mvss_welcome_customer',
+          components: [
+            { type: 'body', parameters: [
+              { type: 'text', text: customer.name },
+              { type: 'text', text: 'your vehicle' }
+            ]}
+          ],
+          recipientName: customer.name,
+          relatedEntity: customer._id,
+          onModel: 'Customer',
+          idempotencyKey: `customer_created_${customer._id}`
+        }).catch(err => console.error('[WhatsApp] Async welcome customer error:', err));
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger customer welcome message:', waError);
+    }
+    
     // Automatically create a notification
     try {
       const Notification = require('../models/Notification');

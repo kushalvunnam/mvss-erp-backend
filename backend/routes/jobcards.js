@@ -289,6 +289,36 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
       console.error('Failed to create job card notification:', notifErr);
     }
 
+    // WhatsApp Integration: Job Card Created
+    try {
+      const Customer = require('../models/Customer');
+      const VehicleModel = require('../models/Vehicle');
+      const customer = await Customer.findById(jobCard.customerId);
+      const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+
+      if (customer && (customer.mobile || customer.phone)) {
+        const { sendTemplateMessage } = require('../services/whatsappService');
+        sendTemplateMessage({
+          to: customer.mobile || customer.phone,
+          templateName: 'mvss_job_card_created',
+          components: [
+            { type: 'body', parameters: [
+              { type: 'text', text: customer.name },
+              { type: 'text', text: jobCard.jobCardNo },
+              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+              { type: 'text', text: jobCard.serviceType || 'General Service' }
+            ]}
+          ],
+          recipientName: customer.name,
+          relatedEntity: jobCard._id,
+          onModel: 'JobCard',
+          idempotencyKey: `job_card_created_${jobCard._id}`
+        }).catch(err => console.error('[WhatsApp] Async job card create error:', err));
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger job card welcome message:', waError);
+    }
+
     // Update odometer reading on the Vehicle model
     await Vehicle.findByIdAndUpdate(jobCard.vehicleId, { odometerReading: jobCard.odometerReading });
 
@@ -396,6 +426,59 @@ router.put('/:id', auth, async (req, res) => {
     }
 
     await logAction(req.user, 'JOBCARD_UPDATE', `Updated Job Card ${jobCard.jobCardNo}. Status: ${jobCard.status}`, req);
+
+    // WhatsApp Integration: Job Card Status Changes
+    if (statusChanged) {
+      try {
+        const Customer = require('../models/Customer');
+        const VehicleModel = require('../models/Vehicle');
+        const customer = await Customer.findById(jobCard.customerId);
+        const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+
+        if (customer && (customer.mobile || customer.phone)) {
+          const { sendTemplateMessage } = require('../services/whatsappService');
+          
+          let templateName = null;
+          let parameters = [];
+          const commonParams = [
+            { type: 'text', text: customer.name },
+            { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+            { type: 'text', text: jobCard.jobCardNo }
+          ];
+
+          if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
+            templateName = 'mvss_work_started';
+            parameters = [...commonParams];
+          } else if (jobCard.status === 'Ready for Delivery') {
+            templateName = 'mvss_vehicle_ready';
+            parameters = [...commonParams];
+          } else if (jobCard.status === 'Delivered') {
+            templateName = 'mvss_vehicle_delivered';
+            const Invoice = require('../models/Invoice');
+            let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
+            parameters = [
+              ...commonParams,
+              { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' }
+            ];
+          }
+
+          if (templateName) {
+            sendTemplateMessage({
+              to: customer.mobile || customer.phone,
+              templateName,
+              components: [{ type: 'body', parameters }],
+              recipientName: customer.name,
+              relatedEntity: jobCard._id,
+              onModel: 'JobCard',
+              idempotencyKey: `${templateName}_${jobCard._id}`
+            }).catch(err => console.error(`[WhatsApp] Async ${templateName} error:`, err));
+          }
+        }
+      } catch (waError) {
+        console.error('[WhatsApp] Failed to trigger job card status message:', waError);
+      }
+    }
+
     res.send(jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to update job card: ' + error.message });
@@ -600,6 +683,40 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_ADD', `Recorded advance payment of ₹${amount} for Job Card ${jobCard.jobCardNo}`, req);
+    // WhatsApp Integration: Advance Payment Received
+    try {
+      const Customer = require('../models/Customer');
+      const VehicleModel = require('../models/Vehicle');
+      const customer = await Customer.findById(jobCard.customerId);
+      const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+      if (customer && (customer.mobile || customer.phone)) {
+        const Invoice = require('../models/Invoice');
+        let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }) || await Invoice.findOne({ jobCardId: jobCard._id });
+        const { sendTemplateMessage } = require('../services/whatsappService');
+        
+        const addedPaymentId = jobCard.advancePayments[jobCard.advancePayments.length - 1]?._id;
+        sendTemplateMessage({
+          to: customer.mobile || customer.phone,
+          templateName: 'mvss_payment_received',
+          components: [
+            { type: 'body', parameters: [
+              { type: 'text', text: customer.name },
+              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+              { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' },
+              { type: 'text', text: String(amount) },
+              { type: 'text', text: 'Advance' }
+            ]}
+          ],
+          recipientName: customer.name,
+          relatedEntity: jobCard._id,
+          onModel: 'JobCard',
+          idempotencyKey: `payment_received_${addedPaymentId || Date.now()}`
+        }).catch(err => console.error('[WhatsApp] Async advance payment error:', err));
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger advance payment received message:', waError);
+    }
+
     res.send(jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to record advance payment: ' + error.message });
@@ -748,6 +865,40 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_ADD', `Recorded final payment of ₹${amount} for Job Card ${jobCard.jobCardNo}`, req);
+    // WhatsApp Integration: Final Payment Received
+    try {
+      const Customer = require('../models/Customer');
+      const VehicleModel = require('../models/Vehicle');
+      const customer = await Customer.findById(jobCard.customerId);
+      const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+      if (customer && (customer.mobile || customer.phone)) {
+        const Invoice = require('../models/Invoice');
+        let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }) || await Invoice.findOne({ jobCardId: jobCard._id });
+        const { sendTemplateMessage } = require('../services/whatsappService');
+        
+        const addedPaymentId = jobCard.finalPayments[jobCard.finalPayments.length - 1]?._id;
+        sendTemplateMessage({
+          to: customer.mobile || customer.phone,
+          templateName: 'mvss_payment_received',
+          components: [
+            { type: 'body', parameters: [
+              { type: 'text', text: customer.name },
+              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+              { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' },
+              { type: 'text', text: String(amount) },
+              { type: 'text', text: 'Final' }
+            ]}
+          ],
+          recipientName: customer.name,
+          relatedEntity: jobCard._id,
+          onModel: 'JobCard',
+          idempotencyKey: `payment_received_${addedPaymentId || Date.now()}`
+        }).catch(err => console.error('[WhatsApp] Async final payment error:', err));
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger final payment received message:', waError);
+    }
+
     res.send(jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to record final payment: ' + error.message });

@@ -327,6 +327,37 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     await JobCard.findByIdAndUpdate(jobCardId, { status: 'Estimation', estAmt: calculations.totals.grandTotal });
 
     await logAction(req.user, 'ESTIMATE_CREATE', `Created Estimate ${estimateNo} for Job Card ${jobCard.jobCardNo}`, req);
+
+    // WhatsApp Integration: Estimate Created
+    try {
+      const Customer = require('../models/Customer');
+      const VehicleModel = require('../models/Vehicle');
+      const customerRecord = await Customer.findById(jobCard.customerId);
+      const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+      if (customerRecord && (customerRecord.mobile || customerRecord.phone)) {
+        const { sendTemplateMessage } = require('../services/whatsappService');
+        sendTemplateMessage({
+          to: customerRecord.mobile || customerRecord.phone,
+          templateName: 'mvss_estimate_created',
+          components: [
+            { type: 'body', parameters: [
+              { type: 'text', text: customerRecord.name },
+              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+              { type: 'text', text: estimate.estimateNo },
+              { type: 'text', text: jobCard.jobCardNo },
+              { type: 'text', text: String(calculations.totals.roundedGrandTotal || calculations.totals.grandTotal) }
+            ]}
+          ],
+          recipientName: customerRecord.name,
+          relatedEntity: estimate._id,
+          onModel: 'Estimate',
+          idempotencyKey: `estimate_created_${estimate._id}`
+        }).catch(err => console.error('[WhatsApp] Async estimate created error:', err));
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger estimate created message:', waError);
+    }
+
     res.status(201).send(estimate);
   } catch (error) {
     res.status(400).send({ error: 'Failed to create estimate: ' + error.message });
@@ -394,6 +425,43 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
 
     await estimate.save();
     await logAction(req.user, 'ESTIMATE_UPDATE', `Updated Estimate ${estimate.estimateNo}. Status: ${estimate.status}`, req);
+
+    // WhatsApp Integration: Estimate Approved
+    if (status === 'Approved') {
+      try {
+        const JobCard = require('../models/JobCard');
+        const Customer = require('../models/Customer');
+        const VehicleModel = require('../models/Vehicle');
+        const jc = await JobCard.findById(estimate.jobCardId);
+        if (jc) {
+          const customerRecord = await Customer.findById(jc.customerId);
+          const vehicle = await VehicleModel.findById(jc.vehicleId);
+          if (customerRecord && (customerRecord.mobile || customerRecord.phone)) {
+            const { sendTemplateMessage } = require('../services/whatsappService');
+            sendTemplateMessage({
+              to: customerRecord.mobile || customerRecord.phone,
+              templateName: 'mvss_estimate_approved',
+              components: [
+                { type: 'body', parameters: [
+                  { type: 'text', text: customerRecord.name },
+                  { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+                  { type: 'text', text: estimate.estimateNo },
+                  { type: 'text', text: jc.jobCardNo },
+                  { type: 'text', text: String(estimate.totals?.roundedGrandTotal || estimate.totals?.grandTotal || 0) }
+                ]}
+              ],
+              recipientName: customerRecord.name,
+              relatedEntity: estimate._id,
+              onModel: 'Estimate',
+              idempotencyKey: `estimate_approved_${estimate._id}`
+            }).catch(err => console.error('[WhatsApp] Async estimate approved error:', err));
+          }
+        }
+      } catch (waError) {
+        console.error('[WhatsApp] Failed to trigger estimate approved message:', waError);
+      }
+    }
+
     res.send(estimate);
   } catch (error) {
     res.status(400).send({ error: 'Failed to update estimate: ' + error.message });

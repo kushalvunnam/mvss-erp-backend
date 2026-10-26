@@ -489,6 +489,37 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
       const { calculateBillingSummary } = require('../utils/billing');
       await calculateBillingSummary(invoice.jobCardId);
       await logAction(req.user, 'INVOICE_FINALIZE', `Finalized Invoice ${invoice.invoiceNo} & deducted inventory items`, req);
+
+      // WhatsApp Integration: Invoice Generated
+      try {
+        const Customer = require('../models/Customer');
+        const VehicleModel = require('../models/Vehicle');
+        const customer = await Customer.findById(invoice.customerId);
+        const vehicle = await VehicleModel.findById(invoice.vehicleId);
+        
+        if (customer && (customer.mobile || customer.phone)) {
+          const { sendTemplateMessage } = require('../services/whatsappService');
+          sendTemplateMessage({
+            to: customer.mobile || customer.phone,
+            templateName: 'mvss_invoice_generated',
+            components: [
+              { type: 'body', parameters: [
+                { type: 'text', text: customer.name },
+                { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+                { type: 'text', text: invoice.invoiceNo },
+                { type: 'text', text: (await require('../models/JobCard').findById(invoice.jobCardId))?.jobCardNo || invoice.jobCardId.toString() },
+                { type: 'text', text: String(invoice.totals.roundedGrandTotal || invoice.totals.grandTotal) }
+              ]}
+            ],
+            recipientName: customer.name,
+            relatedEntity: invoice._id,
+            onModel: 'Invoice',
+            idempotencyKey: `invoice_generated_${invoice._id}`
+          }).catch(err => console.error('[WhatsApp] Async invoice generated error:', err));
+        }
+      } catch (waError) {
+        console.error('[WhatsApp] Failed to trigger invoice generated message:', waError);
+      }
     } else {
       const { calculateBillingSummary } = require('../utils/billing');
       await calculateBillingSummary(invoice.jobCardId);
@@ -667,6 +698,34 @@ router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive
       await notification.save();
     } catch (notifErr) {
       console.error('Failed to create invoice paid notification:', notifErr);
+    }
+
+    // WhatsApp Integration: Payment Received
+    try {
+      const VehicleModel = require('../models/Vehicle');
+      const vehicle = await VehicleModel.findById(invoice.vehicleId);
+      if (invoice.customerId && (invoice.customerId.mobile || invoice.customerId.phone)) {
+        const { sendTemplateMessage } = require('../services/whatsappService');
+        sendTemplateMessage({
+          to: invoice.customerId.mobile || invoice.customerId.phone,
+          templateName: 'mvss_payment_received',
+          components: [
+            { type: 'body', parameters: [
+              { type: 'text', text: invoice.customerId.name },
+              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
+              { type: 'text', text: invoice.invoiceNo },
+              { type: 'text', text: String(invoice.amountPaid || invoice.totals.grandTotal) },
+              { type: 'text', text: invoice.paymentStatus }
+            ]}
+          ],
+          recipientName: invoice.customerId.name,
+          relatedEntity: invoice._id,
+          onModel: 'Invoice',
+          idempotencyKey: `payment_received_${invoice._id}_full`
+        }).catch(err => console.error('[WhatsApp] Async payment received error:', err));
+      }
+    } catch (waError) {
+      console.error('[WhatsApp] Failed to trigger payment received message:', waError);
     }
 
     // Create audit log entry

@@ -176,6 +176,7 @@ app.use('/api/branches', require('./routes/branches'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/external-repairs', require('./routes/externalRepairs'));
 app.use('/api/insurance', require('./routes/insurance'));
+app.use('/api/whatsapp', require('./routes/whatsapp'));
 
 // Resend Email Diagnostic Endpoint
 app.get('/api/test-email', async (req, res) => {
@@ -222,7 +223,7 @@ app.get('/', (req, res) => {
   res.json({
     status: "ok",
     service: "MVSS ERP Backend",
-    version: "production-v1.0.4"
+    version: "production-v1.0.5"
   });
 });
 

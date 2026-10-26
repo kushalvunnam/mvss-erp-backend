@@ -362,14 +362,44 @@ router.post('/:id/attendance', async (req, res) => {
 // 5. Generate monthly salary statement
 router.post('/:id/salary', async (req, res) => {
   try {
-    const { monthYear, basicSalary, advances, deductions, specialAllowance, otherAllowance, otherAllowanceDescription, deductionsDescription, epfPercent, professionalTax, additionalDeductions } = req.body;
+    const { monthYear, basicSalary, advances, deductions, specialAllowance, otherAllowance, otherAllowanceDescription, deductionsDescription, epfPercent, professionalTax, additionalDeductions, salaryStartDate, salaryEndDate } = req.body;
     const employee = await Employee.findById(req.params.id);
     if (!employee) return res.status(404).send({ error: 'Employee not found.' });
 
-    // Count leaves for the specified month-year (formatted YYYY-MM) with default Sundays as Weekly Off
     const [year, month] = monthYear.split('-').map(Number);
-    const endDate = new Date(year, month, 0); // last day of month
+    let startD, endD;
+    const monthStartD = new Date(year, month - 1, 1);
+    const defaultEndD = new Date(year, month, 0); // last day of month
+
+    if (salaryStartDate && salaryEndDate) {
+      // The frontend sends the Joining Date in salaryStartDate. 
+      // We must cap it so it does not pull in previous months if they select a later month.
+      const providedStart = new Date(salaryStartDate);
+      startD = new Date(Math.max(monthStartD.getTime(), providedStart.getTime()));
+      endD = new Date(salaryEndDate);
+    } else {
+      startD = monthStartD;
+      endD = defaultEndD;
+    }
     
+    startD.setHours(0, 0, 0, 0);
+    endD.setHours(0, 0, 0, 0);
+
+    const doj = new Date(employee.dateOfJoining || Date.now());
+    doj.setHours(0, 0, 0, 0);
+    const effectiveStartD = new Date(Math.max(doj.getTime(), startD.getTime()));
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    let eligibleDays = 0;
+    if (endD >= effectiveStartD) {
+      eligibleDays = Math.round((endD - effectiveStartD) / (1000 * 60 * 60 * 24)) + 1;
+    }
+
+    const basic = Number(basicSalary) || 0;
+    const dailySalary = daysInMonth > 0 ? basic / daysInMonth : 0;
+    const payableSalary = dailySalary * eligibleDays;
+
     let absentCount = 0;
     let halfDayCount = 0;
     let leaveCount = 0;
@@ -385,11 +415,10 @@ router.post('/:id/salary', async (req, res) => {
       attendanceMap[`${yyyy}-${mm}-${dd}`] = (a.isWeeklyOff || a.weeklyOff) ? 'Weekly Off' : a.status;
     });
 
-    for (let day = 1; day <= endDate.getDate(); day++) {
-      const currentDate = new Date(year, month - 1, day);
-      const yyyy = currentDate.getFullYear();
-      const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(currentDate.getDate()).padStart(2, '0');
+    for (let current = new Date(effectiveStartD); current <= endD; current.setDate(current.getDate() + 1)) {
+      const yyyy = current.getFullYear();
+      const mm = String(current.getMonth() + 1).padStart(2, '0');
+      const dd = String(current.getDate()).padStart(2, '0');
       const key = `${yyyy}-${mm}-${dd}`;
       
       const status = attendanceMap[key];
@@ -407,7 +436,7 @@ router.post('/:id/salary', async (req, res) => {
           presentCount += 1;
         }
       } else {
-        if (currentDate.getDay() === 0) {
+        if (current.getDay() === 0) {
           weeklyOffCount += 1; // Default Sunday to Weekly Off
           presentCount += 1;
         }
@@ -415,7 +444,6 @@ router.post('/:id/salary', async (req, res) => {
     }
     
     // Calculate service duration in months from employee's dateOfJoining to target monthYear
-    const doj = new Date(employee.dateOfJoining || Date.now());
     const targetDate = new Date(year, month - 1, 1);
     const diffYears = targetDate.getFullYear() - doj.getFullYear();
     const diffMonths = targetDate.getMonth() - doj.getMonth() + (diffYears * 12);
@@ -427,21 +455,19 @@ router.post('/:id/salary', async (req, res) => {
 
     const special = Number(specialAllowance) || 0;
     const other = Number(otherAllowance) || 0;
-    const basic = Number(basicSalary) || 0;
     const adv = Number(advances) || 0;
 
     const epfPercentVal = Number(epfPercent) || 0;
-    const epfAmountVal = Math.round(basic * (epfPercentVal / 100));
+    const epfAmountVal = Math.round(payableSalary * (epfPercentVal / 100));
     const ptAmountVal = Number(professionalTax) || 0;
 
     const extraDeductionsArray = Array.isArray(additionalDeductions) ? additionalDeductions : [];
     const additionalDeductionsSum = extraDeductionsArray.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
 
-    // Deduct salary per day of excessLeaves (assumes 30 days month)
-    const leaveDeduction = (basic / 30) * excessLeaves;
+    const leaveDeduction = dailySalary * excessLeaves;
 
     // Net Salary calculation including EPF, PT, Leave, Advance and all additional deductions
-    const netSalary = Math.round(Math.max(0, basic + special + other - adv - leaveDeduction - epfAmountVal - ptAmountVal - additionalDeductionsSum));
+    const netSalary = Math.round(Math.max(0, payableSalary + special + other - adv - leaveDeduction - epfAmountVal - ptAmountVal - additionalDeductionsSum));
 
     const legacyDeductionsDesc = extraDeductionsArray.map(d => `${d.name}: ₹${d.amount}`).join(', ');
 
@@ -462,7 +488,14 @@ router.post('/:id/salary', async (req, res) => {
       epfAmount: epfAmountVal,
       professionalTax: ptAmountVal,
       additionalDeductions: extraDeductionsArray,
-      netSalary
+      netSalary,
+      salaryStartDate: startD,
+      salaryEndDate: endD,
+      effectiveStartDate: effectiveStartD,
+      eligibleDays,
+      daysInMonth,
+      dailySalary,
+      payableSalary
     });
 
     await employee.save();

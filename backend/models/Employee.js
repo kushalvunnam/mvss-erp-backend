@@ -30,6 +30,13 @@ const attendanceSchema = new mongoose.Schema({
 const salarySchema = new mongoose.Schema({
   monthYear: { type: String, required: true }, // 'YYYY-MM'
   basicSalary: { type: Number, required: true },
+  salaryStartDate: { type: Date },
+  salaryEndDate: { type: Date },
+  effectiveStartDate: { type: Date },
+  eligibleDays: { type: Number },
+  daysInMonth: { type: Number },
+  dailySalary: { type: Number },
+  payableSalary: { type: Number },
   leaves: { type: Number, default: 0 },
   advances: { type: Number, default: 0 },
   deductions: { type: Number, default: 0 },
@@ -76,6 +83,7 @@ const employeeSchema = new mongoose.Schema({
   aadharNumber: { type: String, required: true },
   resumeUrl: { type: String, default: '' }, // Path to uploaded file
   status: { type: String, enum: ['Active', 'Inactive'], default: 'Active' },
+  monthlySalary: { type: Number },
   attendance: [attendanceSchema],
   salaries: [salarySchema]
 }, { timestamps: true });
