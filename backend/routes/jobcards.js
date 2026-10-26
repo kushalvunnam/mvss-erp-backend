@@ -313,7 +313,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
           relatedEntity: jobCard._id,
           onModel: 'JobCard',
           idempotencyKey: `job_card_created_${jobCard._id}`
-        }).catch(err => console.error('[WhatsApp] Async job card create error:', err));
+        }).catch(err => console.error('[WhatsApp] Async job card create error:', err.message || err));
       }
     } catch (waError) {
       console.error('[WhatsApp] Failed to trigger job card welcome message:', waError);
@@ -471,7 +471,7 @@ router.put('/:id', auth, async (req, res) => {
               relatedEntity: jobCard._id,
               onModel: 'JobCard',
               idempotencyKey: `${templateName}_${jobCard._id}`
-            }).catch(err => console.error(`[WhatsApp] Async ${templateName} error:`, err));
+            }).catch(err => console.error(`[WhatsApp] Async ${templateName} error:`, err.message || err));
           }
         }
       } catch (waError) {
@@ -711,7 +711,7 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
           relatedEntity: jobCard._id,
           onModel: 'JobCard',
           idempotencyKey: `payment_received_${addedPaymentId || Date.now()}`
-        }).catch(err => console.error('[WhatsApp] Async advance payment error:', err));
+        }).catch(err => console.error('[WhatsApp] Async advance payment error:', err.message || err));
       }
     } catch (waError) {
       console.error('[WhatsApp] Failed to trigger advance payment received message:', waError);
@@ -893,7 +893,7 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
           relatedEntity: jobCard._id,
           onModel: 'JobCard',
           idempotencyKey: `payment_received_${addedPaymentId || Date.now()}`
-        }).catch(err => console.error('[WhatsApp] Async final payment error:', err));
+        }).catch(err => console.error('[WhatsApp] Async final payment error:', err.message || err));
       }
     } catch (waError) {
       console.error('[WhatsApp] Failed to trigger final payment received message:', waError);

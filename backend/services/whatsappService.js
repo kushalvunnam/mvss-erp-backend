@@ -31,6 +31,9 @@ const normalizePhoneNumber = (phone) => {
 const TEMPLATE_CONFIG = {
     'mvss_welcome_customer': { lang: 'en', paramCount: 2 },
     'mvss_job_card_created': { lang: 'en', paramCount: 4 },
+    'mvss_work_started': { lang: 'en', paramCount: 3 },
+    'mvss_vehicle_ready': { lang: 'en', paramCount: 3 },
+    'mvss_vehicle_delivered': { lang: 'en', paramCount: 4 },
     'mvss_estimate_created': { lang: 'en', paramCount: 5 },
     'mvss_estimate_approved': { lang: 'en', paramCount: 5 },
     'mvss_invoice_generated': { lang: 'en', paramCount: 5 },
@@ -41,6 +44,53 @@ const TEMPLATE_CONFIG = {
 
 // Dynamic cache of templates verified directly from Meta Graph API
 const dynamicTemplateMap = new Map();
+
+/**
+ * Resolves a template specification from dynamicTemplateMap (or fallback TEMPLATE_CONFIG),
+ * supporting exact names, alias variations (with/without mvss_ prefix, underscores/hyphens).
+ */
+const resolveTemplateSpec = (requestedName) => {
+    if (!requestedName) return null;
+
+    // 1. Exact match in dynamicTemplateMap
+    if (dynamicTemplateMap.has(requestedName)) {
+        return dynamicTemplateMap.get(requestedName);
+    }
+
+    // 2. Exact match with/without 'mvss_' prefix
+    const withoutPrefix = requestedName.replace(/^mvss_/, '');
+    const withPrefix = requestedName.startsWith('mvss_') ? requestedName : `mvss_${requestedName}`;
+
+    if (dynamicTemplateMap.has(withoutPrefix)) {
+        return dynamicTemplateMap.get(withoutPrefix);
+    }
+    if (dynamicTemplateMap.has(withPrefix)) {
+        return dynamicTemplateMap.get(withPrefix);
+    }
+
+    // 3. Normalized alphanumeric search in dynamicTemplateMap
+    const cleanRequested = requestedName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanWithout = withoutPrefix.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const [name, spec] of dynamicTemplateMap.entries()) {
+        const cleanName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cleanName === cleanRequested || cleanName === cleanWithout) {
+            return spec;
+        }
+    }
+
+    // 4. Fallback to static TEMPLATE_CONFIG
+    const staticSpec = TEMPLATE_CONFIG[requestedName] || TEMPLATE_CONFIG[withPrefix] || TEMPLATE_CONFIG[withoutPrefix];
+    if (staticSpec) {
+        return {
+            name: requestedName,
+            language: staticSpec.lang || 'en',
+            status: 'CONFIG_FALLBACK',
+            paramCount: staticSpec.paramCount
+        };
+    }
+
+    return null;
+};
 
 /**
  * Safely extracts error details from a Meta Graph API or network error without leaking secrets or tokens.
@@ -89,8 +139,8 @@ const getMetaErrorDetails = (err) => {
 /**
  * Fetch and verify production configuration and approved templates directly from Meta Graph API.
  * Uses centralized GRAPH_API_BASE_URL.
- * Distinguishes permission failures from invalid IDs, tests for Business Portfolio vs WABA IDs,
- * and preserves the static TEMPLATE_CONFIG baseline if dynamic audit cannot complete.
+ * Discovers WABA ID from the Phone Number ID or META_WA_BUSINESS_ACCOUNT_ID,
+ * retrieves all templates from Meta, and gracefully falls back to static baseline if needed.
  */
 const syncMetaTemplates = async (customAxios = axios) => {
     const token = process.env.META_WA_ACCESS_TOKEN;
@@ -139,14 +189,19 @@ const syncMetaTemplates = async (customAxios = axios) => {
         auditReport.tokenPermissions = { error: errDetails.message };
     }
 
-    // 2. Inspect Phone Number ID via /${phoneNumberId}
+    // 2. Inspect Phone Number ID and discover its owning WhatsApp Business Account
+    let phoneDiscoveredWabaId = null;
     if (phoneNumberId) {
         try {
-            const phoneRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneNumberId}?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating`, {
+            const phoneRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneNumberId}?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating,whatsapp_business_account`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             auditReport.phoneVerification.verified = true;
             auditReport.phoneVerification.details = phoneRes.data;
+            phoneDiscoveredWabaId = phoneRes.data?.whatsapp_business_account?.id || null;
+            if (phoneDiscoveredWabaId) {
+                console.log(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} is associated with WABA ID: ${phoneDiscoveredWabaId}`);
+            }
             console.log(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} verified on Meta: Display=${phoneRes.data.display_phone_number || 'N/A'} | Verified Name=${phoneRes.data.verified_name || 'N/A'} | Status=${phoneRes.data.code_verification_status || 'VERIFIED'} | Quality=${phoneRes.data.quality_rating || 'N/A'}`);
         } catch (phoneErr) {
             const errDetails = getMetaErrorDetails(phoneErr);
@@ -158,10 +213,23 @@ const syncMetaTemplates = async (customAxios = axios) => {
         console.warn('[WhatsApp Meta Audit] META_WA_PHONE_NUMBER_ID is not configured.');
     }
 
-    // 3. Inspect WABA ID vs Business Portfolio ID
-    let effectiveWabaId = configuredWabaId;
-    if (configuredWabaId) {
-        // First, test whether configuredWabaId is directly a WhatsApp Business Account
+    // 3. Inspect WABA ID (prefer phone's owning WABA, fallback to configuredWabaId)
+    let effectiveWabaId = phoneDiscoveredWabaId || configuredWabaId;
+    if (phoneDiscoveredWabaId) {
+        auditReport.wabaVerification.verified = true;
+        auditReport.wabaVerification.isWaba = true;
+        auditReport.wabaVerification.resolvedWabaId = phoneDiscoveredWabaId;
+        effectiveWabaId = phoneDiscoveredWabaId;
+        try {
+            const wabaDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneDiscoveredWabaId}?fields=id,name,currency,timezone_id`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            console.log(`[WhatsApp Meta Audit] Phone WABA ID ${phoneDiscoveredWabaId} verified: Name=${wabaDirectRes.data?.name || 'N/A'}`);
+        } catch (wabaMetaErr) {
+            console.log(`[WhatsApp Meta Audit] Phone WABA ID ${phoneDiscoveredWabaId} metadata check note (non-fatal):`, getMetaErrorDetails(wabaMetaErr).message);
+        }
+    } else if (configuredWabaId) {
+        // Test configuredWabaId directly
         try {
             const wabaDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredWabaId}?fields=id,name,currency,timezone_id`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -175,7 +243,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
             const wabaErrDetails = getMetaErrorDetails(wabaErr);
             console.warn(`[WhatsApp Meta Audit] Direct WABA check on ${configuredWabaId} returned:`, wabaErrDetails.formatted);
 
-            // If direct WABA check fails, check if configuredWabaId is a Meta Business Portfolio ID
+            // Test if configuredWabaId is a Meta Business Portfolio ID
             try {
                 console.log(`[WhatsApp Meta Audit] Testing if ${configuredWabaId} is a Business Portfolio ID via /owned_whatsapp_business_accounts...`);
                 const portfolioRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredWabaId}/owned_whatsapp_business_accounts`, {
@@ -199,8 +267,8 @@ const syncMetaTemplates = async (customAxios = axios) => {
             }
         }
     } else {
-        auditReport.wabaVerification.error = 'META_WA_BUSINESS_ACCOUNT_ID is not configured in environment';
-        console.warn('[WhatsApp Meta Audit] META_WA_BUSINESS_ACCOUNT_ID is not configured.');
+        auditReport.wabaVerification.error = 'Neither phone WABA nor META_WA_BUSINESS_ACCOUNT_ID could be found';
+        console.warn('[WhatsApp Meta Audit] No WABA ID available.');
     }
 
     // 4. Fetch Message Templates using effectiveWabaId (if verified)
@@ -246,9 +314,9 @@ const syncMetaTemplates = async (customAxios = axios) => {
             // Verify specifically the ERP templates against Meta's returned templates
             console.log('[WhatsApp Meta Audit] Verifying ERP Template mappings against Meta:');
             for (const [name, config] of Object.entries(TEMPLATE_CONFIG)) {
-                const metaT = dynamicTemplateMap.get(name);
-                if (metaT) {
-                    console.log(`  [MATCH] ${name} -> Meta Lang: ${metaT.language} (Fallback: ${config.lang}) | Status: ${metaT.status} | Params: ${metaT.paramCount}`);
+                const resolved = resolveTemplateSpec(name);
+                if (resolved && resolved.status !== 'CONFIG_FALLBACK') {
+                    console.log(`  [MATCH] ${name} -> Meta Name: ${resolved.name} | Lang: ${resolved.language} | Status: ${resolved.status} | Params: ${resolved.paramCount}`);
                 } else {
                     console.warn(`  [MISSING IN META] ${name} -> NOT found in Meta WABA templates!`);
                 }
@@ -302,37 +370,34 @@ const sendTemplateMessage = async ({
             throw new Error(err);
         }
 
-        // Determine template specification (Meta verified takes precedence over static fallback)
-        const dynamicSpec = dynamicTemplateMap.get(templateName);
+        // Determine template specification via intelligent resolver
+        const templateSpec = resolveTemplateSpec(templateName);
+        const finalTemplateName = templateSpec?.name || templateName;
         const staticSpec = TEMPLATE_CONFIG[templateName];
 
-        if (!dynamicSpec && !staticSpec) {
+        if (!templateSpec && !staticSpec) {
             console.warn(`[WhatsApp] Template '${templateName}' is not defined in internal mapping or Meta WABA.`);
         }
 
-        // Determine final language code:
-        // 1. Caller explicit languageCode (if provided)
-        // 2. Meta-verified language for this template
-        // 3. Static template config language
-        // 4. Default 'en'
-        const finalLanguageCode = languageCode || dynamicSpec?.language || staticSpec?.lang || 'en';
+        // Final primary language: explicit override > templateSpec language > staticSpec lang > 'en'
+        const initialLanguage = languageCode || templateSpec?.language || staticSpec?.lang || 'en';
 
         // Check template status on Meta if verified
-        if (dynamicSpec && dynamicSpec.status !== 'APPROVED') {
-            const err = `Template '${templateName}' is in status '${dynamicSpec.status}' on Meta, not APPROVED.`;
+        if (templateSpec && templateSpec.status && !['APPROVED', 'CONFIG_FALLBACK'].includes(templateSpec.status)) {
+            const err = `Template '${finalTemplateName}' is in status '${templateSpec.status}' on Meta, not APPROVED.`;
             console.error(`[WhatsApp] ${err}`);
             throw new Error(err);
         }
 
         // Validate parameter count
-        const expectedParamCount = dynamicSpec?.paramCount ?? staticSpec?.paramCount;
+        const expectedParamCount = templateSpec?.paramCount ?? staticSpec?.paramCount;
 
         // Validate Components
         if (components && components.length > 0) {
             for (let c of components) {
                 if (c.type === 'body' && c.parameters) {
                     if (expectedParamCount !== undefined && c.parameters.length !== expectedParamCount) {
-                        const err = `Invalid parameter count for ${templateName}. Expected ${expectedParamCount}, got ${c.parameters.length}.`;
+                        const err = `Invalid parameter count for ${finalTemplateName}. Expected ${expectedParamCount}, got ${c.parameters.length}.`;
                         console.error(`[WhatsApp] ${err}`);
                         throw new Error(err);
                     }
@@ -363,7 +428,7 @@ const sendTemplateMessage = async ({
         const logEntry = new WhatsAppLog({
             recipientName,
             recipientPhone: normalizedPhone,
-            templateName,
+            templateName: finalTemplateName,
             messageType: 'template',
             status: 'pending',
             direction: 'outbound',
@@ -373,30 +438,72 @@ const sendTemplateMessage = async ({
         });
         await logEntry.save();
 
-        // Construct Meta API Payload
-        const payload = {
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: normalizedPhone,
-            type: 'template',
-            template: {
-                name: templateName,
-                language: {
-                    code: finalLanguageCode
-                },
-                components: components
+        // Build candidate languages for automatic fallback on Code 132001
+        const candidateLanguages = [initialLanguage];
+        const englishVariants = ['en', 'en_US', 'en_GB'];
+        if (englishVariants.includes(initialLanguage)) {
+            for (const variant of englishVariants) {
+                if (!candidateLanguages.includes(variant)) {
+                    candidateLanguages.push(variant);
+                }
             }
-        };
+        }
 
+        let response = null;
+        let lastError = null;
+        let successfulLanguage = initialLanguage;
         const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
 
-        console.log(`[WhatsApp] Sending request to Meta Graph API (${GRAPH_API_VERSION}) for template '${templateName}' [lang: ${finalLanguageCode}]`);
-        const response = await customAxios.post(url, payload, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+        for (let langIdx = 0; langIdx < candidateLanguages.length; langIdx++) {
+            const currentLang = candidateLanguages[langIdx];
+            const payload = {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: normalizedPhone,
+                type: 'template',
+                template: {
+                    name: finalTemplateName,
+                    language: {
+                        code: currentLang
+                    },
+                    components: components
+                }
+            };
+
+            console.log(`[WhatsApp] Sending request to Meta Graph API (${GRAPH_API_VERSION}) for template '${finalTemplateName}' [lang: ${currentLang}] (attempt ${langIdx + 1}/${candidateLanguages.length})`);
+
+            try {
+                response = await customAxios.post(url, payload, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                successfulLanguage = currentLang;
+                lastError = null;
+                // Cache the verified winning language into dynamicTemplateMap
+                dynamicTemplateMap.set(finalTemplateName, {
+                    name: finalTemplateName,
+                    language: successfulLanguage,
+                    status: 'APPROVED',
+                    paramCount: expectedParamCount
+                });
+                break; // Message accepted by Meta!
+            } catch (postErr) {
+                lastError = postErr;
+                const errDetails = getMetaErrorDetails(postErr);
+                const isTranslationError = errDetails.code === 132001 || (errDetails.message && errDetails.message.includes('132001'));
+                if (isTranslationError && langIdx < candidateLanguages.length - 1) {
+                    console.warn(`[WhatsApp] Meta rejected template '${finalTemplateName}' for language '${currentLang}' with Code 132001. Retrying with next candidate '${candidateLanguages[langIdx + 1]}'`);
+                    continue;
+                }
+                break;
             }
-        });
+        }
+
+        if (lastError || !response) {
+            throw lastError;
+        }
 
         const messageId = response.data.messages?.[0]?.id;
         const httpStatus = response.status;
@@ -406,8 +513,8 @@ const sendTemplateMessage = async ({
         logEntry.status = 'sent';
         await logEntry.save();
 
-        console.log(`[WhatsApp] Successfully sent template '${templateName}' to ${maskedTo} | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
-        return { success: true, messageId, data: response.data, language: finalLanguageCode };
+        console.log(`[WhatsApp] Successfully sent template '${finalTemplateName}' to ${maskedTo} [lang: ${successfulLanguage}] | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
+        return { success: true, messageId, data: response.data, language: successfulLanguage };
 
     } catch (error) {
         const errDetails = getMetaErrorDetails(error);
@@ -445,7 +552,10 @@ const sendTemplateMessage = async ({
             }
         }
         
-        throw error;
+        // Construct and throw a clean Error instance without dumping Axios internals, config, or tokens
+        const cleanError = new Error(errDetails.formatted);
+        cleanError.metaError = errDetails;
+        throw cleanError;
     }
 };
 
@@ -454,6 +564,7 @@ module.exports = {
     normalizePhoneNumber,
     syncMetaTemplates,
     getMetaErrorDetails,
+    resolveTemplateSpec,
     TEMPLATE_CONFIG,
     dynamicTemplateMap,
     GRAPH_API_VERSION,

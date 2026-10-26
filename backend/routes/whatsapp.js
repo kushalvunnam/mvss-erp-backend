@@ -5,7 +5,7 @@ const { auth, restrictTo } = require('../middleware/auth');
 const { sendTemplateMessage, syncMetaTemplates } = require('../services/whatsappService');
 
 // Automatically run startup Meta audit & template synchronization
-if (process.env.META_WA_ACCESS_TOKEN && process.env.META_WA_BUSINESS_ACCOUNT_ID) {
+if (process.env.META_WA_ACCESS_TOKEN && (process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_BUSINESS_ACCOUNT_ID)) {
     setTimeout(() => {
         syncMetaTemplates().catch(err => {
             console.warn('[WhatsApp] Startup Meta sync warning:', err.message);
