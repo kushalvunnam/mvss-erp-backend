@@ -137,10 +137,96 @@ const getMetaErrorDetails = (err) => {
 };
 
 /**
+ * Discover all candidate WABAs accessible to the access token through supported Graph API flows.
+ * Distinguishes Meta Business Portfolio IDs from WABA IDs.
+ */
+const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrWabaId) => {
+    const candidates = new Map(); // id -> { id, name, source }
+
+    // Helper to safely fetch and add WABAs from an endpoint
+    const tryFetchWabas = async (url, sourceName) => {
+        try {
+            const res = await customAxios.get(url, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const list = res.data?.data || (res.data?.id ? [res.data] : []);
+            list.forEach(waba => {
+                if (waba && waba.id) {
+                    candidates.set(waba.id, {
+                        id: waba.id,
+                        name: waba.name || 'Unnamed WABA',
+                        source: sourceName
+                    });
+                }
+            });
+            if (list.length > 0) {
+                console.log(`[WhatsApp Meta Audit] Discovered ${list.length} WABA(s) via ${sourceName}`);
+            }
+        } catch (err) {
+            const errDetails = getMetaErrorDetails(err);
+            console.log(`[WhatsApp Meta Audit] Endpoint ${sourceName} check note: ${errDetails.formatted}`);
+        }
+    };
+
+    // 1. Direct /me/owned_whatsapp_business_accounts
+    await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/owned_whatsapp_business_accounts?fields=id,name`, '/me/owned_whatsapp_business_accounts');
+
+    // 2. Direct /me/assigned_whatsapp_business_accounts
+    await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/assigned_whatsapp_business_accounts?fields=id,name`, '/me/assigned_whatsapp_business_accounts');
+
+    // 3. Direct /me/whatsapp_business_accounts
+    await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/whatsapp_business_accounts?fields=id,name`, '/me/whatsapp_business_accounts');
+
+    // 4. Direct /me/businesses (Meta Business Portfolios), then /{business_id}/owned_whatsapp_business_accounts
+    try {
+        const bizRes = await customAxios.get(`${GRAPH_API_BASE_URL}/me/businesses?fields=id,name`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const businesses = bizRes.data?.data || [];
+        console.log(`[WhatsApp Meta Audit] Discovered ${businesses.length} Meta Business Portfolio(s) via /me/businesses`);
+        for (const biz of businesses) {
+            await tryFetchWabas(`${GRAPH_API_BASE_URL}/${biz.id}/owned_whatsapp_business_accounts?fields=id,name`, `Business Portfolio ${biz.id} (${biz.name}) owned_wabas`);
+            await tryFetchWabas(`${GRAPH_API_BASE_URL}/${biz.id}/client_whatsapp_business_accounts?fields=id,name`, `Business Portfolio ${biz.id} (${biz.name}) client_wabas`);
+        }
+    } catch (bizErr) {
+        const errDetails = getMetaErrorDetails(bizErr);
+        console.log(`[WhatsApp Meta Audit] /me/businesses check note: ${errDetails.formatted}`);
+    }
+
+    // 5. Configured ID (e.g., 10705793426461923): Check as Business Portfolio ID, then direct WABA
+    if (configuredBusinessOrWabaId) {
+        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${configuredBusinessOrWabaId}/owned_whatsapp_business_accounts?fields=id,name`, `Configured ID ${configuredBusinessOrWabaId} owned_wabas`);
+        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${configuredBusinessOrWabaId}/client_whatsapp_business_accounts?fields=id,name`, `Configured ID ${configuredBusinessOrWabaId} client_wabas`);
+
+        // Check if configured ID is directly a WABA
+        try {
+            const directRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredBusinessOrWabaId}?fields=id,name,timezone_id`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (directRes.data?.id) {
+                candidates.set(directRes.data.id, {
+                    id: directRes.data.id,
+                    name: directRes.data.name || 'Direct Configured WABA',
+                    source: 'configured_direct'
+                });
+            }
+        } catch (directErr) {
+            const errDetails = getMetaErrorDetails(directErr);
+            console.log(`[WhatsApp Meta Audit] Configured ID ${configuredBusinessOrWabaId} direct WABA check note: ${errDetails.formatted}`);
+        }
+    }
+
+    return Array.from(candidates.values());
+};
+
+/**
  * Fetch and verify production configuration and approved templates directly from Meta Graph API.
  * Uses centralized GRAPH_API_BASE_URL.
- * Discovers WABA ID from the Phone Number ID or META_WA_BUSINESS_ACCOUNT_ID,
- * retrieves all templates from Meta, and gracefully falls back to static baseline if needed.
+ * Verifies production phone-number ID using supported fields (no invalid fields).
+ * Discovers the actual WABA ID through supported /me/owned_whatsapp_business_accounts and /me/businesses flows,
+ * confirms which WABA owns the production phone-number ID,
+ * retrieves all templates from Meta using the verified WABA ID,
+ * and gracefully falls back to static baseline if discovery cannot complete.
  */
 const syncMetaTemplates = async (customAxios = axios) => {
     const token = process.env.META_WA_ACCESS_TOKEN;
@@ -189,20 +275,26 @@ const syncMetaTemplates = async (customAxios = axios) => {
         auditReport.tokenPermissions = { error: errDetails.message };
     }
 
-    // 2. Inspect Phone Number ID and discover its owning WhatsApp Business Account
-    let phoneDiscoveredWabaId = null;
+    // 2. Inspect and verify production Phone Number ID using supported fields ONLY (no invalid fields)
+    let verifiedPhoneData = null;
     if (phoneNumberId) {
         try {
-            const phoneRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneNumberId}?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating,whatsapp_business_account`, {
+            const phoneRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneNumberId}?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             auditReport.phoneVerification.verified = true;
             auditReport.phoneVerification.details = phoneRes.data;
-            phoneDiscoveredWabaId = phoneRes.data?.whatsapp_business_account?.id || null;
-            if (phoneDiscoveredWabaId) {
-                console.log(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} is associated with WABA ID: ${phoneDiscoveredWabaId}`);
-            }
+            verifiedPhoneData = phoneRes.data;
             console.log(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} verified on Meta: Display=${phoneRes.data.display_phone_number || 'N/A'} | Verified Name=${phoneRes.data.verified_name || 'N/A'} | Status=${phoneRes.data.code_verification_status || 'VERIFIED'} | Quality=${phoneRes.data.quality_rating || 'N/A'}`);
+            
+            const expectedPhone = process.env.WHATSAPP_BUSINESS_PHONE;
+            if (expectedPhone && phoneRes.data.display_phone_number) {
+                const cleanDisplay = phoneRes.data.display_phone_number.replace(/\D/g, '');
+                const cleanExpected = expectedPhone.replace(/\D/g, '');
+                if (cleanDisplay.includes(cleanExpected) || cleanExpected.includes(cleanDisplay)) {
+                    console.log(`[WhatsApp Meta Audit] Confirmed: Display phone number matches intended production phone (${expectedPhone}).`);
+                }
+            }
         } catch (phoneErr) {
             const errDetails = getMetaErrorDetails(phoneErr);
             auditReport.phoneVerification.error = errDetails.formatted;
@@ -213,72 +305,52 @@ const syncMetaTemplates = async (customAxios = axios) => {
         console.warn('[WhatsApp Meta Audit] META_WA_PHONE_NUMBER_ID is not configured.');
     }
 
-    // 3. Inspect WABA ID (prefer phone's owning WABA, fallback to configuredWabaId)
-    let effectiveWabaId = phoneDiscoveredWabaId || configuredWabaId;
-    if (phoneDiscoveredWabaId) {
-        auditReport.wabaVerification.verified = true;
-        auditReport.wabaVerification.isWaba = true;
-        auditReport.wabaVerification.resolvedWabaId = phoneDiscoveredWabaId;
-        effectiveWabaId = phoneDiscoveredWabaId;
-        try {
-            const wabaDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${phoneDiscoveredWabaId}?fields=id,name,currency,timezone_id`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            console.log(`[WhatsApp Meta Audit] Phone WABA ID ${phoneDiscoveredWabaId} verified: Name=${wabaDirectRes.data?.name || 'N/A'}`);
-        } catch (wabaMetaErr) {
-            console.log(`[WhatsApp Meta Audit] Phone WABA ID ${phoneDiscoveredWabaId} metadata check note (non-fatal):`, getMetaErrorDetails(wabaMetaErr).message);
-        }
-    } else if (configuredWabaId) {
-        // Test configuredWabaId directly
-        try {
-            const wabaDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredWabaId}?fields=id,name,currency,timezone_id`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            auditReport.wabaVerification.verified = true;
-            auditReport.wabaVerification.isWaba = true;
-            auditReport.wabaVerification.resolvedWabaId = configuredWabaId;
-            effectiveWabaId = configuredWabaId;
-            console.log(`[WhatsApp Meta Audit] ID ${configuredWabaId} confirmed as valid WhatsApp Business Account: Name=${wabaDirectRes.data?.name || 'N/A'}`);
-        } catch (wabaErr) {
-            const wabaErrDetails = getMetaErrorDetails(wabaErr);
-            console.warn(`[WhatsApp Meta Audit] Direct WABA check on ${configuredWabaId} returned:`, wabaErrDetails.formatted);
+    // 3. Discover Candidate WABAs via supported Meta Graph API flows and verify which one owns phoneNumberId
+    const candidateWabas = await discoverAccessibleWabas(customAxios, token, configuredWabaId);
+    let verifiedWaba = null;
 
-            // Test if configuredWabaId is a Meta Business Portfolio ID
+    if (candidateWabas.length > 0 && phoneNumberId) {
+        console.log(`[WhatsApp Meta Audit] Verifying ${candidateWabas.length} candidate WABA(s) against Phone Number ID ${phoneNumberId}...`);
+        for (const cand of candidateWabas) {
             try {
-                console.log(`[WhatsApp Meta Audit] Testing if ${configuredWabaId} is a Business Portfolio ID via /owned_whatsapp_business_accounts...`);
-                const portfolioRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredWabaId}/owned_whatsapp_business_accounts`, {
+                const phonesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${cand.id}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                const ownedWabas = portfolioRes.data?.data || [];
-                if (ownedWabas.length > 0) {
-                    auditReport.wabaVerification.verified = true;
-                    auditReport.wabaVerification.isBusinessPortfolio = true;
-                    auditReport.wabaVerification.resolvedWabaId = ownedWabas[0].id;
-                    effectiveWabaId = ownedWabas[0].id;
-                    console.log(`[WhatsApp Meta Audit] Confirmed: ${configuredWabaId} is a Business Portfolio ID! Owned WABA ID resolved: ${effectiveWabaId} (${ownedWabas[0].name || 'N/A'})`);
-                } else {
-                    auditReport.wabaVerification.error = `Business Portfolio ${configuredWabaId} returned 0 owned WABAs`;
-                    console.warn(`[WhatsApp Meta Audit] Business Portfolio ${configuredWabaId} returned 0 owned WhatsApp Business Accounts.`);
+                const phoneList = phonesRes.data?.data || [];
+                console.log(`[WhatsApp Meta Audit] Candidate WABA ${cand.id} (${cand.name}) owns ${phoneList.length} phone number(s): ${phoneList.map(p => `${p.id} (${p.display_phone_number})`).join(', ') || 'none'}`);
+
+                const matchedPhone = phoneList.find(p => p.id === phoneNumberId);
+                if (matchedPhone) {
+                    verifiedWaba = {
+                        id: cand.id,
+                        name: cand.name,
+                        source: cand.source,
+                        matchedPhone
+                    };
+                    console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED: WABA ID ${cand.id} (${cand.name}) owns Phone Number ID ${phoneNumberId} (${matchedPhone.display_phone_number || 'N/A'})`);
+                    break;
                 }
-            } catch (portfolioErr) {
-                const portErrDetails = getMetaErrorDetails(portfolioErr);
-                auditReport.wabaVerification.error = `Direct: "${wabaErrDetails.formatted}", Portfolio: "${portErrDetails.formatted}"`;
-                console.warn(`[WhatsApp Meta Audit] Portfolio check on ${configuredWabaId} also failed:`, portErrDetails.formatted);
+            } catch (candErr) {
+                const errDetails = getMetaErrorDetails(candErr);
+                console.log(`[WhatsApp Meta Audit] Candidate WABA ${cand.id} /phone_numbers check note: ${errDetails.formatted}`);
             }
         }
-    } else {
-        auditReport.wabaVerification.error = 'Neither phone WABA nor META_WA_BUSINESS_ACCOUNT_ID could be found';
-        console.warn('[WhatsApp Meta Audit] No WABA ID available.');
     }
 
-    // 4. Fetch Message Templates using effectiveWabaId (if verified)
-    if (effectiveWabaId && auditReport.wabaVerification.verified) {
+    // 4. Handle WABA Verification Outcome
+    if (verifiedWaba) {
+        auditReport.wabaVerification.verified = true;
+        auditReport.wabaVerification.isWaba = true;
+        auditReport.wabaVerification.resolvedWabaId = verifiedWaba.id;
+        auditReport.wabaVerification.wabaName = verifiedWaba.name;
+
+        // Fetch Message Templates using the verified WABA ID
         try {
-            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${effectiveWabaId}/message_templates?limit=100`, {
+            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${verifiedWaba.id}/message_templates?limit=100`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const metaTemplates = templatesRes.data?.data || [];
-            console.log(`[WhatsApp Meta Audit] Successfully retrieved ${metaTemplates.length} template(s) from Meta WABA (${effectiveWabaId}).`);
+            console.log(`[WhatsApp Meta Audit] Successfully retrieved ${metaTemplates.length} template(s) from verified WABA (${verifiedWaba.id}).`);
 
             metaTemplates.forEach(t => {
                 const bodyComponent = t.components?.find(c => c.type === 'BODY');
@@ -311,7 +383,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
             }));
             auditReport.fallbackConfigActive = false;
 
-            // Verify specifically the ERP templates against Meta's returned templates
+            // Verify ERP template mappings against Meta
             console.log('[WhatsApp Meta Audit] Verifying ERP Template mappings against Meta:');
             for (const [name, config] of Object.entries(TEMPLATE_CONFIG)) {
                 const resolved = resolveTemplateSpec(name);
@@ -324,12 +396,19 @@ const syncMetaTemplates = async (customAxios = axios) => {
         } catch (tplErr) {
             const tplErrDetails = getMetaErrorDetails(tplErr);
             auditReport.templatesAudit.error = tplErrDetails.formatted;
-            console.warn(`[WhatsApp Meta Audit] Failed to retrieve message templates from WABA ${effectiveWabaId}:`, tplErrDetails.formatted);
+            console.warn(`[WhatsApp Meta Audit] Failed to retrieve message templates from verified WABA ${verifiedWaba.id}:`, tplErrDetails.formatted);
             console.warn('[WhatsApp Meta Audit] Preserving static TEMPLATE_CONFIG baseline (en).');
         }
     } else {
-        auditReport.templatesAudit.error = 'WABA ID could not be verified; dynamic template sync skipped';
-        console.warn('[WhatsApp Meta Audit] Skipping dynamic template sync: WABA ID could not be verified. Preserving static TEMPLATE_CONFIG baseline (en).');
+        const errorMsg = candidateWabas.length > 0 
+            ? `WABA verification failed: None of the ${candidateWabas.length} candidate WABA accounts own Phone Number ID ${phoneNumberId}`
+            : `WABA verification failed: No candidate WABAs could be discovered from token or configured ID ${configuredWabaId}`;
+        
+        auditReport.wabaVerification.verified = false;
+        auditReport.wabaVerification.error = errorMsg;
+        auditReport.templatesAudit.error = errorMsg;
+        console.warn(`[WhatsApp Meta Audit] ${errorMsg}`);
+        console.warn('[WhatsApp Meta Audit] Dynamic template sync skipped because WABA ID verification failed. Preserving static TEMPLATE_CONFIG baseline (en).');
     }
 
     console.log(`[WhatsApp Meta Audit] === Audit Complete. Baseline fallback active: ${auditReport.fallbackConfigActive ? 'YES (using verified TEMPLATE_CONFIG)' : 'NO (using live Meta sync)'} ===`);
@@ -565,6 +644,7 @@ module.exports = {
     syncMetaTemplates,
     getMetaErrorDetails,
     resolveTemplateSpec,
+    discoverAccessibleWabas,
     TEMPLATE_CONFIG,
     dynamicTemplateMap,
     GRAPH_API_VERSION,
