@@ -216,6 +216,30 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         }
     }
 
+    // 6. Inspect /debug_token for granular_scopes (which explicitly list WABA target_ids)
+    try {
+        const appSecret = process.env.META_WA_APP_SECRET;
+        const appId = process.env.META_WA_APP_ID || configuredBusinessOrWabaId;
+        const debugAuthToken = (appId && appSecret) ? `${appId}|${appSecret}` : token;
+        const debugRes = await customAxios.get(`${GRAPH_API_BASE_URL}/debug_token?input_token=${token}&access_token=${debugAuthToken}`);
+        const granularScopes = debugRes.data?.data?.granular_scopes || [];
+        for (const scopeObj of granularScopes) {
+            if (scopeObj.target_ids && Array.isArray(scopeObj.target_ids)) {
+                for (const targetId of scopeObj.target_ids) {
+                    candidates.set(targetId, {
+                        id: targetId,
+                        name: `WABA via granular scope (${scopeObj.scope})`,
+                        source: 'debug_token_granular_scopes'
+                    });
+                    console.log(`[WhatsApp Meta Audit] Discovered WABA ID ${targetId} from token granular scope: ${scopeObj.scope}`);
+                }
+            }
+        }
+    } catch (debugErr) {
+        const errDetails = getMetaErrorDetails(debugErr);
+        console.log(`[WhatsApp Meta Audit] /debug_token check note: ${errDetails.formatted}`);
+    }
+
     return Array.from(candidates.values());
 };
 
