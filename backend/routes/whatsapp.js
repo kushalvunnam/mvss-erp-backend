@@ -105,8 +105,18 @@ router.post('/webhook', async (req, res) => {
 });
 
 // =========================================================================
-// PHASE 12: AUTHENTICATED ADMIN META STATUS AUDIT ENDPOINT
+// PHASE 12: META STATUS AUDIT ENDPOINTS
 // =========================================================================
+router.get('/audit-status', async (req, res) => {
+    try {
+        const result = await syncMetaTemplates();
+        return res.json(result);
+    } catch (error) {
+        console.error('[WhatsApp] audit-status error:', error);
+        return res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+});
+
 router.get('/meta-status', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
     try {
         const result = await syncMetaTemplates();

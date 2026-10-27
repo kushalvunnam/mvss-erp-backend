@@ -193,10 +193,11 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         console.log(`[WhatsApp Meta Audit] /me/businesses check note: ${errDetails.formatted}`);
     }
 
-    // 5. Candidate Business Portfolio / WABA IDs: configured ID and verified Business ID 1983617422302091
+    // 5. Candidate Business Portfolio / WABA IDs: configured ID, verified Business ID 1983617422302091, and WABA asset_id 3953189031490997
     const candidateBizIds = new Set();
     if (configuredBusinessOrWabaId) candidateBizIds.add(String(configuredBusinessOrWabaId).trim());
     candidateBizIds.add('1983617422302091'); // MVSS Automobiles Meta Business Portfolio ID from WhatsApp Manager
+    candidateBizIds.add('3953189031490997'); // Exact WABA asset_id from WhatsApp Manager URL
 
     for (const bizId of candidateBizIds) {
         await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/owned_whatsapp_business_accounts?fields=id,name`, `Business ID ${bizId} owned_wabas`);
