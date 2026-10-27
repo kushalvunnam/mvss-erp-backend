@@ -193,26 +193,30 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         console.log(`[WhatsApp Meta Audit] /me/businesses check note: ${errDetails.formatted}`);
     }
 
-    // 5. Configured ID (e.g., 10705793426461923): Check as Business Portfolio ID, then direct WABA
-    if (configuredBusinessOrWabaId) {
-        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${configuredBusinessOrWabaId}/owned_whatsapp_business_accounts?fields=id,name`, `Configured ID ${configuredBusinessOrWabaId} owned_wabas`);
-        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${configuredBusinessOrWabaId}/client_whatsapp_business_accounts?fields=id,name`, `Configured ID ${configuredBusinessOrWabaId} client_wabas`);
+    // 5. Candidate Business Portfolio / WABA IDs: configured ID and verified Business ID 1983617422302091
+    const candidateBizIds = new Set();
+    if (configuredBusinessOrWabaId) candidateBizIds.add(String(configuredBusinessOrWabaId).trim());
+    candidateBizIds.add('1983617422302091'); // MVSS Automobiles Meta Business Portfolio ID from WhatsApp Manager
 
-        // Check if configured ID is directly a WABA
+    for (const bizId of candidateBizIds) {
+        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/owned_whatsapp_business_accounts?fields=id,name`, `Business ID ${bizId} owned_wabas`);
+        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/client_whatsapp_business_accounts?fields=id,name`, `Business ID ${bizId} client_wabas`);
+
+        // Check if ID is directly a WABA
         try {
-            const directRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${configuredBusinessOrWabaId}?fields=id,name,timezone_id`, {
+            const directRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${bizId}?fields=id,name,timezone_id`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (directRes.data?.id) {
                 candidates.set(directRes.data.id, {
                     id: directRes.data.id,
-                    name: directRes.data.name || 'Direct Configured WABA',
-                    source: 'configured_direct'
+                    name: directRes.data.name || `Direct WABA (${bizId})`,
+                    source: `direct_lookup_${bizId}`
                 });
             }
         } catch (directErr) {
             const errDetails = getMetaErrorDetails(directErr);
-            console.log(`[WhatsApp Meta Audit] Configured ID ${configuredBusinessOrWabaId} direct WABA check note: ${errDetails.formatted}`);
+            console.log(`[WhatsApp Meta Audit] Direct ID ${bizId} check note: ${errDetails.formatted}`);
         }
     }
 
@@ -433,6 +437,34 @@ const syncMetaTemplates = async (customAxios = axios) => {
         auditReport.templatesAudit.error = errorMsg;
         console.warn(`[WhatsApp Meta Audit] ${errorMsg}`);
         console.warn('[WhatsApp Meta Audit] Dynamic template sync skipped because WABA ID verification failed. Preserving static TEMPLATE_CONFIG baseline (en).');
+    }
+
+    // 5. Direct verification for known Meta Template ID 1651560919739085 (mvss_job_card_created)
+    try {
+        const tplDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/1651560919739085?fields=id,name,status,language,category,components`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (tplDirectRes.data?.id) {
+            const t = tplDirectRes.data;
+            const bodyComponent = t.components?.find(c => c.type === 'BODY');
+            let paramCount = 4;
+            if (bodyComponent && bodyComponent.text) {
+                const matches = bodyComponent.text.match(/\{\{\d+\}\}/g);
+                if (matches) paramCount = new Set(matches).size;
+            }
+            dynamicTemplateMap.set(t.name, {
+                name: t.name,
+                language: t.language,
+                status: t.status,
+                category: t.category,
+                id: t.id,
+                paramCount
+            });
+            console.log(`[WhatsApp Meta Audit] Confirmed Template ID ${t.id} directly on Meta: Name=${t.name} | Lang=${t.language} | Status=${t.status} | Params=${paramCount}`);
+        }
+    } catch (tplDirectErr) {
+        const errDetails = getMetaErrorDetails(tplDirectErr);
+        console.log(`[WhatsApp Meta Audit] Direct Template ID 1651560919739085 lookup note: ${errDetails.formatted}`);
     }
 
     console.log(`[WhatsApp Meta Audit] === Audit Complete. Baseline fallback active: ${auditReport.fallbackConfigActive ? 'YES (using verified TEMPLATE_CONFIG)' : 'NO (using live Meta sync)'} ===`);
