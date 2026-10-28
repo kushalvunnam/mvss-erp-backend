@@ -685,26 +685,36 @@ const sendTemplateMessage = async ({
 
         // Idempotency Check: Prevent duplicate messages for the same event
         if (idempotencyKey) {
-            const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
-            if (existingLog) {
-                console.log(`[WhatsApp] Duplicate skipped for key: ${idempotencyKey}`);
-                return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped' };
+            try {
+                const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
+                if (existingLog) {
+                    console.log(`[WhatsApp] Duplicate skipped for key: ${idempotencyKey}`);
+                    return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped' };
+                }
+            } catch (dbReadErr) {
+                console.warn(`[WhatsApp] Warning: Failed to query existing WhatsAppLog for idempotencyKey '${idempotencyKey}':`, dbReadErr.message || dbReadErr);
             }
         }
 
-        // Create pending log entry
-        const logEntry = new WhatsAppLog({
-            recipientName,
-            recipientPhone: normalizedPhone,
-            templateName: finalTemplateName,
-            messageType: 'template',
-            status: 'pending',
-            direction: 'outbound',
-            relatedEntity,
-            onModel,
-            idempotencyKey
-        });
-        await logEntry.save();
+        // Create pending log entry (isolated so logging failures do not block message send)
+        let logEntry = null;
+        try {
+            logEntry = new WhatsAppLog({
+                recipientName,
+                recipientPhone: normalizedPhone,
+                templateName: finalTemplateName,
+                messageType: 'template',
+                status: 'pending',
+                direction: 'outbound',
+                relatedEntity,
+                onModel,
+                idempotencyKey
+            });
+            await logEntry.save();
+        } catch (logSaveErr) {
+            console.error(`[WhatsApp] Warning: Failed to save initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
+            logEntry = null;
+        }
 
         // Construct Meta API Payload with configured template and language
         const payload = {
@@ -735,9 +745,28 @@ const sendTemplateMessage = async ({
         const httpStatus = response.status;
         
         // Update Log entry with sent status and message ID
-        logEntry.messageId = messageId;
-        logEntry.status = 'sent';
-        await logEntry.save();
+        try {
+            if (logEntry) {
+                logEntry.messageId = messageId;
+                logEntry.status = 'sent';
+                await logEntry.save();
+            } else if (idempotencyKey) {
+                await WhatsAppLog.create({
+                    recipientName,
+                    recipientPhone: normalizedPhone,
+                    templateName: finalTemplateName,
+                    messageType: 'template',
+                    status: 'sent',
+                    direction: 'outbound',
+                    messageId,
+                    relatedEntity,
+                    onModel,
+                    idempotencyKey
+                });
+            }
+        } catch (updateLogErr) {
+            console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
+        }
 
         console.log(`[WhatsApp] Successfully sent template '${finalTemplateName}' to ${maskedTo} [lang: ${initialLanguage}] | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
         return { success: true, messageId, data: response.data, language: initialLanguage };

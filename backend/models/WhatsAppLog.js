@@ -37,7 +37,17 @@ const whatsappLogSchema = new mongoose.Schema({
   },
   onModel: { 
     type: String, 
-    enum: ['Customer', 'JobCard', 'Invoice', 'Booking', 'Purchase'] 
+    enum: [
+      'Customer',
+      'JobCard',
+      'Estimate',
+      'Invoice',
+      'GatePass',
+      'InsuranceClaim',
+      'Booking',
+      'Purchase',
+      'FeedbackReminder'
+    ] 
   },
   errorMessage: { 
     type: String 
