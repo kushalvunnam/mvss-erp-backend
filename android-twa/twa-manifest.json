@@ -20,7 +20,7 @@
     "path": "C:\\Users\\kusha\\OneDrive\\Documents\\mvss automobiles\\android\\app\\mvss-upload-key.jks",
     "alias": "mvss-key-alias"
   },
-  "appVersionName": "3",
+  "appVersionName": "3.0",
   "appVersionCode": 3,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
@@ -47,5 +47,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "3"
+  "appVersion": "3.0"
 }
