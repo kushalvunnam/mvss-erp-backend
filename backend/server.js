@@ -254,8 +254,9 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    commit: '2f2c2c0',
-    description: 'Thicken table borders to 1.5 & increase signature spacing to 105'
+    commit: '7e7d34f',
+    version: 'production-v1.1.7',
+    description: 'WhatsApp complete automation integration for all 22 approved Meta templates, log monitoring, and retry API'
   });
 });
 
