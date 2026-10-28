@@ -24,8 +24,8 @@ def twaManifest = [
     applicationId: 'com.mvssautomobiles.erp',
     hostName: 'mvssautomobiles.com', // The domain being opened in the TWA.
     launchUrl: '/', // The start path for the TWA. Must be relative to the domain.
-    name: 'MVSS Automobiles', // The application name.
-    launcherName: 'MVSS Auto', // The name shown on the Android Launcher.
+    name: 'Auto4m', // The application name.
+    launcherName: 'Auto4m', // The name shown on the Android Launcher.
     themeColor: '#020617', // The color used for the status bar.
     themeColorDark: '#000000', // The color used for the dark status bar.
     navigationColor: '#000000', // The color used for the navigation bar.
@@ -57,8 +57,8 @@ android {
         applicationId "com.mvssautomobiles.erp"
         minSdkVersion 24
         targetSdkVersion 36
-        versionCode 1
-        versionName "1"
+        versionCode 2
+        versionName "2"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
