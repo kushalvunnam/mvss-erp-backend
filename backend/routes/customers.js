@@ -145,28 +145,62 @@ router.post('/', auth, async (req, res) => {
     const customer = new Customer(req.body);
     await customer.save();
     
-    // WhatsApp Integration: Customer Created
+    // [Stage 2] Customer created
+    console.log(`[Customer] [Stage 2] Customer saved successfully: ID=${customer._id}, Name=${customer.name}, Mobile=${customer.mobile}`);
+
+    // WhatsApp Integration: Customer Welcome
     try {
-      const { sendTemplateMessage } = require('../services/whatsappService');
-      const mobile = customer.mobile || customer.phone;
-      if (mobile) {
-        sendTemplateMessage({
-          to: mobile,
-          templateName: 'mvss_welcome_customer',
-          components: [
-            { type: 'body', parameters: [
-              { type: 'text', text: customer.name },
-              { type: 'text', text: 'your vehicle' }
-            ]}
-          ],
-          recipientName: customer.name,
-          relatedEntity: customer._id,
-          onModel: 'Customer',
-          idempotencyKey: `customer_created_${customer._id}`
-        }).catch(err => console.error('[WhatsApp] Async welcome customer error:', err));
+      const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+      const rawPhone = customer.mobile || customer.phone;
+      const customerName = String(customer.name || 'Valued Customer').trim();
+      const workshopName = 'MVSS Automobiles';
+
+      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const templateName = 'mvss_welcome_customer';
+      const correlationKey = `customer_created_${customer._id}`;
+      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+      const isValidContact = Boolean(normalizedPhone && normalizedPhone.length >= 10);
+
+      // [Stage 3] Automation event triggered
+      console.log(`[Customer Automation] [Stage 3] Automation event triggered: Event="Customer Welcome", CustomerId=${customer._id}, Name=${customerName}`);
+
+      // [Stage 4] Customer contact/template validation result
+      console.log(`[Customer Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+
+      if (isValidContact) {
+        // [Stage 5] WhatsApp send attempted
+        console.log(`[Customer Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+        try {
+          const waResult = await sendTemplateMessage({
+            to: normalizedPhone,
+            templateName,
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: customerName },
+                  { type: 'text', text: workshopName }
+                ]
+              }
+            ],
+            recipientName: customerName,
+            relatedEntity: customer._id,
+            onModel: 'Customer',
+            idempotencyKey: correlationKey
+          });
+
+          // [Stage 6] Meta response accepted
+          console.log(`[Customer Automation] [Stage 6] Meta response accepted: Customer=${customerName}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+        } catch (waSendErr) {
+          // [Stage 6] Meta response failed (isolated, does not fail customer creation)
+          console.error(`[Customer Automation] [Stage 6] Meta response failed: Customer=${customerName}, Error=${waSendErr.message || waSendErr}`);
+        }
+      } else {
+        console.warn(`[Customer Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
       }
     } catch (waError) {
-      console.error('[WhatsApp] Failed to trigger customer welcome message:', waError);
+      console.error('[Customer Automation] Unexpected error in customer welcome WhatsApp hook:', waError.message || waError);
     }
     
     // Automatically create a notification
