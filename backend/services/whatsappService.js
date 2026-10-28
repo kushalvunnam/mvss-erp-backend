@@ -638,7 +638,7 @@ const sendTemplateMessage = async ({
         }
 
         // Determine template specification via intelligent resolver
-        const templateSpec = resolveTemplateSpec(templateName);
+        let templateSpec = resolveTemplateSpec(templateName);
         finalTemplateName = templateSpec?.name || templateName;
         const staticSpec = TEMPLATE_CONFIG[templateName];
 
