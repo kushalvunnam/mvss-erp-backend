@@ -12,6 +12,10 @@ export default function Estimates({ token, user, setActiveTab }) {
   const [selectedEstId, setSelectedEstId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [pdfType, setPdfType] = useState('gst');
+  const [approvalModalEst, setApprovalModalEst] = useState(null);
+  const [isApproving, setIsApproving] = useState(false);
+
+  const canApproveEstimate = ['Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive'].includes(user?.role);
 
   // Debounce search state
   useEffect(() => {
@@ -45,8 +49,46 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   }, [statusFilter, viewMode, debouncedSearch]);
 
+  const openApproveModal = (est, e) => {
+    if (e) e.stopPropagation();
+    setApprovalModalEst(est);
+  };
+
+  const handleConfirmApproval = async () => {
+    if (!approvalModalEst) return;
+    setIsApproving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/estimates/${approvalModalEst._id}/approve`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        setApprovalModalEst(null);
+        await fetchEstimates();
+      } else {
+        const err = await res.json();
+        alert('Failed to approve estimate: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error approving estimate: ' + err.message);
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   const updateStatus = async (id, newStatus, e) => {
-    e.stopPropagation(); // prevent row click
+    if (e) e.stopPropagation(); // prevent row click
+    if (newStatus === 'Approved') {
+      const est = estimates.find(item => item._id === id);
+      if (est) {
+        openApproveModal(est, e);
+        return;
+      }
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/estimates/${id}`, {
         method: 'PUT',
@@ -58,6 +100,9 @@ export default function Estimates({ token, user, setActiveTab }) {
       });
       if (res.ok) {
         fetchEstimates();
+      } else {
+        const err = await res.json();
+        alert('Failed to update status: ' + (err.error || 'Unknown error'));
       }
     } catch (err) {
       console.error(err);
@@ -733,11 +778,11 @@ export default function Estimates({ token, user, setActiveTab }) {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
               {estimates.length > 0 ? (
                 estimates.map(est => {
-                  let statusBg = 'bg-slate-50 text-slate-600 dark:bg-slate-800';
-                  if (est.status === 'Sent') statusBg = 'bg-sky-50 text-sky-700 dark:bg-sky-950/20 dark:text-sky-400';
-                  if (est.status === 'Approved') statusBg = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400';
-                  if (est.status === 'Rejected') statusBg = 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400';
-                  if (est.status === 'Revised') statusBg = 'bg-purple-50 text-purple-750 dark:bg-purple-950/20 dark:text-purple-400';
+                  let statusBg = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+                  if (est.status === 'Sent') statusBg = 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400 border border-sky-300 dark:border-sky-800';
+                  if (est.status === 'Approved') statusBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800';
+                  if (est.status === 'Rejected') statusBg = 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800';
+                  if (est.status === 'Revised') statusBg = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-300 dark:border-amber-800';
 
                   const jc = est.jobCardId || {};
                   const cust = jc.customerId || {};
@@ -756,14 +801,14 @@ export default function Estimates({ token, user, setActiveTab }) {
                         <td className="p-4 font-semibold text-slate-650 dark:text-slate-350">{jc.jobCardNo || 'N/A'}</td>
                         <td className="p-4 font-bold text-slate-550 dark:text-slate-400 font-mono">{veh.vehicleNumber || 'N/A'}</td>
                         <td className="p-4 font-medium text-slate-550 dark:text-slate-400">{cust.name || 'Unknown'}</td>
-                        <td className="p-4 font-bold text-slate-900 dark:text-white">₹{est.totals.grandTotal.toLocaleString('en-IN')}</td>
+                        <td className="p-4 font-bold text-slate-900 dark:text-white">₹{est.totals?.grandTotal?.toLocaleString('en-IN') || 0}</td>
                         <td className="p-4">
                           <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${statusBg}`}>
                             {est.status}
                           </span>
                         </td>
                         <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex gap-2 justify-end">
+                          <div className="flex gap-2 justify-end items-center">
                             {isAdvisorOrAdmin && est.status === 'Draft' && (
                               <button
                                 onClick={(e) => updateStatus(est._id, 'Sent', e)}
@@ -773,14 +818,34 @@ export default function Estimates({ token, user, setActiveTab }) {
                                 Sent
                               </button>
                             )}
-                            {isAdvisorOrAdmin && est.status === 'Sent' && (
+                            {canApproveEstimate && est.status === 'Sent' && (
                               <>
                                 <button
-                                  onClick={(e) => updateStatus(est._id, 'Approved', e)}
+                                  onClick={(e) => openApproveModal(est, e)}
                                   className="text-emerald-500 hover:text-emerald-700 p-1 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
                                   title="Approve Estimate"
                                 >
                                   <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => updateStatus(est._id, 'Rejected', e)}
+                                  className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20"
+                                  title="Reject Estimate"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                            {canApproveEstimate && est.status === 'Revised' && (
+                              <>
+                                <button
+                                  onClick={(e) => openApproveModal(est, e)}
+                                  disabled={isApproving}
+                                  className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-750 px-2 py-1 rounded text-[10px] font-extrabold flex items-center gap-1 shadow-sm transition-all"
+                                  title="Approve Revised Estimate"
+                                >
+                                  <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                  Approve Revised
                                 </button>
                                 <button
                                   onClick={(e) => updateStatus(est._id, 'Rejected', e)}
@@ -803,6 +868,7 @@ export default function Estimates({ token, user, setActiveTab }) {
                               <button
                                 onClick={(e) => handleOpenEdit(est._id, e)}
                                 className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850"
+                                title="Edit Estimate"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
@@ -838,7 +904,9 @@ export default function Estimates({ token, user, setActiveTab }) {
                           <td colSpan="7" className="p-4 border-b border-slate-200 dark:border-slate-800">
                             <div className="space-y-3 pl-4">
                               <div className="flex justify-between items-center">
-                                <h5 className="font-extrabold uppercase text-[9px] text-slate-400 tracking-wider">Estimate Revision Logs ({est.revisionHistory?.length || 0})</h5>
+                                <h5 className="font-extrabold uppercase text-[9px] text-slate-400 tracking-wider">
+                                  Estimate Revision Logs ({est.revisionHistory?.length || 0})
+                                </h5>
                                 <div className="flex gap-2">
                                   <button
                                     onClick={(e) => {
@@ -854,16 +922,28 @@ export default function Estimates({ token, user, setActiveTab }) {
                                   </button>
                                 </div>
                               </div>
+
+                              {est.approvalMetadata && est.approvalMetadata.approvedByName && (
+                                <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 p-2.5 rounded-xl text-[10px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center justify-between">
+                                  <span>
+                                    ✓ Approved by <strong>{est.approvalMetadata.approvedByName}</strong> on {new Date(est.approvalMetadata.approvedAt).toLocaleString('en-IN')}
+                                  </span>
+                                  <span className="font-mono font-bold">Final Amount: ₹{(est.approvalMetadata.finalAmount || est.totals?.grandTotal || 0).toLocaleString('en-IN')}</span>
+                                </div>
+                              )}
                               
                               {est.revisionHistory && est.revisionHistory.length > 0 ? (
                                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                                   {est.revisionHistory.map((rev, rIdx) => (
                                     <div key={rIdx} className="py-2.5 flex justify-between items-center text-[10px] font-semibold text-slate-500">
                                       <div>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">Revision v{rev.version}</span> - {new Date(rev.date).toLocaleString('en-IN')} | Final Status: <span className="font-black uppercase text-[8px]">{rev.status}</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">Revision v{rev.version}</span> - {new Date(rev.date).toLocaleString('en-IN')} | Status: <span className="font-black uppercase text-[8px]">{rev.status}</span>
+                                        {rev.userName && <span className="text-slate-400"> (by {rev.userName})</span>}
+                                        {rev.reason && <span className="text-slate-400 block text-[9px] italic mt-0.5">Note: {rev.reason}</span>}
                                       </div>
-                                      <div className="font-mono text-slate-700 dark:text-slate-300 font-bold">
-                                        Parts: ₹{rev.totals?.partsTotal?.toLocaleString('en-IN')} | Labour: ₹{rev.totals?.labourTotal?.toLocaleString('en-IN')} | Grand Total: <strong className="text-indigo-650 dark:text-indigo-400">₹{rev.totals?.grandTotal?.toLocaleString('en-IN')}</strong>
+                                      <div className="font-mono text-slate-700 dark:text-slate-300 font-bold text-right">
+                                        {rev.previousAmount ? <span className="text-slate-400 line-through mr-1">₹{rev.previousAmount.toLocaleString('en-IN')}</span> : null}
+                                        <span>₹{(rev.newAmount || rev.totals?.grandTotal || 0).toLocaleString('en-IN')}</span>
                                       </div>
                                     </div>
                                   ))}
@@ -889,6 +969,105 @@ export default function Estimates({ token, user, setActiveTab }) {
           </table>
         </div>
       </div>
+
+      {/* Confirmation Modal for Estimate Approval */}
+      {approvalModalEst && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={() => !isApproving && setApprovalModalEst(null)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <Check className="w-5 h-5 text-emerald-500" />
+                  {approvalModalEst.status === 'Revised' ? 'Approve Revised Estimate' : 'Approve Estimate'}
+                </h3>
+                <p className="text-xs text-slate-400 font-semibold mt-0.5">
+                  Confirm final negotiated amounts before releasing to workshop & customer
+                </p>
+              </div>
+              <button
+                onClick={() => !isApproving && setApprovalModalEst(null)}
+                disabled={isApproving}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
+                <div>
+                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Estimate No</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{approvalModalEst.estimateNo}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Vehicle</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{approvalModalEst.jobCardId?.vehicleId?.vehicleNumber || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Customer</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">{approvalModalEst.jobCardId?.customerId?.name || 'Walk-in'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Status</span>
+                  <span className="font-black uppercase text-[10px] text-amber-600 dark:text-amber-400">{approvalModalEst.status}</span>
+                </div>
+              </div>
+
+              <div className="border border-slate-150 dark:border-slate-800 rounded-xl p-3 space-y-2 bg-white dark:bg-slate-900">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Parts Subtotal:</span>
+                  <span className="font-mono font-semibold">₹{(approvalModalEst.totals?.partsTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Labour Subtotal:</span>
+                  <span className="font-mono font-semibold">₹{(approvalModalEst.totals?.labourTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>GST Total:</span>
+                  <span className="font-mono font-semibold">₹{(approvalModalEst.totals?.gstTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-800 pt-2 text-sm font-black text-slate-900 dark:text-white">
+                  <span>Final Approved Amount:</span>
+                  <span className="text-base text-emerald-600 dark:text-emerald-400 font-mono">
+                    ₹{(approvalModalEst.totals?.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {approvalModalEst.revisionHistory?.length > 0 && (
+                <div className="text-[11px] text-slate-400 italic bg-amber-50/50 dark:bg-amber-950/20 p-2.5 rounded-lg border border-amber-200/40">
+                  ℹ️ This estimate has <strong>{approvalModalEst.revisionHistory.length} previous revision(s)</strong>. Approving will register approval for the latest revision and dispatch the customer WhatsApp notification once.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setApprovalModalEst(null)}
+                disabled={isApproving}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmApproval}
+                disabled={isApproving}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all"
+              >
+                {isApproving ? (
+                  <>Approving...</>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" /> Confirm & Approve
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

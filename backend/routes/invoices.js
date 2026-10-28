@@ -365,6 +365,11 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
 
     const isFinalizing = status === 'Finalized' && invoice.status !== 'Finalized';
 
+    // Prevent reverting a finalized invoice back to Draft
+    if (invoice.status === 'Finalized' && status === 'Draft') {
+      return res.status(400).send({ error: 'Cannot revert a finalized invoice to Draft status.' });
+    }
+
     if (isFinalizing) {
       const partsToCheck = parts || invoice.parts;
       for (const part of partsToCheck) {
@@ -381,28 +386,51 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
     }
 
     if (parts || labour) {
-      // Allow modifying items even if finalized
-      /*
-      if (invoice.status === 'Finalized') {
-        return res.status(400).send({ error: 'Cannot modify items on a finalized invoice.' });
-      }
-      */
       const calculations = recalculateInvoice(
         parts || invoice.parts,
         labour || invoice.labour,
         invoice.gstDetails.isInterstate
       );
+
+      // Record a historical revision snapshot if modifying an already finalized invoice
+      if (invoice.status === 'Finalized') {
+        const nextVersion = (invoice.revisionHistory?.length || 0) + 1;
+        if (!invoice.revisionHistory) invoice.revisionHistory = [];
+        invoice.revisionHistory.push({
+          version: nextVersion,
+          date: new Date(),
+          status: invoice.status,
+          totals: invoice.totals,
+          parts: invoice.parts,
+          labour: invoice.labour,
+          previousAmount: invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0,
+          newAmount: calculations.totals?.roundedGrandTotal || calculations.totals?.grandTotal || 0,
+          user: req.user?._id,
+          userName: req.user?.name || req.user?.username || 'Authorized User',
+          reason: req.body.reason || req.body.revisionReason || 'Post-finalization update'
+        });
+      }
+
       invoice.parts = calculations.parts;
       invoice.labour = calculations.labour;
       invoice.totals = calculations.totals;
       invoice.grandTotalWords = calculations.grandTotalWords;
     }
 
-    if (status) {
+    if (isFinalizing) {
+      invoice.status = 'Finalized';
+      invoice.date = new Date();
+      invoice.finalizedMetadata = {
+        finalizedBy: req.user?._id,
+        finalizedByName: req.user?.name || req.user?.username || 'Authorized User',
+        finalizedAt: new Date(),
+        finalAmount: invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0
+      };
+    } else if (invoice.status === 'Finalized') {
+      // Must remain Finalized if already finalized
+      invoice.status = 'Finalized';
+    } else if (status) {
       invoice.status = status;
-      if (status === 'Finalized') {
-        invoice.date = new Date();
-      }
     }
 
     if (paymentStatus) {
@@ -522,7 +550,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
 
         const contactCheck = validateCustomerContact(customer, rawPhone);
         const templateName = 'mvss_invoice_generated';
-        const correlationKey = `invoice_generated_${invoice._id}`;
+        const correlationKey = `invoice_generated_${invoice._id}_rev${invoice.revisionHistory?.length || 0}`;
 
         // [Stage 3] Automation event triggered
         console.log(`[Invoice Automation] [Stage 3] Automation event triggered: Event="Invoice Finalized", InvoiceNo=${invoiceNumber}, JobCardNo=${jobCardNumber}`);
@@ -577,6 +605,135 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
     res.send(invoice);
   } catch (error) {
     res.status(400).send({ error: 'Failed to update invoice: ' + error.message });
+  }
+});
+
+// Dedicated finalize endpoint for invoices
+router.put('/:id/finalize', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
+
+    // Idempotent: If already finalized, return current invoice without re-deducting stock or resending WhatsApp
+    if (invoice.status === 'Finalized') {
+      return res.send(invoice);
+    }
+
+    // Set status to Finalized and pass to update handler
+    req.body = { ...req.body, status: 'Finalized' };
+    
+    // Check stock for invoice parts
+    for (const part of invoice.parts) {
+      if (part.partId) {
+        const invItem = await Inventory.findById(part.partId);
+        if (!invItem) {
+          return res.status(400).send({ error: `Inventory item for part "${part.name}" not found.` });
+        }
+        if (Number(part.qty) > invItem.stockQuantity) {
+          return res.status(400).send({ error: `Insufficient stock for "${part.name}". Available: ${invItem.stockQuantity}, Required: ${part.qty}.` });
+        }
+      }
+    }
+
+    invoice.status = 'Finalized';
+    invoice.date = new Date();
+    invoice.finalizedMetadata = {
+      finalizedBy: req.user?._id,
+      finalizedByName: req.user?.name || req.user?.username || 'Authorized User',
+      finalizedAt: new Date(),
+      finalAmount: invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0
+    };
+
+    if (req.body.paymentStatus) {
+      invoice.paymentStatus = req.body.paymentStatus;
+      if (req.body.paymentStatus === 'Paid') {
+        invoice.amountPaid = invoice.totals.roundedGrandTotal || invoice.totals.grandTotal;
+      }
+    }
+
+    await invoice.save();
+
+    // Deduct stock from Inventory
+    for (const part of invoice.parts) {
+      if (part.partId) {
+        const invItem = await Inventory.findById(part.partId);
+        if (invItem) {
+          invItem.stockQuantity = Math.max(0, invItem.stockQuantity - part.qty);
+          await invItem.save();
+        }
+      }
+    }
+
+    // Mark Job Card as Delivered/Closed
+    await JobCard.findByIdAndUpdate(invoice.jobCardId, { status: 'Delivered' });
+    const { calculateBillingSummary } = require('../utils/billing');
+    await calculateBillingSummary(invoice.jobCardId);
+    await logAction(req.user, 'INVOICE_FINALIZE', `Finalized Invoice ${invoice.invoiceNo} & deducted inventory items`, req);
+
+    // WhatsApp Notification
+    try {
+      const Customer = require('../models/Customer');
+      const VehicleModel = require('../models/Vehicle');
+      const JobCard = require('../models/JobCard');
+      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+
+      const custId = (invoice.customerId && invoice.customerId._id) ? invoice.customerId._id : invoice.customerId;
+      const vehId = (invoice.vehicleId && invoice.vehicleId._id) ? invoice.vehicleId._id : invoice.vehicleId;
+
+      const customer = (invoice.customerId && invoice.customerId.name && (invoice.customerId.mobile || invoice.customerId.phone))
+        ? invoice.customerId
+        : (custId ? await Customer.findById(custId).lean() : null);
+
+      const vehicle = (invoice.vehicleId && (invoice.vehicleId.vehicleNumber || invoice.vehicleId.regNo))
+        ? invoice.vehicleId
+        : (vehId ? await VehicleModel.findById(vehId).lean() : null);
+
+      const jc = invoice.jobCardId ? await JobCard.findById(invoice.jobCardId).lean() : null;
+
+      const rawPhone = customer ? (customer.mobile || customer.phone || customer.contactNumber) : null;
+      const customerName = String(customer?.name || 'Valued Customer').trim();
+      const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
+      const invoiceNumber = String(invoice.invoiceNo || 'N/A').trim();
+      const jobCardNumber = String(jc?.jobCardNo || invoice.jobCardId?.toString() || 'N/A').trim();
+      const grandTotal = String(invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || '0').trim();
+
+      const contactCheck = validateCustomerContact(customer, rawPhone);
+      const templateName = 'mvss_invoice_generated';
+      const correlationKey = `invoice_generated_${invoice._id}_rev${invoice.revisionHistory?.length || 0}`;
+
+      if (contactCheck.valid) {
+        try {
+          await sendTemplateMessage({
+            to: contactCheck.phone,
+            templateName,
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: customerName },
+                  { type: 'text', text: vehicleNumber },
+                  { type: 'text', text: invoiceNumber },
+                  { type: 'text', text: jobCardNumber },
+                  { type: 'text', text: grandTotal }
+                ]
+              }
+            ],
+            recipientName: customerName,
+            relatedEntity: invoice._id,
+            onModel: 'Invoice',
+            idempotencyKey: correlationKey
+          });
+        } catch (waSendErr) {
+          console.error(`[Invoice Automation] Meta response failed: Invoice=${invoiceNumber}, Error=${waSendErr.message || waSendErr}`);
+        }
+      }
+    } catch (waError) {
+      console.error('[Invoice Automation] Unexpected error in WhatsApp invoice finalize hook:', waError.message || waError);
+    }
+
+    res.send(invoice);
+  } catch (error) {
+    res.status(400).send({ error: 'Failed to finalize invoice: ' + error.message });
   }
 });
 

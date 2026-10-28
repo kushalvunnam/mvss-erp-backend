@@ -223,7 +223,7 @@ app.get('/', (req, res) => {
   res.json({
     status: "ok",
     service: "MVSS ERP Backend",
-    version: "production-v1.1.8"
+    version: "production-v1.1.9"
   });
 });
 
@@ -254,8 +254,8 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    version: 'production-v1.1.8',
-    description: 'Customer feedback 1-5 star rating automation, inbound reply parsing, and complete WhatsApp integration'
+    version: 'production-v1.1.9',
+    description: 'Estimate revision, explicit reapproval workflow, and version-scoped WhatsApp automation'
   });
 });
 

@@ -225,6 +225,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   const [manualOverride, setManualOverride] = useState(false);
   const [overriddenGrandTotal, setOverriddenGrandTotal] = useState('');
   const [triggerRecalc, setTriggerRecalc] = useState(0);
+  const [existingEstimate, setExistingEstimate] = useState(null);
+  const [revisionReason, setRevisionReason] = useState('');
 
   const cleanNumberInput = (val, allowDecimal = true, maxVal = null) => {
     if (val === undefined || val === null) return '';
@@ -308,6 +310,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
           const estRes = await fetch(`${API_BASE_URL}/estimates/${editId}`, { headers });
           if (estRes.ok) {
             const est = await estRes.json();
+            setExistingEstimate(est);
             setSelectedJcId(est.jobCardId._id);
             setPartsList(est.parts.map(p => {
               const qty = p.qty || 1;
@@ -880,10 +883,13 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       return;
     }
 
+    const isRevising = Boolean(existingEstimate && existingEstimate.status !== 'Draft');
+
     const payload = {
       jobCardId: selectedJcId,
       parts: cleanedParts,
-      labour: cleanedLabour
+      labour: cleanedLabour,
+      reason: revisionReason ? revisionReason.trim() : undefined
     };
 
     const url = editId
@@ -902,6 +908,9 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       });
 
       if (res.ok) {
+        if (isRevising) {
+          alert('Estimate successfully saved as REVISED. An authorized user must explicitly approve the revised estimate.');
+        }
         onSaved();
       } else {
         const err = await res.json();
@@ -946,6 +955,18 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             token={token}
           />
         </div>
+
+        {existingEstimate && existingEstimate.status !== 'Draft' && (
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 p-4 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-300 text-xs">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="font-bold uppercase tracking-wider text-[11px]">Notice: Revision Mode Active</p>
+              <p className="mt-0.5">
+                This estimate was previously <strong>{existingEstimate.status}</strong>. Modifying items or amounts will record a revision snapshot and save this estimate as <strong>REVISED</strong>. An authorized user must explicitly approve the revised estimate before work continues.
+              </p>
+            </div>
+          </div>
+        )}
 
         {selectedJcId && (() => {
           const audit = getInspectionAudit();
@@ -1537,6 +1558,21 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
           </div>
         </div>
 
+        {existingEstimate && existingEstimate.status !== 'Draft' && (
+          <div className="bg-slate-50 dark:bg-slate-950/20 p-4 rounded-2xl border border-slate-100 dark:border-slate-850">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+              Revision Reason / Customer Negotiation Note (Optional)
+            </label>
+            <input
+              type="text"
+              value={revisionReason}
+              onChange={(e) => setRevisionReason(e.target.value)}
+              placeholder="e.g. Customer requested 10% discount on labour charges"
+              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        )}
+
         {/* Save button */}
         <div className="flex justify-end gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
           <button
@@ -1549,9 +1585,9 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 flex items-center gap-2"
           >
-            <Save className="w-4 h-4" /> Save Estimate
+            <Save className="w-4 h-4" /> {existingEstimate && existingEstimate.status !== 'Draft' ? 'Save Revised Estimate' : 'Save Estimate'}
           </button>
         </div>
 

@@ -274,7 +274,26 @@ const invoiceSchema = new mongoose.Schema({
     type: String,
     enum: ['Draft', 'Finalized', 'Cancelled'],
     default: 'Draft',
-  }
+  },
+  finalizedMetadata: {
+    finalizedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    finalizedByName: { type: String, default: '' },
+    finalizedAt: { type: Date },
+    finalAmount: { type: Number }
+  },
+  revisionHistory: [{
+    version: { type: Number, required: true },
+    date: { type: Date, default: Date.now },
+    status: String,
+    totals: mongoose.Schema.Types.Mixed,
+    parts: Array,
+    labour: Array,
+    previousAmount: { type: Number, default: 0 },
+    newAmount: { type: Number, default: 0 },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    userName: { type: String, default: '' },
+    reason: { type: String, default: '' }
+  }]
 }, {
   timestamps: true,
   toJSON: { getters: true },

@@ -76,6 +76,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
   const [overriddenGrandTotal, setOverriddenGrandTotal] = useState('');
   const [triggerRecalc, setTriggerRecalc] = useState(0);
   const [advanceReceived, setAdvanceReceived] = useState(0);
+  const [existingInvoice, setExistingInvoice] = useState(null);
 
   const cleanNumberInput = (val, allowDecimal = true, maxVal = null) => {
     if (val === undefined || val === null) return '';
@@ -347,6 +348,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
           const invDetailsRes = await fetch(`${API_BASE_URL}/invoices/${editId}`, { headers });
           if (invDetailsRes.ok) {
             const inv = await invDetailsRes.json();
+            setExistingInvoice(inv);
             setSelectedJcId(inv.jobCardId?._id || inv.jobCardId || '');
             setSelectedEstimateId(inv.estimateId?._id || inv.estimateId || '');
             setInvoiceType(inv.invoiceType || 'Tax Invoice');
@@ -1022,7 +1024,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
       manualInvoiceRef,
       advanceReceived: Number(advanceReceived) || 0,
       balanceDue: Math.max(0, totals.roundedGrandTotal - Number(advanceReceived)),
-      status: isFinalize ? 'Finalized' : 'Draft'
+      status: (existingInvoice && existingInvoice.status === 'Finalized') ? 'Finalized' : (isFinalize ? 'Finalized' : 'Draft')
     };
 
     try {
@@ -1043,29 +1045,30 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
       if (res.ok) {
         const createdInv = await res.json();
         
-        // 2. If finalize is requested, trigger finalization route
-        if (isFinalize) {
-          const finalRes = await fetch(`${API_BASE_URL}/invoices/${createdInv._id}`, {
+        // If creating a brand new invoice and finalizing immediately, trigger finalize endpoint
+        if (isFinalize && !editId) {
+          const finalRes = await fetch(`${API_BASE_URL}/invoices/${createdInv._id}/finalize`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`
             },
-            body: JSON.stringify({ status: 'Finalized', paymentStatus: 'Paid' })
+            body: JSON.stringify({ paymentStatus: 'Paid' })
           });
           
           if (!finalRes.ok) {
             const err = await finalRes.json();
-            alert('Stock deduction or invoice finalize failed: ' + err.error);
+            alert('Stock deduction or invoice finalize failed: ' + (err.error || 'Unknown error'));
           }
         }
         onSaved();
       } else {
         const err = await res.json();
-        alert(err.error || 'Failed to create invoice.');
+        alert(err.error || 'Failed to save invoice.');
       }
     } catch (err) {
       console.error(err);
+      alert('An error occurred while saving the invoice: ' + err.message);
     }
   };
 
@@ -1888,20 +1891,32 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
           </button>
           
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => handleSave(false)}
-              className="px-5 py-2.5 bg-slate-805 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all border border-slate-200"
-            >
-              Save as Draft
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSave(true)}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
-            >
-              Finalize & Deduct Stock
-            </button>
+            {existingInvoice?.status === 'Finalized' ? (
+              <button
+                type="button"
+                onClick={() => handleSave(false)}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
+              >
+                Update Finalized Invoice
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleSave(false)}
+                  className="px-5 py-2.5 bg-slate-805 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all border border-slate-200"
+                >
+                  Save as Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSave(true)}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
+                >
+                  Finalize & Deduct Stock
+                </button>
+              </>
+            )}
           </div>
         </div>
 

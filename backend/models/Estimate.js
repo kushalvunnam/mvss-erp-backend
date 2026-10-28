@@ -172,6 +172,13 @@ const estimateSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  approvalMetadata: {
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedByName: { type: String, default: '' },
+    approvedAt: { type: Date },
+    finalAmount: { type: Number },
+    previousStatus: { type: String, default: '' }
+  },
   revisionHistory: [{
     version: { type: Number, required: true },
     date: { type: Date, default: Date.now },
@@ -179,6 +186,11 @@ const estimateSchema = new mongoose.Schema({
     totals: mongoose.Schema.Types.Mixed,
     parts: Array,
     labour: Array,
+    previousAmount: { type: Number, default: 0 },
+    newAmount: { type: Number, default: 0 },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    userName: { type: String, default: '' },
+    reason: { type: String, default: '' }
   }],
   date: {
     type: Date,
