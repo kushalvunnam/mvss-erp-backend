@@ -147,7 +147,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
   const paintingCount = bodyShopJobs.filter(jc => jc.status === 'Body Shop' && getProgressVal(jc, 'paintProgress') < 100).length;
   const dentCount = bodyShopJobs.filter(jc => jc.status === 'Body Shop' && getProgressVal(jc, 'dentProgress') < 100).length;
   const qcWaitingCount = bodyShopJobs.filter(jc => jc.status === 'Quality Check').length;
-  const completedCount = bodyShopJobs.filter(jc => jc.status === 'Ready for Delivery' || jc.status === 'Delivered').length;
+  const completedCount = bodyShopJobs.filter(jc => jc.status === 'Ready for Delivery' || jc.status === 'Vehicle Ready' || jc.status === 'Delivered').length;
 
   // Submit Body Shop progress update
   const handleUpdateDetails = async (e, shouldForwardToQC = false) => {
@@ -360,7 +360,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                     if (jc.status === 'Work In Progress') badgeColor = 'bg-indigo-50 text-indigo-700 dark:bg-indigo-955/20 dark:text-indigo-400';
                     if (jc.status === 'Body Shop') badgeColor = 'bg-orange-50 text-orange-700 dark:bg-orange-955/20 dark:text-orange-400';
                     if (jc.status === 'Quality Check') badgeColor = 'bg-cyan-50 text-cyan-700 dark:bg-cyan-955/20 dark:text-cyan-400';
-                    if (jc.status === 'Ready for Delivery') badgeColor = 'bg-amber-50 text-amber-700 dark:bg-amber-955/20 dark:text-amber-400';
+                    if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) badgeColor = 'bg-amber-50 text-amber-700 dark:bg-amber-955/20 dark:text-amber-400';
                     if (jc.status === 'Delivered') badgeColor = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-955/20 dark:text-emerald-400';
 
                     return (

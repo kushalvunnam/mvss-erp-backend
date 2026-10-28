@@ -108,7 +108,7 @@ router.get('/service-history', auth, async (req, res) => {
 
     const query = {
       $or: [
-        { status: { $in: ['Ready for Delivery', 'Delivered', 'Closed', 'Completed'] } },
+        { status: { $in: ['Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed', 'Completed'] } },
         { _id: { $in: invoicedJcIds } }
       ],
       $and: [
@@ -450,8 +450,9 @@ router.put('/:id', auth, async (req, res) => {
       }
 
       // Rule 2: Ready for Delivery should require Quality Test completion.
-      if (newStatus === 'Ready for Delivery') {
-        if (jobCard.qcStatus !== 'Pass') {
+      if (['Ready for Delivery', 'Vehicle Ready'].includes(newStatus)) {
+        const effectiveQcStatus = req.body.qcStatus !== undefined ? req.body.qcStatus : jobCard.qcStatus;
+        if (effectiveQcStatus !== 'Pass') {
           return res.status(400).send({ error: 'Ready for Delivery status requires Quality Test completion (QC status must be Pass).' });
         }
       }
@@ -535,6 +536,13 @@ router.put('/:id', auth, async (req, res) => {
             { type: 'text', text: jobCardNumber },
             { type: 'text', text: delayDetail }
           ];
+        } else if (['Ready for Delivery', 'Vehicle Ready'].includes(jobCard.status)) {
+          templateName = 'mvss_vehicle_ready';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber }
+          ];
         } else if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
           templateName = 'mvss_work_started';
           parameters = [
@@ -544,13 +552,6 @@ router.put('/:id', auth, async (req, res) => {
           ];
         } else if (['Quality Check', 'Quality Test', 'QC Pass', 'Inspection Completed'].includes(jobCard.status) || (req.body.qcStatus === 'Pass')) {
           templateName = 'mvss_inspection_completed';
-          parameters = [
-            { type: 'text', text: customerName },
-            { type: 'text', text: vehicleNumber },
-            { type: 'text', text: jobCardNumber }
-          ];
-        } else if (jobCard.status === 'Ready for Delivery') {
-          templateName = 'mvss_vehicle_ready';
           parameters = [
             { type: 'text', text: customerName },
             { type: 'text', text: vehicleNumber },

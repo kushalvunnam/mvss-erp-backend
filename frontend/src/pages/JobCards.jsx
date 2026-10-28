@@ -274,7 +274,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
             else if (jc.status === 'Parts Procuring') statusColor = 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border border-orange-200/50';
             else if (['Work in Progress', 'Work In Progress'].includes(jc.status)) statusColor = 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200/50';
             else if (['Quality Test', 'Quality Check', 'Quality Check'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
-            else if (jc.status === 'Ready for Delivery') statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
+            else if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
             else if (jc.status === 'Delivered') statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
 
             return (
@@ -299,7 +299,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                           <option value="Quality Test">🟡 Quality Test</option>
                           <option value="Ready for Delivery">🟢 Ready for Delivery</option>
                           <option value="Delivered">✅ Delivered</option>
-                          {!['Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Ready for Delivery', 'Delivered'].includes(jc.status) && (
+                          {!['Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Ready for Delivery', 'Vehicle Ready', 'Delivered'].includes(jc.status) && (
                             <option value={jc.status}>{jc.status}</option>
                           )}
                         </select>

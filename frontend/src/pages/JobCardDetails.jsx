@@ -634,14 +634,14 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           )}
           {jc.status === 'Quality Check' && (
             <button
-              onClick={() => updateStatus('Ready for Delivery')}
+              onClick={() => updateFields({ status: 'Ready for Delivery', qcStatus: 'Pass' })}
               disabled={updating}
               className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
               Pass Quality Check
             </button>
           )}
-          {jc.status === 'Ready for Delivery' && (
+          {(jc.status === 'Ready for Delivery' || jc.status === 'Vehicle Ready') && (
             <button
               onClick={onConvertInvoice}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all"
