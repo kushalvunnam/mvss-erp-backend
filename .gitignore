@@ -55,3 +55,4 @@ backend-zip.zip
 /android/keystore.properties
 /android/app/*.jks
 .vercel
+/release-artifacts/

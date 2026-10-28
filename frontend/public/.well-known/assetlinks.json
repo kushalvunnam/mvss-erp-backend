@@ -1,0 +1,22 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mvssautomobiles.erp",
+      "sha256_cert_fingerprints": [
+        "FC:64:FB:1A:D2:82:BC:FB:9A:55:53:1E:0C:6C:27:06:12:A7:69:DC:07:AE:2C:E2:F6:0B:05:C2:22:16:5B:48"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mvssautomobiles.auto4m",
+      "sha256_cert_fingerprints": [
+        "FC:64:FB:1A:D2:82:BC:FB:9A:55:53:1E:0C:6C:27:06:12:A7:69:DC:07:AE:2C:E2:F6:0B:05:C2:22:16:5B:48"
+      ]
+    }
+  }
+]
