@@ -60,7 +60,7 @@ router.post('/webhook', async (req, res) => {
 
                             // Update our log asynchronously
                             await WhatsAppLog.findOneAndUpdate({ messageId }, updatePayload);
-                            console.log(`[WhatsApp Webhook] Message ${messageId} delivery status: ${statusString}`);
+                            console.log(`[WhatsApp Webhook] [Stage 7] Webhook delivery status received: MessageId=${messageId}, Status=${statusString}${statusString === 'failed' ? `, Error=${updatePayload.errorMessage}` : ''}`);
                         }
                     }
 

@@ -228,6 +228,12 @@ router.get('/service-history', auth, async (req, res) => {
 });
 
 router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Reception'), async (req, res) => {
+  // [Stage 1] Job-card creation request received
+  const reqCustomerId = (req.body?.customerId && req.body.customerId._id) ? req.body.customerId._id : req.body?.customerId;
+  const reqVehicleId = (req.body?.vehicleId && req.body.vehicleId._id) ? req.body.vehicleId._id : req.body?.vehicleId;
+  const creatorName = req.user ? (req.user.name || req.user.email || 'System') : 'Unknown';
+  console.log(`[JobCard] [Stage 1] Job-card creation request received: Customer=${reqCustomerId || 'N/A'}, Vehicle=${reqVehicleId || 'N/A'}, User=${creatorName}`);
+
   try {
     let jobCard;
     let saved = false;
@@ -268,59 +274,126 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
       }
     }
 
-    // Automatically create a notification
+    // [Stage 2] Job card saved successfully, with internal job-card reference
+    console.log(`[JobCard] [Stage 2] Job card saved successfully: ID=${jobCard._id}, JobCardNo=${jobCard.jobCardNo}`);
+
+    // Automatically create internal notification
     try {
       const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
       const Notification = require('../models/Notification');
       
-      const customer = await Customer.findById(jobCard.customerId);
-      const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+      const custLookupId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
+      const vehLookupId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
+      const customer = custLookupId ? await Customer.findById(custLookupId).lean() : null;
+      const vehicle = vehLookupId ? await VehicleModel.findById(vehLookupId).lean() : null;
 
       const notification = new Notification({
         type: 'jobcard',
         title: 'Job Card Created',
-        message: `Job card ${jobCard.jobCardNo} has been created for vehicle ${vehicle ? vehicle.vehicleNumber : 'N/A'}.`,
-        vehicleNumber: vehicle ? vehicle.vehicleNumber : undefined,
+        message: `Job card ${jobCard.jobCardNo} has been created for vehicle ${vehicle ? (vehicle.vehicleNumber || vehicle.regNo || 'N/A') : 'N/A'}.`,
+        vehicleNumber: vehicle ? (vehicle.vehicleNumber || vehicle.regNo) : undefined,
         customerName: customer ? customer.name : undefined
       });
       await notification.save();
     } catch (notifErr) {
-      console.error('Failed to create job card notification:', notifErr);
+      console.warn('[JobCard Notification] Failed to create internal job card notification:', notifErr.message);
     }
 
-    // WhatsApp Integration: Job Card Created
+    // =========================================================================
+    // WhatsApp Automation: Job Card Created (Stages 3 to 6)
+    // =========================================================================
     try {
+      // [Stage 3] Automation event triggered
+      console.log(`[JobCard Automation] [Stage 3] Automation event triggered for JobCard: ${jobCard.jobCardNo} (ID: ${jobCard._id})`);
+
       const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
-      const customer = await Customer.findById(jobCard.customerId);
-      const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+      const { normalizePhoneNumber, sendTemplateMessage } = require('../services/whatsappService');
 
-      if (customer && (customer.mobile || customer.phone)) {
-        const { sendTemplateMessage } = require('../services/whatsappService');
-        sendTemplateMessage({
-          to: customer.mobile || customer.phone,
-          templateName: 'mvss_job_card_created',
-          components: [
-            { type: 'body', parameters: [
-              { type: 'text', text: customer.name },
-              { type: 'text', text: jobCard.jobCardNo },
-              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
-              { type: 'text', text: jobCard.serviceType || 'General Service' }
-            ]}
-          ],
-          recipientName: customer.name,
-          relatedEntity: jobCard._id,
-          onModel: 'JobCard',
-          idempotencyKey: `job_card_created_${jobCard._id}`
-        }).catch(err => console.error('[WhatsApp] Async job card create error:', err.message || err));
+      const custId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
+      const vehId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
+
+      let customer = null;
+      let vehicle = null;
+
+      if (jobCard.customerId && jobCard.customerId.name && (jobCard.customerId.mobile || jobCard.customerId.phone)) {
+        customer = jobCard.customerId;
+      } else if (custId) {
+        customer = await Customer.findById(custId).lean();
+      }
+
+      if (jobCard.vehicleId && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo)) {
+        vehicle = jobCard.vehicleId;
+      } else if (vehId) {
+        vehicle = await VehicleModel.findById(vehId).lean();
+      }
+
+      const rawPhone = customer ? (customer.mobile || customer.phone || customer.contactNumber) : null;
+      const customerName = String((customer && customer.name) ? customer.name : 'Valued Customer').trim();
+      const jobCardNumber = String(jobCard.jobCardNo || currentJobCardNo || 'N/A').trim();
+      const vehicleRegNumber = String((vehicle && (vehicle.vehicleNumber || vehicle.regNo)) ? (vehicle.vehicleNumber || vehicle.regNo) : 'your vehicle').trim();
+      const serviceDescription = String(
+        jobCard.serviceType ||
+        (Array.isArray(jobCard.serviceTypes) && jobCard.serviceTypes.length > 0 ? jobCard.serviceTypes.join(', ') : null) ||
+        jobCard.workCategory ||
+        'General Service'
+      ).trim();
+
+      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const templateName = 'mvss_job_card_created';
+      const correlationKey = `job_card_created_${jobCard._id}`;
+      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+      const isValidContact = Boolean(customer && normalizedPhone && normalizedPhone.length >= 10);
+
+      // [Stage 4] Customer contact/template validation result
+      console.log(`[JobCard Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+
+      if (isValidContact) {
+        // [Stage 5] WhatsApp send attempted
+        console.log(`[JobCard Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+        try {
+          const waResult = await sendTemplateMessage({
+            to: normalizedPhone,
+            templateName,
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: customerName },
+                  { type: 'text', text: jobCardNumber },
+                  { type: 'text', text: vehicleRegNumber },
+                  { type: 'text', text: serviceDescription }
+                ]
+              }
+            ],
+            recipientName: customerName,
+            relatedEntity: jobCard._id,
+            onModel: 'JobCard',
+            idempotencyKey: correlationKey
+          });
+
+          // [Stage 6] Meta response accepted
+          console.log(`[JobCard Automation] [Stage 6] Meta response accepted: JobCard=${jobCardNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+        } catch (waSendErr) {
+          // [Stage 6] Meta response failed (isolated, does not fail job card creation)
+          console.error(`[JobCard Automation] [Stage 6] Meta response failed: JobCard=${jobCardNumber}, Error=${waSendErr.message || waSendErr}`);
+        }
+      } else {
+        const reason = !customer
+          ? `Customer record not found for ID ${custId}`
+          : `Customer ${customerName} has missing or invalid phone number (${maskedPhone})`;
+        console.warn(`[JobCard Automation] [Stage 4] Skipping WhatsApp dispatch: ${reason}`);
       }
     } catch (waError) {
-      console.error('[WhatsApp] Failed to trigger job card welcome message:', waError);
+      console.error('[JobCard Automation] Unexpected error in WhatsApp automation hook:', waError.message || waError);
     }
 
     // Update odometer reading on the Vehicle model
-    await Vehicle.findByIdAndUpdate(jobCard.vehicleId, { odometerReading: jobCard.odometerReading });
+    if (jobCard.vehicleId && jobCard.odometerReading) {
+      await Vehicle.findByIdAndUpdate(jobCard.vehicleId, { odometerReading: jobCard.odometerReading });
+    }
 
     await logAction(req.user, 'JOBCARD_CREATE', `Created Job Card ${jobCard.jobCardNo} for vehicle ID ${jobCard.vehicleId}`, req);
     res.status(201).send(jobCard);

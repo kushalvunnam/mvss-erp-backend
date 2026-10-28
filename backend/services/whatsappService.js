@@ -520,9 +520,24 @@ const sendTemplateMessage = async ({
 
         // Check template status on Meta if verified
         if (templateSpec && templateSpec.status && !['APPROVED', 'CONFIG_FALLBACK'].includes(templateSpec.status)) {
-            const err = `Template '${finalTemplateName}' is in status '${templateSpec.status}' on Meta, not APPROVED.`;
-            console.error(`[WhatsApp] ${err}`);
-            throw new Error(err);
+            // If cached as PENDING, attempt an on-demand re-sync from Meta to check if it transitioned to APPROVED
+            if (templateSpec.status === 'PENDING') {
+                try {
+                    await syncMetaTemplates(customAxios);
+                    const refreshed = resolveTemplateSpec(templateName);
+                    if (refreshed) {
+                        templateSpec = refreshed;
+                    }
+                } catch (syncErr) {
+                    // Continue with status check
+                }
+            }
+
+            if (!['APPROVED', 'CONFIG_FALLBACK'].includes(templateSpec.status)) {
+                const err = `Template '${finalTemplateName}' is in status '${templateSpec.status}' on Meta, not APPROVED.`;
+                console.error(`[WhatsApp] ${err}`);
+                throw new Error(err);
+            }
         }
 
         // Validate parameter count

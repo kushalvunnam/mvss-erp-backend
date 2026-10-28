@@ -223,7 +223,7 @@ app.get('/', (req, res) => {
   res.json({
     status: "ok",
     service: "MVSS ERP Backend",
-    version: "production-v1.1.1"
+    version: "production-v1.1.2"
   });
 });
 
