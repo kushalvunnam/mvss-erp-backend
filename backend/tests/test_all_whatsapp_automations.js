@@ -336,7 +336,7 @@ async function runTests() {
         type: 'body',
         parameters: [
           { type: 'text', text: 'Kushal Vunnam' },
-          { type: 'text', text: 'TS09AB1234' }
+          { type: 'text', text: 'For vehicle TS09AB1234: Reply directly with a rating from 1 to 5 stars (1=Poor, 5=Excellent) and a short description of your experience.' }
         ]
       }
     ],
@@ -347,7 +347,9 @@ async function runTests() {
   assert.strictEqual(feedbackRes.success, true);
   assert.strictEqual(capturedFeedback.payload.template.name, 'mvss_feedback_request');
   assert.strictEqual(capturedFeedback.payload.template.components[0].parameters.length, 2);
-  console.log('✔ Test 8 Passed: Customer Feedback Request triggers dispatch with 2 exact parameters.');
+  assert.ok(capturedFeedback.payload.template.components[0].parameters[1].text.includes('1 to 5 stars'));
+  assert.ok(!capturedFeedback.payload.template.components[0].parameters[1].text.includes('mvssautomobiles.com/feedback'));
+  console.log('✔ Test 8 Passed: Customer Feedback Request triggers dispatch with 2 exact parameters (1-5 star rating prompt, no feedback URL).');
 
   // =========================================================================
   // Test 9: Insurance Claim Template Unapproved Safety Check

@@ -63,6 +63,28 @@ const feedbackReminderSchema = new mongoose.Schema({
   error: {
     type: String,
     trim: true
+  },
+  responseReceived: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  rating: {
+    type: Number,
+    min: 1,
+    max: 5
+  },
+  feedbackText: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  rawResponse: {
+    type: String,
+    trim: true
+  },
+  respondedAt: {
+    type: Date
   }
 }, {
   timestamps: true

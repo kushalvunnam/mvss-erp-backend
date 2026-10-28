@@ -325,6 +325,9 @@ const JobCardSchema = new mongoose.Schema({
   customerSatisfaction: {
     date: { type: Date },
     signature: { type: String }, // Base64 or URL
+    rating: { type: Number, min: 1, max: 5 },
+    feedback: { type: String, trim: true },
+    source: { type: String, default: 'WhatsApp' }
   }
 }, {
   timestamps: true,

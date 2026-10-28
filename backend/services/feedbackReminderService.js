@@ -1,5 +1,7 @@
 const FeedbackReminder = require('../models/FeedbackReminder');
 const GatePass = require('../models/GatePass');
+const JobCard = require('../models/JobCard');
+const Notification = require('../models/Notification');
 const { sendTemplateMessage, validateCustomerContact } = require('./whatsappService');
 
 /**
@@ -142,7 +144,7 @@ const processPendingFeedbackReminders = async (customAxios = null) => {
             type: 'body',
             parameters: [
               { type: 'text', text: reminder.customerName },
-              { type: 'text', text: reminder.vehicleNumber }
+              { type: 'text', text: getFeedbackPrompt(reminder.vehicleNumber) }
             ]
           }
         ],
@@ -174,7 +176,177 @@ const processPendingFeedbackReminders = async (customAxios = null) => {
   return stats;
 };
 
+/**
+ * Builds the feedback prompt replacing URL links with a direct 1-5 star rating & experience description request.
+ */
+const getFeedbackPrompt = (vehicleNumber) => {
+  const vehPrefix = vehicleNumber && vehicleNumber !== 'your vehicle' ? `For vehicle ${vehicleNumber}: ` : '';
+  return `${vehPrefix}Reply directly with a rating from 1 to 5 stars (1=Poor, 5=Excellent) and a short description of your experience.`;
+};
+
+/**
+ * Parses a customer's WhatsApp reply to extract rating (1-5) and feedback description.
+ * Supports:
+ * - Star emojis (1-5: ⭐, 🌟, ★)
+ * - Leading numbers ('5', '5/5', '5 out of 5', '5 stars')
+ * - Numbers with text ('5 - Excellent work', '4: Good job', '5\nVery fast')
+ * - Rating prefix ('Rating: 5 Good service', 'Rating 4')
+ * - 'X stars' within message
+ * - Rejects invalid ratings (< 1, > 5)
+ */
+const parseCustomerFeedback = (rawText) => {
+  if (!rawText || typeof rawText !== 'string') {
+    return { valid: false, rating: null, feedbackText: '', rawResponse: '' };
+  }
+  const text = rawText.trim();
+
+  // 1. Star emojis (⭐, 🌟, ★)
+  const starMatches = text.match(/[⭐🌟★]/g);
+  if (starMatches && starMatches.length >= 1 && starMatches.length <= 5) {
+    const rating = starMatches.length;
+    const cleanText = text.replace(/[⭐🌟★]/g, '').replace(/^[\s\:\-\.\,]+/, '').trim();
+    return { valid: true, rating, feedbackText: cleanText, rawResponse: text };
+  }
+
+  // 2. 'Rating: 5' or 'Rating 5' pattern
+  const ratingPrefixMatch = text.match(/^(?:rating|rate)\s*[:=\-]?\s*([1-5])(?:\s*(?:\/|\bout of\b)\s*5)?(?:\s*stars?)?\s*[\:\-\.\,\n]?\s*(.*)$/i);
+  if (ratingPrefixMatch) {
+    const rating = parseInt(ratingPrefixMatch[1], 10);
+    const cleanText = (ratingPrefixMatch[2] || '').replace(/^[\s\:\-\.\,]+/, '').trim();
+    return { valid: true, rating, feedbackText: cleanText, rawResponse: text };
+  }
+
+  // 3. Exact single digit 1-5 or single digit with /5 or out of 5 (e.g. '5', '5/5', '5 / 5', '5 out of 5', '5 stars')
+  const exactDigitMatch = text.match(/^([1-5])(?:\s*(?:\/|\bout of\b)\s*5)?(?:\s*stars?)?$/i);
+  if (exactDigitMatch) {
+    const rating = parseInt(exactDigitMatch[1], 10);
+    return { valid: true, rating, feedbackText: '', rawResponse: text };
+  }
+
+  // 4. Leading number 1-5 followed by description (e.g. '5 - Great job', '4 / 5 Good service', '5\nAwesome')
+  const leadingRatingMatch = text.match(/^([1-5])(?:\s*(?:\/|\bout of\b)\s*5)?(?:\s*stars?)?\s*(?:[\:\-\.\,\n]|\s)\s*(.*)$/i);
+  if (leadingRatingMatch) {
+    const rating = parseInt(leadingRatingMatch[1], 10);
+    const cleanText = (leadingRatingMatch[2] || '').replace(/^[\s\:\-\.\,]+/, '').trim();
+    return { valid: true, rating, feedbackText: cleanText, rawResponse: text };
+  }
+
+  // 5. 'X stars' anywhere in message (e.g. 'giving 5 stars, good service')
+  const starWordMatch = text.match(/\b([1-5])\s*stars?\b/i);
+  if (starWordMatch) {
+    const rating = parseInt(starWordMatch[1], 10);
+    return { valid: true, rating, feedbackText: text, rawResponse: text };
+  }
+
+  // Fallback: no valid 1-5 rating detected
+  return { valid: false, rating: null, feedbackText: text, rawResponse: text };
+};
+
+/**
+ * Correlates an incoming WhatsApp reply to the customer's FeedbackReminder,
+ * updates FeedbackReminder, updates the corresponding JobCard, and notifies staff.
+ */
+const handleInboundFeedbackReply = async ({ fromPhone, messageText, messageId = null }) => {
+  if (!fromPhone || !messageText) {
+    return { processed: false, reason: 'Missing fromPhone or messageText' };
+  }
+
+  const digits = String(fromPhone).replace(/\D/g, '');
+  const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+
+  const phoneVariants = [
+    fromPhone,
+    digits,
+    last10,
+    `91${last10}`,
+    `+91${last10}`,
+    `0${last10}`
+  ];
+
+  // Find the most recent sent feedback reminder for this customer
+  let reminder = await FeedbackReminder.findOne({
+    customerMobile: { $in: phoneVariants },
+    status: 'sent'
+  }).sort({ sentAt: -1, createdAt: -1 });
+
+  if (!reminder && last10.length === 10) {
+    reminder = await FeedbackReminder.findOne({
+      customerMobile: { $regex: new RegExp(last10 + '$') },
+      status: 'sent'
+    }).sort({ sentAt: -1, createdAt: -1 });
+  }
+
+  if (!reminder) {
+    console.log(`[Feedback Automation] Inbound message from ${fromPhone} did not match an active sent FeedbackReminder.`);
+    return { processed: false, reason: 'No matching FeedbackReminder found' };
+  }
+
+  // Parse rating and feedback text
+  const parsed = parseCustomerFeedback(messageText);
+
+  // Update FeedbackReminder
+  reminder.responseReceived = true;
+  if (parsed.valid && parsed.rating) {
+    reminder.rating = parsed.rating;
+  }
+  reminder.feedbackText = parsed.feedbackText || messageText;
+  reminder.rawResponse = messageText;
+  reminder.respondedAt = new Date();
+  await reminder.save();
+
+  console.log(`[Feedback Automation] Recorded customer feedback for GatePass ${reminder.gatePassNo} (JobCard: ${reminder.jobCardNumber || 'N/A'}): Rating=${reminder.rating || 'N/A'}, Text="${reminder.feedbackText}"`);
+
+  // Update JobCard if linked
+  let jobCardUpdated = false;
+  if (reminder.jobCardNumber) {
+    try {
+      const jobCard = await JobCard.findOne({ jobCardNumber: reminder.jobCardNumber });
+      if (jobCard) {
+        if (!jobCard.customerSatisfaction) {
+          jobCard.customerSatisfaction = {};
+        }
+        jobCard.customerSatisfaction.date = new Date();
+        if (parsed.valid && parsed.rating) {
+          jobCard.customerSatisfaction.rating = parsed.rating;
+        }
+        jobCard.customerSatisfaction.feedback = parsed.feedbackText || messageText;
+        jobCard.customerSatisfaction.source = 'WhatsApp';
+        await jobCard.save();
+        jobCardUpdated = true;
+        console.log(`[Feedback Automation] Updated JobCard ${reminder.jobCardNumber} customerSatisfaction: Rating=${jobCard.customerSatisfaction.rating || 'N/A'}`);
+      }
+    } catch (jcErr) {
+      console.warn(`[Feedback Automation] Failed to update JobCard ${reminder.jobCardNumber}:`, jcErr.message);
+    }
+  }
+
+  // Create staff notification
+  try {
+    await Notification.create({
+      type: 'feedback',
+      title: `Feedback Received: ${parsed.valid ? `${parsed.rating}★` : 'Customer Reply'}`,
+      message: `Customer ${reminder.customerName} (${reminder.vehicleNumber}) replied: "${messageText}"`,
+      customerName: reminder.customerName,
+      mobile: reminder.customerMobile,
+      vehicleNumber: reminder.vehicleNumber,
+      status: 'unread'
+    });
+  } catch (notifErr) {
+    console.warn('[Feedback Automation] Staff notification creation skipped:', notifErr.message);
+  }
+
+  return {
+    processed: true,
+    reminder,
+    jobCardUpdated,
+    parsed
+  };
+};
+
 module.exports = {
+  getFeedbackPrompt,
+  parseCustomerFeedback,
+  handleInboundFeedbackReply,
   scheduleFeedbackReminder,
   cancelFeedbackReminder,
   processPendingFeedbackReminders

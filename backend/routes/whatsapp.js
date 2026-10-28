@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const WhatsAppLog = require('../models/WhatsAppLog');
+const Customer = require('../models/Customer');
 const { auth, restrictTo } = require('../middleware/auth');
 const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber } = require('../services/whatsappService');
+const { handleInboundFeedbackReply } = require('../services/feedbackReminderService');
 
 // Automatically run startup Meta audit & template synchronization
 if (process.env.META_WA_ACCESS_TOKEN && (process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_BUSINESS_ACCOUNT_ID)) {
@@ -78,15 +80,65 @@ router.post('/webhook', async (req, res) => {
                             const maskedFrom = fromPhone ? fromPhone.substring(0, 3) + '****' + fromPhone.slice(-3) : 'unknown';
                             console.log(`[WhatsApp Webhook] Inbound message received from ${maskedFrom}`);
 
+                            let recipientName = 'Inbound Customer';
+                            let relatedEntity = null;
+                            let onModel = undefined;
+
+                            // Process customer feedback reply if message is text
+                            if (messageType === 'text' && message.text?.body) {
+                                try {
+                                    const feedbackResult = await handleInboundFeedbackReply({
+                                        fromPhone,
+                                        messageText: message.text.body,
+                                        messageId
+                                    });
+
+                                    if (feedbackResult && feedbackResult.processed && feedbackResult.reminder) {
+                                        relatedEntity = feedbackResult.reminder._id;
+                                        onModel = 'FeedbackReminder';
+                                        recipientName = feedbackResult.reminder.customerName || recipientName;
+                                    }
+                                } catch (replyErr) {
+                                    console.warn('[WhatsApp Webhook] Inbound feedback reply processing error:', replyErr.message || replyErr);
+                                }
+                            }
+
+                            // If recipientName is still generic, attempt to resolve via Customer model
+                            if (recipientName === 'Inbound Customer' && fromPhone) {
+                                try {
+                                    const digits = String(fromPhone).replace(/\D/g, '');
+                                    const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+                                    const cust = await Customer.findOne({
+                                        $or: [
+                                            { mobile: fromPhone },
+                                            { mobile: `+${fromPhone}` },
+                                            { mobile: last10 },
+                                            { mobile: `+91${last10}` },
+                                            { mobile: new RegExp(last10 + '$') }
+                                        ]
+                                    });
+                                    if (cust?.name) {
+                                        recipientName = cust.name;
+                                        if (!relatedEntity) {
+                                            relatedEntity = cust._id;
+                                            onModel = 'Customer';
+                                        }
+                                    }
+                                } catch (custErr) {
+                                    // Ignore customer lookup errors
+                                }
+                            }
+
                             // Store inbound message in WhatsAppLog
                             const logEntry = new WhatsAppLog({
-                                recipientName: 'Inbound Customer',
+                                recipientName,
                                 recipientPhone: fromPhone,
                                 messageType: 'text',
                                 direction: 'inbound',
                                 status: 'delivered',
                                 messageId: messageId,
-                                errorMessage: messageType === 'text' ? message.text.body : `Received non-text message: ${messageType}`
+                                errorMessage: messageType === 'text' ? message.text.body : `Received non-text message: ${messageType}`,
+                                ...(relatedEntity && onModel ? { relatedEntity, onModel } : {})
                             });
                             await logEntry.save();
                         }
