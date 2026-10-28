@@ -9,6 +9,8 @@ process.env.META_WA_BUSINESS_ACCOUNT_ID = '1070579342641923';
 const {
   sendTemplateMessage,
   normalizePhoneNumber,
+  maskPhoneNumber,
+  validateCustomerContact,
   TEMPLATE_CONFIG,
   dynamicTemplateMap
 } = require('../services/whatsappService');
@@ -390,7 +392,185 @@ async function runTests() {
   assert.strictEqual(duplicateAttempt.status, 'duplicate_skipped');
   console.log('✔ Test 10 Passed: Idempotency check prevents duplicate outbound messages across all workflows.');
 
-  console.log('\n=== ALL 10 WHATSAPP AUTOMATION TESTS PASSED SUCCESSFULLY ===');
+  // =========================================================================
+  // Test 11: Customer Welcome Message Automation (mvss_welcome_customer - 2 params)
+  // =========================================================================
+  let capturedWelcome = null;
+  const mockAxiosWelcome = {
+    post: async (url, payload) => {
+      capturedWelcome = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.WELCOME_001' }] } };
+    }
+  };
+
+  const welcomeRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_welcome_customer',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'MVSS Automobiles' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_welcome_msg_001'
+  }, mockAxiosWelcome);
+
+  assert.strictEqual(welcomeRes.success, true);
+  assert.strictEqual(capturedWelcome.payload.template.name, 'mvss_welcome_customer');
+  assert.strictEqual(capturedWelcome.payload.template.components[0].parameters.length, 2);
+  assert.strictEqual(capturedWelcome.payload.template.components[0].parameters[0].text, 'Kushal Vunnam');
+  assert.strictEqual(capturedWelcome.payload.template.components[0].parameters[1].text, 'MVSS Automobiles');
+  console.log('✔ Test 11 Passed: Welcome message triggers dispatch with 2 exact parameters (customer name, workshop name).');
+
+  // =========================================================================
+  // Test 12: Safe Phone Normalization (Indian & International formats)
+  // =========================================================================
+  // 1. Standard Indian 10 digits
+  assert.strictEqual(normalizePhoneNumber('8008092742'), '918008092742');
+  assert.strictEqual(normalizePhoneNumber('9876543210'), '919876543210');
+  // 2. Indian with leading 0
+  assert.strictEqual(normalizePhoneNumber('08008092742'), '918008092742');
+  // 3. Indian with 91 prefix
+  assert.strictEqual(normalizePhoneNumber('918008092742'), '918008092742');
+  // 4. Indian with +91
+  assert.strictEqual(normalizePhoneNumber('+918008092742'), '918008092742');
+  // 5. US/Canada (+1) -> Must NOT prepend 91
+  assert.strictEqual(normalizePhoneNumber('+1 (415) 555-2671'), '14155552671');
+  assert.strictEqual(normalizePhoneNumber('14155552671'), '14155552671');
+  // 6. UK (+44) -> Must NOT prepend 91
+  assert.strictEqual(normalizePhoneNumber('+44 7911 123456'), '447911123456');
+  // 7. UAE (+971) -> Must NOT prepend 91
+  assert.strictEqual(normalizePhoneNumber('+971 50 123 4567'), '971501234567');
+  // 8. Australia (+61) -> Must NOT prepend 91
+  assert.strictEqual(normalizePhoneNumber('+61 412 345 678'), '61412345678');
+  // 9. Singapore (+65) -> Must NOT prepend 91
+  assert.strictEqual(normalizePhoneNumber('+65 9123 4567'), '6591234567');
+  // 10. Invalid numbers return null
+  assert.strictEqual(normalizePhoneNumber('12345'), null);
+  assert.strictEqual(normalizePhoneNumber('0000000000'), null);
+  assert.strictEqual(normalizePhoneNumber(''), null);
+  assert.strictEqual(normalizePhoneNumber(null), null);
+  console.log('✔ Test 12 Passed: Safe phone normalization standardizes Indian numbers and preserves international country codes without blindly prepending 91.');
+
+  // =========================================================================
+  // Test 13: Customer Contact Validation & Opt-Out Enforcement
+  // =========================================================================
+  // 1. Opt-out via whatsappOptIn: false
+  const optedOutCust1 = { name: 'Opted Out User', mobile: '8008092742', whatsappOptIn: false };
+  const check1 = validateCustomerContact(optedOutCust1);
+  assert.strictEqual(check1.valid, false);
+  assert(check1.reason.includes('opted out'));
+
+  // 2. Opt-out via optOut: true
+  const optedOutCust2 = { name: 'Opted Out User 2', mobile: '8008092742', optOut: true };
+  const check2 = validateCustomerContact(optedOutCust2);
+  assert.strictEqual(check2.valid, false);
+
+  // 3. Missing phone number
+  const noPhoneCust = { name: 'No Phone User', mobile: '' };
+  const check3 = validateCustomerContact(noPhoneCust);
+  assert.strictEqual(check3.valid, false);
+  assert(check3.reason.includes('missing'));
+
+  // 4. Malformed phone number
+  const malformedCust = { name: 'Bad Phone User', mobile: '123' };
+  const check4 = validateCustomerContact(malformedCust);
+  assert.strictEqual(check4.valid, false);
+  assert(check4.reason.includes('malformed') || check4.reason.includes('unsupported'));
+
+  // 5. Valid customer
+  const validCust = { name: 'Valid User', mobile: '8008092742', whatsappOptIn: true };
+  const check5 = validateCustomerContact(validCust);
+  assert.strictEqual(check5.valid, true);
+  assert.strictEqual(check5.phone, '918008092742');
+  assert.strictEqual(check5.masked, '918****742');
+  console.log('✔ Test 13 Passed: Customer contact validation correctly enforces opt-in, detects missing/malformed numbers, and formats valid contacts.');
+
+  // =========================================================================
+  // Test 14: Phone Masking Utility
+  // =========================================================================
+  assert.strictEqual(maskPhoneNumber('8008092742'), '800****742');
+  assert.strictEqual(maskPhoneNumber('918008092742'), '918****742');
+  assert.strictEqual(maskPhoneNumber('7674819765'), '767****765');
+  assert.strictEqual(maskPhoneNumber(''), 'missing');
+  assert.strictEqual(maskPhoneNumber(null), 'missing');
+  console.log('✔ Test 14 Passed: Phone masking utility masks middle digits cleanly for safe logging.');
+
+  // =========================================================================
+  // Test 15: Multi-Recipient Verification from Dynamic Customer Records
+  // =========================================================================
+  // Verify that two distinct customer records dispatch to their respective dynamic numbers
+  const recipient1 = {
+    _id: 'cust_001_id',
+    name: 'Customer One',
+    mobile: '8008092742',
+    whatsappOptIn: true
+  };
+  const recipient2 = {
+    _id: 'cust_002_id',
+    name: 'Customer Two',
+    mobile: '7674819765',
+    whatsappOptIn: true
+  };
+
+  const dispatchedRecipients = [];
+  const mockAxiosMulti = {
+    post: async (url, payload) => {
+      dispatchedRecipients.push(payload.to);
+      return { status: 200, data: { messages: [{ id: `wamid.MULTI_${payload.to}` }] } };
+    }
+  };
+
+  // Dispatch for Customer 1
+  const checkRecip1 = validateCustomerContact(recipient1);
+  assert.strictEqual(checkRecip1.valid, true);
+  const sendRes1 = await sendTemplateMessage({
+    to: checkRecip1.phone,
+    templateName: 'mvss_welcome_customer',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: recipient1.name },
+          { type: 'text', text: 'MVSS Automobiles' }
+        ]
+      }
+    ],
+    recipientName: recipient1.name,
+    idempotencyKey: `welcome_${recipient1._id}`
+  }, mockAxiosMulti);
+  assert.strictEqual(sendRes1.success, true);
+
+  // Dispatch for Customer 2
+  const checkRecip2 = validateCustomerContact(recipient2);
+  assert.strictEqual(checkRecip2.valid, true);
+  const sendRes2 = await sendTemplateMessage({
+    to: checkRecip2.phone,
+    templateName: 'mvss_welcome_customer',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: recipient2.name },
+          { type: 'text', text: 'MVSS Automobiles' }
+        ]
+      }
+    ],
+    recipientName: recipient2.name,
+    idempotencyKey: `welcome_${recipient2._id}`
+  }, mockAxiosMulti);
+  assert.strictEqual(sendRes2.success, true);
+
+  assert.strictEqual(dispatchedRecipients.length, 2);
+  assert.strictEqual(dispatchedRecipients[0], '918008092742');
+  assert.strictEqual(dispatchedRecipients[1], '917674819765');
+  console.log('✔ Test 15 Passed: Multi-recipient dispatch verified for 2 distinct customer records dynamically extracted.');
+
+  console.log('\n=== ALL 15 WHATSAPP AUTOMATION TESTS PASSED SUCCESSFULLY ===');
   process.exit(0);
 }
 

@@ -141,12 +141,17 @@ router.post('/', auth, async (req, res) => {
     // WhatsApp Integration: Gate Pass Generated & Feedback Scheduling
     try {
       const JobCard = require('../models/JobCard');
-      const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+      const Customer = require('../models/Customer');
+      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
       const { scheduleFeedbackReminder } = require('../services/feedbackReminderService');
 
       let jc = null;
+      let customerRecord = null;
       if (gatepass.jobCardNumber) {
         jc = await JobCard.findOne({ jobCardNo: gatepass.jobCardNumber }).lean();
+        if (jc && jc.customerId) {
+          customerRecord = await Customer.findById(jc.customerId).lean();
+        }
       }
 
       const rawPhone = gatepass.customerMobile;
@@ -155,25 +160,23 @@ router.post('/', auth, async (req, res) => {
       const jobCardNumber = String(gatepass.jobCardNumber || jc?.jobCardNo || 'N/A').trim();
       const gatePassNo = String(gatepass.gatePassNo || 'N/A').trim();
 
-      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const contactCheck = validateCustomerContact(customerRecord, rawPhone);
       const templateName = 'mvss_gate_pass_generated';
       const correlationKey = `gate_pass_generated_${gatepass._id}`;
-      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-      const isValidContact = Boolean(normalizedPhone && normalizedPhone.length >= 10);
 
       // [Stage 3] Automation event triggered
       console.log(`[GatePass Automation] [Stage 3] Automation event triggered: GatePassNo=${gatePassNo}, Vehicle=${vehicleNumber}, JobCardNo=${jobCardNumber}`);
 
       // [Stage 4] Customer contact/template validation result
-      console.log(`[GatePass Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+      console.log(`[GatePass Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-      if (isValidContact) {
+      if (contactCheck.valid) {
         // [Stage 5] WhatsApp send attempted
-        console.log(`[GatePass Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+        console.log(`[GatePass Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
         try {
           const waResult = await sendTemplateMessage({
-            to: normalizedPhone,
+            to: contactCheck.phone,
             templateName,
             components: [
               {
@@ -201,12 +204,12 @@ router.post('/', auth, async (req, res) => {
 
         // Schedule Customer Feedback Request (Default delay: 2 hours)
         try {
-          await scheduleFeedbackReminder({ gatePass });
+          await scheduleFeedbackReminder({ gatePass: gatepass });
         } catch (schedErr) {
           console.error('[Feedback Automation] Failed to schedule feedback reminder:', schedErr.message || schedErr);
         }
       } else {
-        console.warn(`[GatePass Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
+        console.warn(`[GatePass Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
       }
     } catch (waError) {
       console.error('[GatePass Automation] Unexpected error in WhatsApp gate pass hook:', waError.message || waError);

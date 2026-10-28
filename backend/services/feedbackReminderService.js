@@ -1,6 +1,6 @@
 const FeedbackReminder = require('../models/FeedbackReminder');
 const GatePass = require('../models/GatePass');
-const { sendTemplateMessage, normalizePhoneNumber } = require('./whatsappService');
+const { sendTemplateMessage, validateCustomerContact } = require('./whatsappService');
 
 /**
  * Schedule a feedback reminder after a Gate Pass is issued.
@@ -119,23 +119,23 @@ const processPendingFeedbackReminders = async (customAxios = null) => {
         continue;
       }
 
-      // 2. Normalize and validate phone
-      const normalizedPhone = normalizePhoneNumber(reminder.customerMobile);
-      if (!normalizedPhone || normalizedPhone.length < 10) {
+      // 2. Validate customer contact and normalize phone
+      const contactCheck = validateCustomerContact(null, reminder.customerMobile);
+      if (!contactCheck.valid) {
         reminder.status = 'failed';
-        reminder.error = `Invalid customer phone: ${maskedPhone}`;
+        reminder.error = contactCheck.reason;
         await reminder.save();
-        console.warn(`[Feedback Automation] [Stage 4] Skipping reminder for GatePass ${reminder.gatePassNo}: Invalid phone (${maskedPhone})`);
+        console.warn(`[Feedback Automation] [Stage 4] Skipping reminder for GatePass ${reminder.gatePassNo}: ${contactCheck.reason}`);
         stats.skipped++;
         continue;
       }
 
       // 3. Dispatch template message via Meta WhatsApp Cloud API
       const templateName = 'mvss_feedback_request';
-      console.log(`[Feedback Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${reminder.idempotencyKey}`);
+      console.log(`[Feedback Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${reminder.idempotencyKey}`);
 
       const waResult = await sendTemplateMessage({
-        to: normalizedPhone,
+        to: contactCheck.phone,
         templateName,
         components: [
           {

@@ -150,30 +150,28 @@ router.post('/', auth, async (req, res) => {
 
     // WhatsApp Integration: Customer Welcome
     try {
-      const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
       const rawPhone = customer.mobile || customer.phone;
       const customerName = String(customer.name || 'Valued Customer').trim();
       const workshopName = 'MVSS Automobiles';
 
-      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const contactCheck = validateCustomerContact(customer, rawPhone);
       const templateName = 'mvss_welcome_customer';
       const correlationKey = `customer_created_${customer._id}`;
-      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-      const isValidContact = Boolean(normalizedPhone && normalizedPhone.length >= 10);
 
       // [Stage 3] Automation event triggered
       console.log(`[Customer Automation] [Stage 3] Automation event triggered: Event="Customer Welcome", CustomerId=${customer._id}, Name=${customerName}`);
 
       // [Stage 4] Customer contact/template validation result
-      console.log(`[Customer Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+      console.log(`[Customer Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-      if (isValidContact) {
+      if (contactCheck.valid) {
         // [Stage 5] WhatsApp send attempted
-        console.log(`[Customer Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+        console.log(`[Customer Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
         try {
           const waResult = await sendTemplateMessage({
-            to: normalizedPhone,
+            to: contactCheck.phone,
             templateName,
             components: [
               {
@@ -197,7 +195,7 @@ router.post('/', auth, async (req, res) => {
           console.error(`[Customer Automation] [Stage 6] Meta response failed: Customer=${customerName}, Error=${waSendErr.message || waSendErr}`);
         }
       } else {
-        console.warn(`[Customer Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
+        console.warn(`[Customer Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
       }
     } catch (waError) {
       console.error('[Customer Automation] Unexpected error in customer welcome WhatsApp hook:', waError.message || waError);

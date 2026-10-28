@@ -6,25 +6,135 @@ const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v25.0';
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
- * Utility to normalize Indian phone numbers to E.164 format (without the +) -> 91XXXXXXXXXX
+ * Safely masks a phone number for logging (e.g. 9180****2742 or 800****742)
+ */
+const maskPhoneNumber = (phone) => {
+    if (!phone) return 'missing';
+    const clean = String(phone).replace(/\D/g, '');
+    if (clean.length <= 4) return '****';
+    return clean.substring(0, 3) + '****' + clean.slice(-3);
+};
+
+/**
+ * Utility to normalize phone numbers safely into international E.164 format (digits only without + for Meta Graph API).
+ * Handles Indian numbers (10 digits starting with 6-9, 11 digits starting with 0, 12 digits starting with 91)
+ * as well as other international country codes (US/Canada +1, UK +44, UAE +971, Australia +61, Singapore +65, etc.)
+ * without blindly prepending 91 to every number.
  */
 const normalizePhoneNumber = (phone) => {
     if (!phone) return null;
-    let cleaned = phone.replace(/\D/g, '');
-    
-    // If it's a 10-digit number, prepend 91 (India)
-    if (cleaned.length === 10) {
-        return `91${cleaned}`;
+    const str = String(phone).trim();
+    if (!str) return null;
+
+    const hasPlusPrefix = str.startsWith('+');
+    const hasDoubleZeroPrefix = str.startsWith('00');
+    let cleaned = str.replace(/\D/g, '');
+
+    // Strip leading '00' international prefix if present
+    if (hasDoubleZeroPrefix && cleaned.length > 10) {
+        cleaned = cleaned.substring(2);
     }
-    // If it starts with 0 and is 11 digits
-    if (cleaned.length === 11 && cleaned.startsWith('0')) {
-        return `91${cleaned.substring(1)}`;
+
+    // Reject obvious garbage (repeating identical digits or fewer than 7 digits)
+    if (cleaned.length < 7 || cleaned.length > 15 || /^(\d)\1+$/.test(cleaned)) {
+        return null;
     }
-    // If it already starts with 91 and is 12 digits
-    if (cleaned.length === 12 && cleaned.startsWith('91')) {
+
+    // If explicitly prefixed with + or 00:
+    if (hasPlusPrefix || hasDoubleZeroPrefix) {
+        // Handle case where a 10-digit Indian mobile had '+' prepended without 91.
+        // Indian 10-digit mobiles start with 6-9, but +65 is Singapore.
+        if (cleaned.length === 10 && (/^[7-9]/.test(cleaned) || (cleaned.startsWith('6') && !cleaned.startsWith('65')))) {
+            return `91${cleaned}`;
+        }
+        // Valid international format with country code preserved
         return cleaned;
     }
-    return cleaned; // Fallback
+
+    // Unprefixed numbers:
+    // 1. Standard 10-digit Indian mobile number (starts with 6, 7, 8, 9)
+    if (cleaned.length === 10 && /^[6-9]/.test(cleaned)) {
+        return `91${cleaned}`;
+    }
+
+    // 2. 11-digit Indian number with trunk 0 (e.g., 08008092742)
+    if (cleaned.length === 11 && cleaned.startsWith('0') && /^[6-9]/.test(cleaned.substring(1))) {
+        return `91${cleaned.substring(1)}`;
+    }
+
+    // 3. 12-digit Indian number with 91 prefix (e.g., 918008092742)
+    if (cleaned.length === 12 && cleaned.startsWith('91') && /^[6-9]/.test(cleaned.substring(2))) {
+        return cleaned;
+    }
+
+    // 4. North American (NANP, e.g. US/Canada: 1 + 10 digits)
+    if (cleaned.length === 11 && cleaned.startsWith('1') && /^[2-9]/.test(cleaned.substring(1))) {
+        return cleaned;
+    }
+
+    // 5. UK (+44 + 10 digits)
+    if (cleaned.length === 12 && cleaned.startsWith('44')) {
+        return cleaned;
+    }
+
+    // 6. UAE (+971 + 9 digits)
+    if (cleaned.length === 12 && cleaned.startsWith('971')) {
+        return cleaned;
+    }
+
+    // 7. General fallback: if 10-15 digits, return as-is
+    if (cleaned.length >= 10 && cleaned.length <= 15) {
+        return cleaned;
+    }
+
+    return null;
+};
+
+/**
+ * Validates a customer's contact eligibility for WhatsApp messaging.
+ * Checks opt-in/consent, presence of phone number, and international formatting.
+ */
+const validateCustomerContact = (customer, rawPhoneInput = null) => {
+    const rawPhone = rawPhoneInput || (customer ? (customer.mobile || customer.phone || customer.contactNumber) : null);
+    const masked = maskPhoneNumber(rawPhone);
+
+    // 1. Check opt-in / consent
+    if (customer && (customer.whatsappOptIn === false || customer.optOut === true || customer.optedOut === true || customer.consent === false)) {
+        return {
+            valid: false,
+            phone: null,
+            masked,
+            reason: 'Customer has opted out of WhatsApp notifications.'
+        };
+    }
+
+    // 2. Check if phone is provided
+    if (!rawPhone || String(rawPhone).trim() === '') {
+        return {
+            valid: false,
+            phone: null,
+            masked: 'missing',
+            reason: 'Customer phone number is missing.'
+        };
+    }
+
+    // 3. Normalize and validate E.164 format
+    const normalized = normalizePhoneNumber(rawPhone);
+    if (!normalized || normalized.length < 10 || normalized.length > 15) {
+        return {
+            valid: false,
+            phone: null,
+            masked,
+            reason: `Phone number '${masked}' is malformed or in an unsupported format.`
+        };
+    }
+
+    return {
+        valid: true,
+        phone: normalized,
+        masked: maskPhoneNumber(normalized),
+        reason: null
+    };
 };
 
 // Static fallback baseline configuration
@@ -678,6 +788,8 @@ const sendTemplateMessage = async ({
 module.exports = {
     sendTemplateMessage,
     normalizePhoneNumber,
+    maskPhoneNumber,
+    validateCustomerContact,
     syncMetaTemplates,
     getMetaErrorDetails,
     resolveTemplateSpec,

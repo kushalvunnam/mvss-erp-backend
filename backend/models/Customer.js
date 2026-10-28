@@ -52,29 +52,50 @@ const customerSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: '',
+  },
+  whatsappOptIn: {
+    type: Boolean,
+    default: true,
   }
 }, {
   timestamps: true,
 });
 
-// Pre-save hook to normalize phone numbers to E.164 format
+// Pre-save hook to normalize phone numbers safely into E.164 format
 customerSchema.pre('save', function(next) {
-  if (this.mobile && typeof this.mobile === 'string') {
-    // Remove all non-digit characters except +
-    let cleanPhone = this.mobile.replace(/[^\d+]/g, '');
-    // Ensure it starts with +
-    if (cleanPhone && !cleanPhone.startsWith('+')) {
-      cleanPhone = '+' + cleanPhone;
+  const normalize = (phoneStr) => {
+    if (!phoneStr || typeof phoneStr !== 'string') return phoneStr;
+    const raw = phoneStr.trim();
+    const digits = raw.replace(/\D/g, '');
+    if (raw.startsWith('+')) {
+      if (digits.length === 10 && (/^[7-9]/.test(digits) || (digits.startsWith('6') && !digits.startsWith('65')))) {
+        return '+91' + digits;
+      }
+      return '+' + digits;
     }
-    this.mobile = cleanPhone;
+    // Standard 10-digit Indian mobile
+    if (digits.length === 10 && /^[6-9]/.test(digits)) {
+      return '+91' + digits;
+    }
+    // 11-digit Indian mobile with trunk 0
+    if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits.substring(1))) {
+      return '+91' + digits.substring(1);
+    }
+    // 12-digit Indian mobile with 91
+    if (digits.length === 12 && digits.startsWith('91')) {
+      return '+' + digits;
+    }
+    if (digits.length > 0) {
+      return '+' + digits;
+    }
+    return phoneStr;
+  };
+
+  if (this.mobile) {
+    this.mobile = normalize(this.mobile);
   }
-  
-  if (this.alternateNumber && typeof this.alternateNumber === 'string') {
-    let cleanPhone = this.alternateNumber.replace(/[^\d+]/g, '');
-    if (cleanPhone && !cleanPhone.startsWith('+')) {
-      cleanPhone = '+' + cleanPhone;
-    }
-    this.alternateNumber = cleanPhone;
+  if (this.alternateNumber) {
+    this.alternateNumber = normalize(this.alternateNumber);
   }
   
   next();

@@ -335,7 +335,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     try {
       const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
-      const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
 
       const customerRecord = jobCard.customerId && jobCard.customerId.name
         ? jobCard.customerId
@@ -352,25 +352,23 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
       const jobCardNumber = String(jobCard.jobCardNo || 'N/A').trim();
       const totalAmount = String(calculations.totals.roundedGrandTotal || calculations.totals.grandTotal || '0').trim();
 
-      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const contactCheck = validateCustomerContact(customerRecord, rawPhone);
       const templateName = 'mvss_estimate_created';
       const correlationKey = `estimate_created_${estimate._id}`;
-      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-      const isValidContact = Boolean(customerRecord && normalizedPhone && normalizedPhone.length >= 10);
 
       // [Stage 3] Automation event triggered
       console.log(`[Estimate Automation] [Stage 3] Automation event triggered: EstimateId=${estimate._id}, EstimateNo=${estimateNumber}, JobCardNo=${jobCardNumber}`);
 
       // [Stage 4] Customer contact/template validation result
-      console.log(`[Estimate Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+      console.log(`[Estimate Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-      if (isValidContact) {
+      if (contactCheck.valid) {
         // [Stage 5] WhatsApp send attempted
-        console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+        console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
         try {
           const waResult = await sendTemplateMessage({
-            to: normalizedPhone,
+            to: contactCheck.phone,
             templateName,
             components: [
               {
@@ -397,10 +395,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
           console.error(`[Estimate Automation] [Stage 6] Meta response failed: Estimate=${estimateNumber}, Error=${waSendErr.message || waSendErr}`);
         }
       } else {
-        const reason = !customerRecord 
-          ? `Customer record not found for JobCard ${jobCardNumber}` 
-          : `Customer ${customerName} has missing/invalid phone number (${maskedPhone})`;
-        console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: ${reason}`);
+        console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
       }
     } catch (waError) {
       console.error('[Estimate Automation] Unexpected error in WhatsApp automation hook:', waError.message || waError);
@@ -483,7 +478,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
         const JobCard = require('../models/JobCard');
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+        const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
 
         const jc = await JobCard.findById(estimate.jobCardId).lean();
         const customerRecord = jc 
@@ -500,25 +495,23 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
         const jobCardNumber = String(jc?.jobCardNo || 'N/A').trim();
         const totalAmount = String(estimate.totals?.roundedGrandTotal || estimate.totals?.grandTotal || '0').trim();
 
-        const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+        const contactCheck = validateCustomerContact(customerRecord, rawPhone);
         const templateName = 'mvss_estimate_approved';
         const correlationKey = `estimate_approved_${estimate._id}`;
-        const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-        const isValidContact = Boolean(customerRecord && normalizedPhone && normalizedPhone.length >= 10);
 
         // [Stage 3] Automation event triggered
         console.log(`[Estimate Automation] [Stage 3] Automation event triggered: Event="Estimate Approved", EstimateId=${estimate._id}, EstimateNo=${estimateNumber}`);
 
         // [Stage 4] Customer contact/template validation result
-        console.log(`[Estimate Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+        console.log(`[Estimate Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-        if (isValidContact) {
+        if (contactCheck.valid) {
           // [Stage 5] WhatsApp send attempted
-          console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+          console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
           try {
             const waResult = await sendTemplateMessage({
-              to: normalizedPhone,
+              to: contactCheck.phone,
               templateName,
               components: [
                 {
@@ -545,7 +538,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
             console.error(`[Estimate Automation] [Stage 6] Meta response failed: Estimate=${estimateNumber}, Error=${waSendErr.message || waSendErr}`);
           }
         } else {
-          console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
+          console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
         }
       } catch (waError) {
         console.error('[Estimate Automation] Unexpected error in WhatsApp estimate approved hook:', waError.message || waError);

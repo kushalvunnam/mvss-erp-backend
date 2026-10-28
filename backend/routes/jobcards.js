@@ -309,7 +309,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
 
       const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
-      const { normalizePhoneNumber, sendTemplateMessage } = require('../services/whatsappService');
+      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
 
       const custId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
       const vehId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
@@ -340,22 +340,20 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
         'General Service'
       ).trim();
 
-      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const contactCheck = validateCustomerContact(customer, rawPhone);
       const templateName = 'mvss_job_card_created';
       const correlationKey = `job_card_created_${jobCard._id}`;
-      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-      const isValidContact = Boolean(customer && normalizedPhone && normalizedPhone.length >= 10);
 
       // [Stage 4] Customer contact/template validation result
-      console.log(`[JobCard Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+      console.log(`[JobCard Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-      if (isValidContact) {
+      if (contactCheck.valid) {
         // [Stage 5] WhatsApp send attempted
-        console.log(`[JobCard Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+        console.log(`[JobCard Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
         try {
           const waResult = await sendTemplateMessage({
-            to: normalizedPhone,
+            to: contactCheck.phone,
             templateName,
             components: [
               {
@@ -381,10 +379,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
           console.error(`[JobCard Automation] [Stage 6] Meta response failed: JobCard=${jobCardNumber}, Error=${waSendErr.message || waSendErr}`);
         }
       } else {
-        const reason = !customer
-          ? `Customer record not found for ID ${custId}`
-          : `Customer ${customerName} has missing or invalid phone number (${maskedPhone})`;
-        console.warn(`[JobCard Automation] [Stage 4] Skipping WhatsApp dispatch: ${reason}`);
+        console.warn(`[JobCard Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
       }
     } catch (waError) {
       console.error('[JobCard Automation] Unexpected error in WhatsApp automation hook:', waError.message || waError);
@@ -508,7 +503,7 @@ router.put('/:id', auth, async (req, res) => {
       try {
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+        const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
 
         const custId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
         const vehId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
@@ -525,9 +520,7 @@ router.put('/:id', auth, async (req, res) => {
         const customerName = String(customer?.name || 'Valued Customer').trim();
         const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
         const jobCardNumber = String(jobCard.jobCardNo || 'N/A').trim();
-        const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
-        const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-        const isValidContact = Boolean(customer && normalizedPhone && normalizedPhone.length >= 10);
+        const contactCheck = validateCustomerContact(customer, rawPhone);
 
         let templateName = null;
         let parameters = [];
@@ -566,15 +559,15 @@ router.put('/:id', auth, async (req, res) => {
           console.log(`[JobCard Automation] [Stage 3] Automation event triggered: Event="${templateName}", JobCard=${jobCardNumber}, Status="${jobCard.status}"`);
 
           // [Stage 4] Customer contact/template validation result
-          console.log(`[JobCard Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+          console.log(`[JobCard Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-          if (isValidContact) {
+          if (contactCheck.valid) {
             // [Stage 5] WhatsApp send attempted
-            console.log(`[JobCard Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+            console.log(`[JobCard Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
             try {
               const waResult = await sendTemplateMessage({
-                to: normalizedPhone,
+                to: contactCheck.phone,
                 templateName,
                 components: [{ type: 'body', parameters }],
                 recipientName: customerName,
@@ -590,7 +583,7 @@ router.put('/:id', auth, async (req, res) => {
               console.error(`[JobCard Automation] [Stage 6] Meta response failed: JobCard=${jobCardNumber}, Template=${templateName}, Error=${waSendErr.message || waSendErr}`);
             }
           } else {
-            console.warn(`[JobCard Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
+            console.warn(`[JobCard Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
           }
         }
       } catch (waError) {

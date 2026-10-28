@@ -147,7 +147,7 @@ router.put('/:id', auth, async (req, res) => {
         const JobCard = require('../models/JobCard');
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const { sendTemplateMessage, normalizePhoneNumber, resolveTemplateSpec } = require('../services/whatsappService');
+        const { sendTemplateMessage, validateCustomerContact, resolveTemplateSpec } = require('../services/whatsappService');
 
         const custId = (claim.customerId && claim.customerId._id) ? claim.customerId._id : claim.customerId;
         const vehId = (claim.vehicleId && claim.vehicleId._id) ? claim.vehicleId._id : claim.vehicleId;
@@ -167,11 +167,9 @@ router.put('/:id', auth, async (req, res) => {
         const claimNumber = String(claim.claimNumber || claim.claimNo || 'N/A').trim();
         const claimStatus = String(claim.status || 'Updated').trim();
 
-        const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+        const contactCheck = validateCustomerContact(customerRecord, rawPhone);
         const templateName = 'mvss_insurance_claim_update';
         const correlationKey = `insurance_claim_update_${claim._id}_${claimStatus.replace(/\s+/g, '')}`;
-        const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
-        const isValidContact = Boolean(normalizedPhone && normalizedPhone.length >= 10);
 
         // [Stage 3] Automation event triggered
         console.log(`[Claim Automation] [Stage 3] Automation event triggered: ClaimNo=${claimNumber}, Status=${claimStatus}`);
@@ -181,15 +179,15 @@ router.put('/:id', auth, async (req, res) => {
         const isMetaApproved = templateSpec && templateSpec.status === 'APPROVED';
 
         // [Stage 4] Customer contact/template validation result
-        console.log(`[Claim Automation] [Stage 4] Contact/template validation: Customer="${customerName}", Phone="${maskedPhone}", ValidContact=${isValidContact}, Template="${templateName}", MetaApproved=${isMetaApproved}`);
+        console.log(`[Claim Automation] [Stage 4] Contact/template validation: Customer="${customerName}", Phone="${contactCheck.masked}", ValidContact=${contactCheck.valid}, Template="${templateName}", MetaApproved=${isMetaApproved}${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-        if (isValidContact) {
+        if (contactCheck.valid) {
           // [Stage 5] WhatsApp send attempted
-          console.log(`[Claim Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+          console.log(`[Claim Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
           try {
             const waResult = await sendTemplateMessage({
-              to: normalizedPhone,
+              to: contactCheck.phone,
               templateName,
               components: [
                 {
@@ -215,7 +213,7 @@ router.put('/:id', auth, async (req, res) => {
             console.error(`[Claim Automation] [Stage 6] Meta response failed: Claim=${claimNumber}, Error=${waSendErr.message || waSendErr}`);
           }
         } else {
-          console.warn(`[Claim Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
+          console.warn(`[Claim Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
         }
       } catch (waError) {
         console.error('[Claim Automation] Unexpected error in WhatsApp insurance claim hook:', waError.message || waError);
