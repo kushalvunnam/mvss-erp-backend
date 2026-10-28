@@ -1,6 +1,9 @@
 RewriteEngine On
 RewriteBase /
 
+# Allow access to .well-known (Digital Asset Links)
+RewriteRule ^\.well-known/ - [L]
+
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
