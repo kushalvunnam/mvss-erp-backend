@@ -56,3 +56,4 @@ backend-zip.zip
 /android/app/*.jks
 .vercel
 /release-artifacts/
+twa-pwa-deployment.zip
