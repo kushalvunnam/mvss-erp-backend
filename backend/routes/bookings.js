@@ -211,6 +211,57 @@ router.post('/', async (req, res) => {
     await booking.save();
     console.log(`[BOOKING ROUTE] Booking Created with ID: ${booking._id}`);
 
+    // ==========================================
+    // 3b. WHATSAPP BOOKING CONFIRMATION AUTOMATION
+    // ==========================================
+    try {
+      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+      const custName = String(customerName || 'Valued Customer').trim();
+      const vehNo = String(vehicleNumber || 'your vehicle').trim();
+      const sType = String(serviceType || 'General Service').trim();
+      const prefDate = String(preferredDate || bDate || 'as scheduled').trim();
+      const workshopName = 'MVSS Automobiles';
+
+      const contactCheck = validateCustomerContact(null, mobile);
+      const templateName = 'mvss_booking_confirmation';
+      const correlationKey = `booking_confirmation_${booking._id}`;
+
+      console.log(`[Booking Automation] Contact check: Customer="${custName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}`);
+
+      if (contactCheck.valid) {
+        console.log(`[Booking Automation] Sending WhatsApp confirmation to ${contactCheck.masked}`);
+        try {
+          const waResult = await sendTemplateMessage({
+            to: contactCheck.phone,
+            templateName,
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: custName },
+                  { type: 'text', text: vehNo },
+                  { type: 'text', text: sType },
+                  { type: 'text', text: prefDate },
+                  { type: 'text', text: workshopName }
+                ]
+              }
+            ],
+            recipientName: custName,
+            relatedEntity: booking._id,
+            onModel: 'Booking',
+            idempotencyKey: correlationKey
+          });
+          console.log(`[Booking Automation] WhatsApp send succeeded: wamid=${waResult.messageId || 'duplicate_skipped'}`);
+        } catch (waSendErr) {
+          console.error(`[Booking Automation] WhatsApp send failed:`, waSendErr.message || waSendErr);
+        }
+      } else {
+        console.warn(`[Booking Automation] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
+      }
+    } catch (waError) {
+      console.error('[Booking Automation] Unexpected error in WhatsApp hook:', waError.message || waError);
+    }
+
 
     // ==========================================
     // 4. CREATE NOTIFICATION

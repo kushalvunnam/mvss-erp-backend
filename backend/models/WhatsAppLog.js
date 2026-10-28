@@ -52,6 +52,25 @@ const whatsappLogSchema = new mongoose.Schema({
   errorMessage: { 
     type: String 
   },
+  metaErrorCode: {
+    type: String
+  },
+  attempts: {
+    type: Number,
+    default: 1
+  },
+  lastAttemptAt: {
+    type: Date,
+    default: Date.now
+  },
+  language: {
+    type: String,
+    default: 'en'
+  },
+  components: {
+    type: Array,
+    default: []
+  },
   idempotencyKey: { 
     type: String, 
     unique: true, 

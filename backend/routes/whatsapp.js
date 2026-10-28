@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const WhatsAppLog = require('../models/WhatsAppLog');
 const { auth, restrictTo } = require('../middleware/auth');
-const { sendTemplateMessage, syncMetaTemplates } = require('../services/whatsappService');
+const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber } = require('../services/whatsappService');
 
 // Automatically run startup Meta audit & template synchronization
 if (process.env.META_WA_ACCESS_TOKEN && (process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_BUSINESS_ACCOUNT_ID)) {
@@ -196,6 +196,155 @@ router.get('/feedback-reminders', auth, restrictTo('Admin', 'Super Admin'), asyn
     } catch (error) {
         console.error('[WhatsApp] feedback-reminders error:', error);
         return res.status(500).json({ error: error.message || 'Failed to fetch reminders' });
+    }
+});
+
+// =========================================================================
+// PHASE 15: WHATSAPP MONITORING & LOGS AUDIT
+// =========================================================================
+router.get('/logs', auth, restrictTo('Admin', 'Super Admin', 'Service', 'Accounts'), async (req, res) => {
+    try {
+        const { status, templateName, search, page = 1, limit = 50 } = req.query;
+        const query = {};
+
+        if (status) {
+            query.status = status;
+        }
+
+        if (templateName) {
+            query.templateName = templateName;
+        }
+
+        if (search) {
+            const regex = new RegExp(search.trim(), 'i');
+            query.$or = [
+                { recipientName: regex },
+                { recipientPhone: regex },
+                { messageId: regex },
+                { templateName: regex },
+                { errorMessage: regex }
+            ];
+        }
+
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+        const skip = (pageNum - 1) * limitNum;
+
+        const [total, rawLogs] = await Promise.all([
+            WhatsAppLog.countDocuments(query),
+            WhatsAppLog.find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limitNum)
+                .lean()
+        ]);
+
+        const logs = rawLogs.map(log => ({
+            _id: log._id,
+            recipientName: log.recipientName,
+            recipientPhone: maskPhoneNumber(log.recipientPhone),
+            templateName: log.templateName,
+            messageType: log.messageType,
+            direction: log.direction,
+            status: log.status,
+            messageId: log.messageId,
+            relatedEntity: log.relatedEntity,
+            onModel: log.onModel,
+            errorMessage: log.errorMessage,
+            metaErrorCode: log.metaErrorCode,
+            attempts: log.attempts || 1,
+            lastAttemptAt: log.lastAttemptAt || log.createdAt,
+            language: log.language || 'en',
+            idempotencyKey: log.idempotencyKey,
+            createdAt: log.createdAt,
+            updatedAt: log.updatedAt,
+            eligibleRetry: log.status === 'failed' && (log.attempts || 1) < 3
+        }));
+
+        return res.json({
+            success: true,
+            count: logs.length,
+            total,
+            page: pageNum,
+            pages: Math.ceil(total / limitNum) || 1,
+            logs
+        });
+    } catch (error) {
+        console.error('[WhatsApp] logs retrieval error:', error);
+        return res.status(500).json({ error: error.message || 'Failed to retrieve WhatsApp logs' });
+    }
+});
+
+// =========================================================================
+// PHASE 16: AUTHORIZED WHATSAPP RETRY ENDPOINT
+// =========================================================================
+router.post('/logs/:id/retry', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    try {
+        const log = await WhatsAppLog.findById(req.params.id);
+        if (!log) {
+            return res.status(404).json({ error: 'WhatsApp log not found' });
+        }
+
+        if (log.status !== 'failed') {
+            return res.status(400).json({ error: `Only failed messages can be retried. Current status: ${log.status}` });
+        }
+
+        if ((log.attempts || 1) >= 3) {
+            return res.status(400).json({ error: `Maximum retry attempts reached (${log.attempts || 1}/3)` });
+        }
+
+        log.attempts = (log.attempts || 1) + 1;
+        log.lastAttemptAt = new Date();
+
+        try {
+            const retryKey = `retry_${log._id}_${Date.now()}`;
+            const result = await sendTemplateMessage({
+                to: log.recipientPhone,
+                templateName: log.templateName,
+                languageCode: log.language || 'en',
+                components: log.components || [],
+                recipientName: log.recipientName,
+                relatedEntity: log.relatedEntity,
+                onModel: log.onModel,
+                idempotencyKey: retryKey
+            });
+
+            log.status = 'sent';
+            log.messageId = result.messageId;
+            log.errorMessage = undefined;
+            log.metaErrorCode = undefined;
+            await log.save();
+
+            return res.json({
+                success: true,
+                message: 'WhatsApp message retried successfully',
+                messageId: result.messageId,
+                log: {
+                    _id: log._id,
+                    recipientName: log.recipientName,
+                    recipientPhone: maskPhoneNumber(log.recipientPhone),
+                    status: log.status,
+                    attempts: log.attempts,
+                    messageId: log.messageId,
+                    lastAttemptAt: log.lastAttemptAt
+                }
+            });
+        } catch (sendErr) {
+            log.status = 'failed';
+            log.errorMessage = sendErr.message || String(sendErr);
+            log.metaErrorCode = String(sendErr.metaError?.code || '');
+            await log.save();
+
+            return res.status(502).json({
+                success: false,
+                error: 'Retry failed: ' + log.errorMessage,
+                metaErrorCode: log.metaErrorCode,
+                attempts: log.attempts
+            });
+        }
+    } catch (error) {
+        console.error('[WhatsApp] retry error:', error);
+        return res.status(500).json({ error: error.message || 'Internal server error while retrying' });
     }
 });
 

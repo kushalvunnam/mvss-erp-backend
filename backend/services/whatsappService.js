@@ -137,22 +137,31 @@ const validateCustomerContact = (customer, rawPhoneInput = null) => {
     };
 };
 
-// Static fallback baseline configuration
+// Static fallback baseline configuration matching Meta WABA 1070579342641923
 const TEMPLATE_CONFIG = {
     'mvss_welcome_customer': { lang: 'en', paramCount: 2 },
     'mvss_job_card_created': { lang: 'en', paramCount: 4 },
-    'mvss_work_started': { lang: 'en', paramCount: 3 },
-    'mvss_vehicle_ready': { lang: 'en', paramCount: 3 },
-    'mvss_vehicle_delivered': { lang: 'en', paramCount: 4 },
+    'mvss_vehicle_received': { lang: 'en', paramCount: 3 },
+    'mvss_inspection_completed': { lang: 'en', paramCount: 3 },
     'mvss_estimate_created': { lang: 'en', paramCount: 5 },
     'mvss_estimate_approved': { lang: 'en', paramCount: 5 },
+    'mvss_work_started': { lang: 'en', paramCount: 3 },
+    'mvss_additional_work': { lang: 'en', paramCount: 5 },
+    'mvss_service_delay': { lang: 'en', paramCount: 4 },
+    'mvss_vehicle_ready': { lang: 'en', paramCount: 3 },
+    'mvss_job_completed': { lang: 'en', paramCount: 3 },
+    'mvss_vehicle_delivered': { lang: 'en', paramCount: 4 },
+    'mvss_gate_pass_generated': { lang: 'en', paramCount: 4 },
     'mvss_invoice_generated': { lang: 'en', paramCount: 5 },
     'mvss_payment_received': { lang: 'en', paramCount: 5 },
-    'mvss_gate_pass_generated': { lang: 'en', paramCount: 4 },
+    'mvss_payment_due': { lang: 'en', paramCount: 4 },
+    'mvss_insurance_claim_update': { lang: 'en', paramCount: 4 },
+    'mvss_booking_confirmation': { lang: 'en', paramCount: 5 },
+    'service_booking_confirmation': { lang: 'en', paramCount: 2 },
+    'mvss_service_remainder': { lang: 'en', paramCount: 4 },
     'mvss_feedback_request': { lang: 'en', paramCount: 2 },
-    'mvss_job_completed': { lang: 'en', paramCount: 3 },
     'mvss_customer_followup': { lang: 'en', paramCount: 1 },
-    'mvss_insurance_claim_update': { lang: 'en', paramCount: 4 }
+    'mvss_service_support': { lang: 'en', paramCount: 3 }
 };
 
 // Dynamic cache of templates verified directly from Meta Graph API
@@ -488,14 +497,14 @@ const syncMetaTemplates = async (customAxios = axios) => {
 
         // Fetch Message Templates using the verified WABA ID
         try {
-            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${verifiedWaba.id}/message_templates?limit=100`, {
+            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${verifiedWaba.id}/message_templates?fields=name,status,category,language,components&limit=100`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const metaTemplates = templatesRes.data?.data || [];
             console.log(`[WhatsApp Meta Audit] Successfully retrieved ${metaTemplates.length} template(s) from verified WABA (${verifiedWaba.id}).`);
 
             metaTemplates.forEach(t => {
-                const bodyComponent = t.components?.find(c => c.type === 'BODY');
+                const bodyComponent = t.components?.find(c => c.type && c.type.toUpperCase() === 'BODY');
                 let paramCount = 0;
                 if (bodyComponent && bodyComponent.text) {
                     const matches = bodyComponent.text.match(/\{\{\d+\}\}/g);
@@ -519,14 +528,18 @@ const syncMetaTemplates = async (customAxios = axios) => {
 
             auditReport.templatesAudit.success = true;
             auditReport.templatesAudit.count = metaTemplates.length;
-            auditReport.templatesAudit.templates = metaTemplates.map(t => ({
-                name: t.name,
-                language: t.language,
-                status: t.status,
-                paramCount: dynamicTemplateMap.get(t.name)?.paramCount || 0,
-                bodyText: t.components?.find(c => c.type === 'BODY')?.text || null,
-                example: t.components?.find(c => c.type === 'BODY')?.example?.body_text?.[0] || null
-            }));
+            auditReport.templatesAudit.templates = metaTemplates.map(t => {
+                const bodyComp = t.components?.find(c => c.type && c.type.toUpperCase() === 'BODY');
+                return {
+                    name: t.name,
+                    language: t.language,
+                    status: t.status,
+                    paramCount: dynamicTemplateMap.get(t.name)?.paramCount || 0,
+                    bodyText: bodyComp?.text || null,
+                    example: bodyComp?.example?.body_text?.[0] || null,
+                    components: t.components
+                };
+            });
             auditReport.fallbackConfigActive = false;
 
             // Verify ERP template mappings against Meta
@@ -706,6 +719,8 @@ const sendTemplateMessage = async ({
                 messageType: 'template',
                 status: 'pending',
                 direction: 'outbound',
+                language: initialLanguage,
+                components: components || [],
                 relatedEntity,
                 onModel,
                 idempotencyKey
@@ -787,19 +802,25 @@ const sendTemplateMessage = async ({
                 if (existing) {
                     existing.status = 'failed';
                     existing.errorMessage = errDetails.formatted;
+                    existing.metaErrorCode = String(errDetails.code || '');
+                    existing.lastAttemptAt = new Date();
                     await existing.save();
                 } else {
                     await WhatsAppLog.create({
                         recipientName,
                         recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
-                        templateName,
+                        templateName: finalTemplateName,
                         messageType: 'template',
                         status: 'failed',
                         direction: 'outbound',
+                        language: initialLanguage,
+                        components: components || [],
                         relatedEntity,
                         onModel,
                         idempotencyKey,
-                        errorMessage: errDetails.formatted
+                        errorMessage: errDetails.formatted,
+                        metaErrorCode: String(errDetails.code || ''),
+                        lastAttemptAt: new Date()
                     });
                 }
             } catch (logErr) {

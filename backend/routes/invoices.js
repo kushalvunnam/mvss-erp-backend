@@ -893,16 +893,66 @@ router.post('/:id/share', auth, async (req, res) => {
   }
 });
 
-// POST: Log invoice downloaded
-router.post('/:id/download', auth, async (req, res) => {
+// POST: Send payment due reminder via WhatsApp
+router.post('/:id/send-payment-due', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive', 'Service'), async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    const invoice = await Invoice.findById(req.params.id)
+      .populate('customerId')
+      .populate('vehicleId');
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
 
-    await logAction(req.user, 'INVOICE_DOWNLOAD', `Downloaded PDF for Invoice ${invoice.invoiceNo}`, req);
-    res.send({ message: 'Download logged successfully.' });
+    const Customer = require('../models/Customer');
+    const VehicleModel = require('../models/Vehicle');
+    const JobCard = require('../models/JobCard');
+    const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+
+    const customer = invoice.customerId;
+    const vehicle = invoice.vehicleId;
+    const jc = invoice.jobCardId ? await JobCard.findById(invoice.jobCardId).lean() : null;
+
+    const rawPhone = customer ? (customer.mobile || customer.phone || customer.contactNumber) : null;
+    const customerName = String(customer?.name || 'Valued Customer').trim();
+    const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
+    const invoiceNumber = String(invoice.invoiceNo || 'N/A').trim();
+    const balanceDue = String(invoice.balanceDue || (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || '0')).trim();
+
+    const contactCheck = validateCustomerContact(customer, rawPhone);
+    if (!contactCheck.valid) {
+      return res.status(400).send({ error: `Cannot send WhatsApp reminder: ${contactCheck.reason}` });
+    }
+
+    const templateName = 'mvss_payment_due';
+    const correlationKey = `payment_due_${invoice._id}_${Date.now()}`;
+
+    const waResult = await sendTemplateMessage({
+      to: contactCheck.phone,
+      templateName,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: invoiceNumber },
+            { type: 'text', text: balanceDue }
+          ]
+        }
+      ],
+      recipientName: customerName,
+      relatedEntity: invoice._id,
+      onModel: 'Invoice',
+      idempotencyKey: correlationKey
+    });
+
+    await logAction(req.user, 'INVOICE_PAYMENT_DUE_WHATSAPP', `Sent payment due reminder WhatsApp for Invoice ${invoice.invoiceNo}`, req);
+
+    res.send({
+      success: true,
+      message: 'Payment due reminder sent successfully via WhatsApp',
+      messageId: waResult.messageId
+    });
   } catch (error) {
-    res.status(500).send({ error: 'Failed to log download action: ' + error.message });
+    res.status(500).send({ error: 'Failed to send payment due reminder: ' + error.message });
   }
 });
 

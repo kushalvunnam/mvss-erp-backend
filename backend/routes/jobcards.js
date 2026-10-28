@@ -498,8 +498,9 @@ router.put('/:id', auth, async (req, res) => {
     // [Stage 2] Job Card updated
     console.log(`[JobCard] [Stage 2] Job card updated successfully: ID=${jobCard._id}, JobCardNo=${jobCard.jobCardNo}, Status=${jobCard.status}, StatusChanged=${statusChanged}`);
 
-    // WhatsApp Integration: Job Card Status Changes
-    if (statusChanged) {
+    // WhatsApp Integration: Job Card Status Changes and Service Delay
+    const isServiceDelay = Boolean(req.body.serviceDelay || req.body.isDelayed || req.body.delayReason || jobCard.status === 'Delayed');
+    if (statusChanged || isServiceDelay) {
       try {
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
@@ -525,8 +526,24 @@ router.put('/:id', auth, async (req, res) => {
         let templateName = null;
         let parameters = [];
 
-        if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
+        if (isServiceDelay && (req.body.delayReason || req.body.serviceDelay || jobCard.status === 'Delayed')) {
+          templateName = 'mvss_service_delay';
+          const delayDetail = String(req.body.delayReason || req.body.serviceDelay || (jobCard.promDate ? `Delivery updated to ${jobCard.promDate}` : 'Service experiencing a slight delay')).trim();
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber },
+            { type: 'text', text: delayDetail }
+          ];
+        } else if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
           templateName = 'mvss_work_started';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber }
+          ];
+        } else if (['Quality Check', 'Quality Test', 'QC Pass', 'Inspection Completed'].includes(jobCard.status) || (req.body.qcStatus === 'Pass')) {
+          templateName = 'mvss_inspection_completed';
           parameters = [
             { type: 'text', text: customerName },
             { type: 'text', text: vehicleNumber },
@@ -534,6 +551,13 @@ router.put('/:id', auth, async (req, res) => {
           ];
         } else if (jobCard.status === 'Ready for Delivery') {
           templateName = 'mvss_vehicle_ready';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber }
+          ];
+        } else if (['Job Completed', 'Repair Completed', 'Closed'].includes(jobCard.status) || (req.body.jobProgress === 100)) {
+          templateName = 'mvss_job_completed';
           parameters = [
             { type: 'text', text: customerName },
             { type: 'text', text: vehicleNumber },
@@ -550,10 +574,19 @@ router.put('/:id', auth, async (req, res) => {
             { type: 'text', text: jobCardNumber },
             { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' }
           ];
+        } else if (['Vehicle Received', 'Intake Completed'].includes(jobCard.status)) {
+          templateName = 'mvss_vehicle_received';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber }
+          ];
         }
 
         if (templateName) {
-          const correlationKey = `${templateName}_${jobCard._id}`;
+          const correlationKey = templateName === 'mvss_service_delay'
+            ? `${templateName}_${jobCard._id}_${new Date().toISOString().slice(0, 10)}`
+            : `${templateName}_${jobCard._id}`;
 
           // [Stage 3] Automation event triggered
           console.log(`[JobCard Automation] [Stage 3] Automation event triggered: Event="${templateName}", JobCard=${jobCardNumber}, Status="${jobCard.status}"`);

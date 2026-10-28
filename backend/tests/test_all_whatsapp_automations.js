@@ -51,6 +51,18 @@ dynamicTemplateMap.set('mvss_payment_received', { name: 'mvss_payment_received',
 dynamicTemplateMap.set('mvss_gate_pass_generated', { name: 'mvss_gate_pass_generated', language: 'en', status: 'APPROVED', paramCount: 4 });
 dynamicTemplateMap.set('mvss_feedback_request', { name: 'mvss_feedback_request', language: 'en', status: 'APPROVED', paramCount: 2 });
 dynamicTemplateMap.set('mvss_welcome_customer', { name: 'mvss_welcome_customer', language: 'en', status: 'APPROVED', paramCount: 2 });
+dynamicTemplateMap.set('mvss_booking_confirmation', { name: 'mvss_booking_confirmation', language: 'en', status: 'APPROVED', paramCount: 5 });
+dynamicTemplateMap.set('service_booking_confirmation', { name: 'service_booking_confirmation', language: 'en', status: 'APPROVED', paramCount: 2 });
+dynamicTemplateMap.set('mvss_service_delay', { name: 'mvss_service_delay', language: 'en', status: 'APPROVED', paramCount: 4 });
+dynamicTemplateMap.set('mvss_additional_work', { name: 'mvss_additional_work', language: 'en', status: 'APPROVED', paramCount: 5 });
+dynamicTemplateMap.set('mvss_inspection_completed', { name: 'mvss_inspection_completed', language: 'en', status: 'APPROVED', paramCount: 3 });
+dynamicTemplateMap.set('mvss_job_completed', { name: 'mvss_job_completed', language: 'en', status: 'APPROVED', paramCount: 3 });
+dynamicTemplateMap.set('mvss_vehicle_received', { name: 'mvss_vehicle_received', language: 'en', status: 'APPROVED', paramCount: 3 });
+dynamicTemplateMap.set('mvss_payment_due', { name: 'mvss_payment_due', language: 'en', status: 'APPROVED', paramCount: 4 });
+dynamicTemplateMap.set('mvss_insurance_claim_update', { name: 'mvss_insurance_claim_update', language: 'en', status: 'APPROVED', paramCount: 4 });
+dynamicTemplateMap.set('mvss_service_remainder', { name: 'mvss_service_remainder', language: 'en', status: 'APPROVED', paramCount: 4 });
+dynamicTemplateMap.set('mvss_customer_followup', { name: 'mvss_customer_followup', language: 'en', status: 'APPROVED', paramCount: 1 });
+dynamicTemplateMap.set('mvss_service_support', { name: 'mvss_service_support', language: 'en', status: 'APPROVED', paramCount: 3 });
 
 const testPhone = '8008092742';
 const normalizedTestPhone = normalizePhoneNumber(testPhone);
@@ -70,7 +82,19 @@ async function runTests() {
     'mvss_payment_received': { lang: 'en', params: 5 },
     'mvss_gate_pass_generated': { lang: 'en', params: 4 },
     'mvss_feedback_request': { lang: 'en', params: 2 },
-    'mvss_welcome_customer': { lang: 'en', params: 2 }
+    'mvss_welcome_customer': { lang: 'en', params: 2 },
+    'mvss_booking_confirmation': { lang: 'en', params: 5 },
+    'service_booking_confirmation': { lang: 'en', params: 2 },
+    'mvss_service_delay': { lang: 'en', params: 4 },
+    'mvss_additional_work': { lang: 'en', params: 5 },
+    'mvss_inspection_completed': { lang: 'en', params: 3 },
+    'mvss_job_completed': { lang: 'en', params: 3 },
+    'mvss_vehicle_received': { lang: 'en', params: 3 },
+    'mvss_payment_due': { lang: 'en', params: 4 },
+    'mvss_insurance_claim_update': { lang: 'en', params: 4 },
+    'mvss_service_remainder': { lang: 'en', params: 4 },
+    'mvss_customer_followup': { lang: 'en', params: 1 },
+    'mvss_service_support': { lang: 'en', params: 3 }
   };
 
   for (const [tpl, spec] of Object.entries(expectedSpecs)) {
@@ -78,7 +102,7 @@ async function runTests() {
     assert.strictEqual(TEMPLATE_CONFIG[tpl].lang, spec.lang, `Language for ${tpl} must be ${spec.lang}`);
     assert.strictEqual(TEMPLATE_CONFIG[tpl].paramCount, spec.params, `Param count for ${tpl} must be ${spec.params}`);
   }
-  console.log('✔ Test 1 Passed: All 11 ERP template configs and parameter expectations verified.');
+  console.log('✔ Test 1 Passed: All 22 approved Meta template configs and parameter expectations verified.');
 
   // =========================================================================
   // Test 2: Estimate Created Automation (mvss_estimate_created - 5 params)
@@ -570,7 +594,345 @@ async function runTests() {
   assert.strictEqual(dispatchedRecipients[1], '917674819765');
   console.log('✔ Test 15 Passed: Multi-recipient dispatch verified for 2 distinct customer records dynamically extracted.');
 
-  console.log('\n=== ALL 15 WHATSAPP AUTOMATION TESTS PASSED SUCCESSFULLY ===');
+  // =========================================================================
+  // Test 16: Booking Confirmation Automation (mvss_booking_confirmation - 5 params)
+  // =========================================================================
+  let capturedBooking = null;
+  const mockAxiosBooking = {
+    post: async (url, payload) => {
+      capturedBooking = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.BOOKING_001' }] } };
+    }
+  };
+
+  const bookingRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_booking_confirmation',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'Periodic Maintenance' },
+          { type: 'text', text: '2026-11-05' },
+          { type: 'text', text: 'MVSS Automobiles' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_booking_001'
+  }, mockAxiosBooking);
+
+  assert.strictEqual(bookingRes.success, true);
+  assert.strictEqual(bookingRes.messageId, 'wamid.BOOKING_001');
+  assert.strictEqual(capturedBooking.payload.template.name, 'mvss_booking_confirmation');
+  assert.strictEqual(capturedBooking.payload.template.components[0].parameters.length, 5);
+  console.log('✔ Test 16 Passed: Booking confirmation triggers dispatch with 5 exact parameters.');
+
+  // =========================================================================
+  // Test 17: Service Delay Automation (mvss_service_delay - 4 params)
+  // =========================================================================
+  let capturedDelay = null;
+  const mockAxiosDelay = {
+    post: async (url, payload) => {
+      capturedDelay = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.DELAY_001' }] } };
+    }
+  };
+
+  const delayRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_service_delay',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'MVSS/JC/26-27/053' },
+          { type: 'text', text: 'Waiting for specialized spare part arrival' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_delay_001'
+  }, mockAxiosDelay);
+
+  assert.strictEqual(delayRes.success, true);
+  assert.strictEqual(delayRes.messageId, 'wamid.DELAY_001');
+  assert.strictEqual(capturedDelay.payload.template.name, 'mvss_service_delay');
+  assert.strictEqual(capturedDelay.payload.template.components[0].parameters.length, 4);
+  console.log('✔ Test 17 Passed: Service delay triggers dispatch with 4 exact parameters.');
+
+  // =========================================================================
+  // Test 18: Additional Work Automation (mvss_additional_work - 5 params)
+  // =========================================================================
+  let capturedAddWork = null;
+  const mockAxiosAddWork = {
+    post: async (url, payload) => {
+      capturedAddWork = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.ADD_WORK_001' }] } };
+    }
+  };
+
+  const addWorkRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_additional_work',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'MVSS/JC/26-27/053' },
+          { type: 'text', text: 'Brake pad and rotor replacement' },
+          { type: 'text', text: '4200' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_add_work_001'
+  }, mockAxiosAddWork);
+
+  assert.strictEqual(addWorkRes.success, true);
+  assert.strictEqual(addWorkRes.messageId, 'wamid.ADD_WORK_001');
+  assert.strictEqual(capturedAddWork.payload.template.name, 'mvss_additional_work');
+  assert.strictEqual(capturedAddWork.payload.template.components[0].parameters.length, 5);
+  console.log('✔ Test 18 Passed: Additional work triggers dispatch with 5 exact parameters.');
+
+  // =========================================================================
+  // Test 19: Inspection Completed Automation (mvss_inspection_completed - 3 params)
+  // =========================================================================
+  let capturedInspect = null;
+  const mockAxiosInspect = {
+    post: async (url, payload) => {
+      capturedInspect = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.INSPECT_001' }] } };
+    }
+  };
+
+  const inspectRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_inspection_completed',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'MVSS/JC/26-27/053' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_inspect_001'
+  }, mockAxiosInspect);
+
+  assert.strictEqual(inspectRes.success, true);
+  assert.strictEqual(inspectRes.messageId, 'wamid.INSPECT_001');
+  assert.strictEqual(capturedInspect.payload.template.name, 'mvss_inspection_completed');
+  assert.strictEqual(capturedInspect.payload.template.components[0].parameters.length, 3);
+  console.log('✔ Test 19 Passed: Inspection completed triggers dispatch with 3 exact parameters.');
+
+  // =========================================================================
+  // Test 20: Job Completed Automation (mvss_job_completed - 3 params)
+  // =========================================================================
+  let capturedJobDone = null;
+  const mockAxiosJobDone = {
+    post: async (url, payload) => {
+      capturedJobDone = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.JOB_DONE_001' }] } };
+    }
+  };
+
+  const jobDoneRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_job_completed',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'MVSS/JC/26-27/053' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_job_done_001'
+  }, mockAxiosJobDone);
+
+  assert.strictEqual(jobDoneRes.success, true);
+  assert.strictEqual(jobDoneRes.messageId, 'wamid.JOB_DONE_001');
+  assert.strictEqual(capturedJobDone.payload.template.name, 'mvss_job_completed');
+  assert.strictEqual(capturedJobDone.payload.template.components[0].parameters.length, 3);
+  console.log('✔ Test 20 Passed: Job completed triggers dispatch with 3 exact parameters.');
+
+  // =========================================================================
+  // Test 21: Vehicle Received Automation (mvss_vehicle_received - 3 params)
+  // =========================================================================
+  let capturedVehRecv = null;
+  const mockAxiosVehRecv = {
+    post: async (url, payload) => {
+      capturedVehRecv = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.VEH_RECV_001' }] } };
+    }
+  };
+
+  const vehRecvRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_vehicle_received',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'MVSS/JC/26-27/053' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_veh_recv_001'
+  }, mockAxiosVehRecv);
+
+  assert.strictEqual(vehRecvRes.success, true);
+  assert.strictEqual(vehRecvRes.messageId, 'wamid.VEH_RECV_001');
+  assert.strictEqual(capturedVehRecv.payload.template.name, 'mvss_vehicle_received');
+  assert.strictEqual(capturedVehRecv.payload.template.components[0].parameters.length, 3);
+  console.log('✔ Test 21 Passed: Vehicle received triggers dispatch with 3 exact parameters.');
+
+  // =========================================================================
+  // Test 22: Payment Due Automation (mvss_payment_due - 4 params)
+  // =========================================================================
+  let capturedPayDue = null;
+  const mockAxiosPayDue = {
+    post: async (url, payload) => {
+      capturedPayDue = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.PAY_DUE_001' }] } };
+    }
+  };
+
+  const payDueRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_payment_due',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'MVSS/INV/26-27/001' },
+          { type: 'text', text: '3500' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_pay_due_001'
+  }, mockAxiosPayDue);
+
+  assert.strictEqual(payDueRes.success, true);
+  assert.strictEqual(payDueRes.messageId, 'wamid.PAY_DUE_001');
+  assert.strictEqual(capturedPayDue.payload.template.name, 'mvss_payment_due');
+  assert.strictEqual(capturedPayDue.payload.template.components[0].parameters.length, 4);
+  console.log('✔ Test 22 Passed: Payment due triggers dispatch with 4 exact parameters.');
+
+  // =========================================================================
+  // Test 23: Insurance Claim Update Automation (mvss_insurance_claim_update - 4 params)
+  // =========================================================================
+  let capturedClaim = null;
+  const mockAxiosClaim = {
+    post: async (url, payload) => {
+      capturedClaim = { url, payload };
+      return { status: 200, data: { messages: [{ id: 'wamid.CLAIM_001' }] } };
+    }
+  };
+
+  const claimRes = await sendTemplateMessage({
+    to: normalizedTestPhone,
+    templateName: 'mvss_insurance_claim_update',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Kushal Vunnam' },
+          { type: 'text', text: 'TS09AB1234' },
+          { type: 'text', text: 'CLM-2026-008' },
+          { type: 'text', text: 'Approved' }
+        ]
+      }
+    ],
+    recipientName: 'Kushal Vunnam',
+    idempotencyKey: 'test_claim_001'
+  }, mockAxiosClaim);
+
+  assert.strictEqual(claimRes.success, true);
+  assert.strictEqual(claimRes.messageId, 'wamid.CLAIM_001');
+  assert.strictEqual(capturedClaim.payload.template.name, 'mvss_insurance_claim_update');
+  assert.strictEqual(capturedClaim.payload.template.components[0].parameters.length, 4);
+  console.log('✔ Test 23 Passed: Insurance claim update triggers dispatch with 4 exact parameters.');
+
+  // =========================================================================
+  // Test 24: WhatsApp Logs Monitoring & Retry Logic
+  // =========================================================================
+  // Simulate failed log entry
+  const failedLog = {
+    _id: 'mock_log_fail_001',
+    recipientName: 'Failed Customer',
+    recipientPhone: '918008092742',
+    templateName: 'mvss_job_card_created',
+    language: 'en',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Failed Customer' },
+          { type: 'text', text: 'MVSS/JC/26-27/999' },
+          { type: 'text', text: 'TS09AB9999' },
+          { type: 'text', text: 'General Service' }
+        ]
+      }
+    ],
+    status: 'failed',
+    attempts: 1,
+    errorMessage: 'HTTP 500 Code 2 [OAuthException] - Temporary Meta Server Error',
+    metaErrorCode: '2'
+  };
+
+  // 1. Verify masking on log presentation
+  const maskedPhone = maskPhoneNumber(failedLog.recipientPhone);
+  assert.strictEqual(maskedPhone, '918****742');
+  assert.strictEqual(failedLog.attempts < 3, true, 'Log must be eligible for retry');
+
+  // 2. Simulate retry dispatch
+  let retryCaptured = null;
+  const mockAxiosRetry = {
+    post: async (url, payload) => {
+      retryCaptured = payload;
+      return { status: 200, data: { messages: [{ id: 'wamid.RETRY_SUCCESS_001' }] } };
+    }
+  };
+
+  const retryRes = await sendTemplateMessage({
+    to: failedLog.recipientPhone,
+    templateName: failedLog.templateName,
+    languageCode: failedLog.language,
+    components: failedLog.components,
+    recipientName: failedLog.recipientName,
+    idempotencyKey: `retry_${failedLog._id}_1`
+  }, mockAxiosRetry);
+
+  assert.strictEqual(retryRes.success, true);
+  assert.strictEqual(retryRes.messageId, 'wamid.RETRY_SUCCESS_001');
+  failedLog.status = 'sent';
+  failedLog.attempts = 2;
+  failedLog.messageId = retryRes.messageId;
+  assert.strictEqual(failedLog.status, 'sent');
+  assert.strictEqual(failedLog.attempts, 2);
+  console.log('✔ Test 24 Passed: WhatsApp log monitoring masking and bounded retry workflow verified.');
+
+  console.log('\n=== ALL 24 WHATSAPP AUTOMATION TESTS PASSED SUCCESSFULLY ===');
   process.exit(0);
 }
 

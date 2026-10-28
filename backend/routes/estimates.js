@@ -496,11 +496,42 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
         const totalAmount = String(estimate.totals?.roundedGrandTotal || estimate.totals?.grandTotal || '0').trim();
 
         const contactCheck = validateCustomerContact(customerRecord, rawPhone);
-        const templateName = 'mvss_estimate_approved';
-        const correlationKey = `estimate_approved_${estimate._id}`;
+
+        const isAdditional = Boolean(
+          req.body.isAdditionalWork ||
+          req.body.estimateType === 'Additional' ||
+          estimate.isAdditionalWork ||
+          estimate.estimateType === 'Additional'
+        );
+
+        let templateName = 'mvss_estimate_approved';
+        let parameters = [];
+
+        if (isAdditional) {
+          templateName = 'mvss_additional_work';
+          const additionalWorkDesc = String(req.body.additionalWorkRemarks || req.body.remarks || estimate.remarks || 'Additional repairs and parts approved').trim();
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber },
+            { type: 'text', text: additionalWorkDesc },
+            { type: 'text', text: totalAmount }
+          ];
+        } else {
+          templateName = 'mvss_estimate_approved';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: estimateNumber },
+            { type: 'text', text: jobCardNumber },
+            { type: 'text', text: totalAmount }
+          ];
+        }
+
+        const correlationKey = `${templateName}_${estimate._id}`;
 
         // [Stage 3] Automation event triggered
-        console.log(`[Estimate Automation] [Stage 3] Automation event triggered: Event="Estimate Approved", EstimateId=${estimate._id}, EstimateNo=${estimateNumber}`);
+        console.log(`[Estimate Automation] [Stage 3] Automation event triggered: Event="${templateName}", EstimateId=${estimate._id}, EstimateNo=${estimateNumber}`);
 
         // [Stage 4] Customer contact/template validation result
         console.log(`[Estimate Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
@@ -516,13 +547,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
               components: [
                 {
                   type: 'body',
-                  parameters: [
-                    { type: 'text', text: customerName },
-                    { type: 'text', text: vehicleNumber },
-                    { type: 'text', text: estimateNumber },
-                    { type: 'text', text: jobCardNumber },
-                    { type: 'text', text: totalAmount }
-                  ]
+                  parameters
                 }
               ],
               recipientName: customerName,
