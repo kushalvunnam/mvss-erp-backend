@@ -223,7 +223,7 @@ app.get('/', (req, res) => {
   res.json({
     status: "ok",
     service: "MVSS ERP Backend",
-    version: "production-v1.1.2"
+    version: "production-v1.1.3"
   });
 });
 
@@ -682,6 +682,16 @@ async function migrateInsuranceCustomers() {
     console.error('Error migrating insurance policies customerId:', err);
   }
 }
+
+// Periodic runner for scheduled feedback reminders (checks every 2 minutes)
+setInterval(async () => {
+  try {
+    const { processPendingFeedbackReminders } = require('./services/feedbackReminderService');
+    await processPendingFeedbackReminders();
+  } catch (reminderLoopErr) {
+    console.error('[Feedback Automation] Error in periodic reminder runner:', reminderLoopErr.message || reminderLoopErr);
+  }
+}, 2 * 60 * 1000);
 
 console.log('Listening on PORT...');
 app.listen(PORT, '0.0.0.0', () => {

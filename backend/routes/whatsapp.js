@@ -171,4 +171,32 @@ router.post('/test', auth, restrictTo('Admin', 'Super Admin'), async (req, res) 
     }
 });
 
+// =========================================================================
+// PHASE 14: FEEDBACK REMINDERS MANAGEMENT
+// =========================================================================
+router.post('/process-reminders', async (req, res) => {
+    try {
+        const { processPendingFeedbackReminders } = require('../services/feedbackReminderService');
+        const stats = await processPendingFeedbackReminders();
+        return res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[WhatsApp] process-reminders error:', error);
+        return res.status(500).json({ error: error.message || 'Failed to process feedback reminders' });
+    }
+});
+
+router.get('/feedback-reminders', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    try {
+        const FeedbackReminder = require('../models/FeedbackReminder');
+        const reminders = await FeedbackReminder.find()
+            .sort({ createdAt: -1 })
+            .limit(100)
+            .lean();
+        return res.json({ success: true, count: reminders.length, reminders });
+    } catch (error) {
+        console.error('[WhatsApp] feedback-reminders error:', error);
+        return res.status(500).json({ error: error.message || 'Failed to fetch reminders' });
+    }
+});
+
 module.exports = router;

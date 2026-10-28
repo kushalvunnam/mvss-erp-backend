@@ -39,6 +39,9 @@ const TEMPLATE_CONFIG = {
     'mvss_invoice_generated': { lang: 'en', paramCount: 5 },
     'mvss_payment_received': { lang: 'en', paramCount: 5 },
     'mvss_gate_pass_generated': { lang: 'en', paramCount: 4 },
+    'mvss_feedback_request': { lang: 'en', paramCount: 2 },
+    'mvss_job_completed': { lang: 'en', paramCount: 3 },
+    'mvss_customer_followup': { lang: 'en', paramCount: 1 },
     'mvss_insurance_claim_update': { lang: 'en', paramCount: 4 }
 };
 
@@ -397,7 +400,9 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     status: t.status,
                     category: t.category,
                     id: t.id,
-                    paramCount
+                    paramCount,
+                    bodyText: bodyComponent?.text || null,
+                    example: bodyComponent?.example?.body_text?.[0] || null
                 });
                 console.log(`  - Meta Template -> Name: ${t.name} | Lang: ${t.language} | Status: ${t.status} | Body Params: ${paramCount}`);
             });
@@ -408,7 +413,9 @@ const syncMetaTemplates = async (customAxios = axios) => {
                 name: t.name,
                 language: t.language,
                 status: t.status,
-                paramCount: dynamicTemplateMap.get(t.name)?.paramCount || 0
+                paramCount: dynamicTemplateMap.get(t.name)?.paramCount || 0,
+                bodyText: t.components?.find(c => c.type === 'BODY')?.text || null,
+                example: t.components?.find(c => c.type === 'BODY')?.example?.body_text?.[0] || null
             }));
             auditReport.fallbackConfigActive = false;
 

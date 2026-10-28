@@ -490,35 +490,85 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
       await calculateBillingSummary(invoice.jobCardId);
       await logAction(req.user, 'INVOICE_FINALIZE', `Finalized Invoice ${invoice.invoiceNo} & deducted inventory items`, req);
 
+      // [Stage 2] Invoice finalized
+      console.log(`[Invoice] [Stage 2] Invoice finalized successfully: ID=${invoice._id}, InvoiceNo=${invoice.invoiceNo}, JobCard=${invoice.jobCardId}`);
+
       // WhatsApp Integration: Invoice Generated
       try {
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const customer = await Customer.findById(invoice.customerId);
-        const vehicle = await VehicleModel.findById(invoice.vehicleId);
-        
-        if (customer && (customer.mobile || customer.phone)) {
-          const { sendTemplateMessage } = require('../services/whatsappService');
-          sendTemplateMessage({
-            to: customer.mobile || customer.phone,
-            templateName: 'mvss_invoice_generated',
-            components: [
-              { type: 'body', parameters: [
-                { type: 'text', text: customer.name },
-                { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
-                { type: 'text', text: invoice.invoiceNo },
-                { type: 'text', text: (await require('../models/JobCard').findById(invoice.jobCardId))?.jobCardNo || invoice.jobCardId.toString() },
-                { type: 'text', text: String(invoice.totals.roundedGrandTotal || invoice.totals.grandTotal) }
-              ]}
-            ],
-            recipientName: customer.name,
-            relatedEntity: invoice._id,
-            onModel: 'Invoice',
-            idempotencyKey: `invoice_generated_${invoice._id}`
-          }).catch(err => console.error('[WhatsApp] Async invoice generated error:', err));
+        const JobCard = require('../models/JobCard');
+        const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+
+        const custId = (invoice.customerId && invoice.customerId._id) ? invoice.customerId._id : invoice.customerId;
+        const vehId = (invoice.vehicleId && invoice.vehicleId._id) ? invoice.vehicleId._id : invoice.vehicleId;
+
+        const customer = (invoice.customerId && invoice.customerId.name && (invoice.customerId.mobile || invoice.customerId.phone))
+          ? invoice.customerId
+          : (custId ? await Customer.findById(custId).lean() : null);
+
+        const vehicle = (invoice.vehicleId && (invoice.vehicleId.vehicleNumber || invoice.vehicleId.regNo))
+          ? invoice.vehicleId
+          : (vehId ? await VehicleModel.findById(vehId).lean() : null);
+
+        const jc = invoice.jobCardId ? await JobCard.findById(invoice.jobCardId).lean() : null;
+
+        const rawPhone = customer ? (customer.mobile || customer.phone || customer.contactNumber) : null;
+        const customerName = String(customer?.name || 'Valued Customer').trim();
+        const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
+        const invoiceNumber = String(invoice.invoiceNo || 'N/A').trim();
+        const jobCardNumber = String(jc?.jobCardNo || invoice.jobCardId?.toString() || 'N/A').trim();
+        const grandTotal = String(invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || '0').trim();
+
+        const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+        const templateName = 'mvss_invoice_generated';
+        const correlationKey = `invoice_generated_${invoice._id}`;
+        const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+        const isValidContact = Boolean(customer && normalizedPhone && normalizedPhone.length >= 10);
+
+        // [Stage 3] Automation event triggered
+        console.log(`[Invoice Automation] [Stage 3] Automation event triggered: Event="Invoice Finalized", InvoiceNo=${invoiceNumber}, JobCardNo=${jobCardNumber}`);
+
+        // [Stage 4] Customer contact/template validation result
+        console.log(`[Invoice Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+
+        if (isValidContact) {
+          // [Stage 5] WhatsApp send attempted
+          console.log(`[Invoice Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+          try {
+            const waResult = await sendTemplateMessage({
+              to: normalizedPhone,
+              templateName,
+              components: [
+                {
+                  type: 'body',
+                  parameters: [
+                    { type: 'text', text: customerName },
+                    { type: 'text', text: vehicleNumber },
+                    { type: 'text', text: invoiceNumber },
+                    { type: 'text', text: jobCardNumber },
+                    { type: 'text', text: grandTotal }
+                  ]
+                }
+              ],
+              recipientName: customerName,
+              relatedEntity: invoice._id,
+              onModel: 'Invoice',
+              idempotencyKey: correlationKey
+            });
+
+            // [Stage 6] Meta response accepted
+            console.log(`[Invoice Automation] [Stage 6] Meta response accepted: Invoice=${invoiceNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+          } catch (waSendErr) {
+            // [Stage 6] Meta response failed (isolated, does not fail invoice update)
+            console.error(`[Invoice Automation] [Stage 6] Meta response failed: Invoice=${invoiceNumber}, Error=${waSendErr.message || waSendErr}`);
+          }
+        } else {
+          console.warn(`[Invoice Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
         }
       } catch (waError) {
-        console.error('[WhatsApp] Failed to trigger invoice generated message:', waError);
+        console.error('[Invoice Automation] Unexpected error in WhatsApp invoice generated hook:', waError.message || waError);
       }
     } else {
       const { calculateBillingSummary } = require('../utils/billing');
@@ -700,32 +750,82 @@ router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive
       console.error('Failed to create invoice paid notification:', notifErr);
     }
 
+    // [Stage 2] Invoice payment recorded
+    console.log(`[Invoice] [Stage 2] Invoice payment recorded successfully: ID=${invoice._id}, InvoiceNo=${invoice.invoiceNo}, AmountPaid=${invoice.amountPaid || invoice.totals?.grandTotal}`);
+
     // WhatsApp Integration: Payment Received
     try {
+      const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
-      const vehicle = await VehicleModel.findById(invoice.vehicleId);
-      if (invoice.customerId && (invoice.customerId.mobile || invoice.customerId.phone)) {
-        const { sendTemplateMessage } = require('../services/whatsappService');
-        sendTemplateMessage({
-          to: invoice.customerId.mobile || invoice.customerId.phone,
-          templateName: 'mvss_payment_received',
-          components: [
-            { type: 'body', parameters: [
-              { type: 'text', text: invoice.customerId.name },
-              { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
-              { type: 'text', text: invoice.invoiceNo },
-              { type: 'text', text: String(invoice.amountPaid || invoice.totals.grandTotal) },
-              { type: 'text', text: invoice.paymentStatus }
-            ]}
-          ],
-          recipientName: invoice.customerId.name,
-          relatedEntity: invoice._id,
-          onModel: 'Invoice',
-          idempotencyKey: `payment_received_${invoice._id}_full`
-        }).catch(err => console.error('[WhatsApp] Async payment received error:', err));
+      const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+
+      const custId = (invoice.customerId && invoice.customerId._id) ? invoice.customerId._id : invoice.customerId;
+      const vehId = (invoice.vehicleId && invoice.vehicleId._id) ? invoice.vehicleId._id : invoice.vehicleId;
+
+      const customer = (invoice.customerId && invoice.customerId.name && (invoice.customerId.mobile || invoice.customerId.phone))
+        ? invoice.customerId
+        : (custId ? await Customer.findById(custId).lean() : null);
+
+      const vehicle = (invoice.vehicleId && (invoice.vehicleId.vehicleNumber || invoice.vehicleId.regNo))
+        ? invoice.vehicleId
+        : (vehId ? await VehicleModel.findById(vehId).lean() : null);
+
+      const rawPhone = customer ? (customer.mobile || customer.phone || customer.contactNumber) : null;
+      const customerName = String(customer?.name || 'Valued Customer').trim();
+      const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
+      const invoiceNumber = String(invoice.invoiceNo || 'N/A').trim();
+      const amountPaid = String(invoice.amountPaid || invoice.totals?.grandTotal || '0').trim();
+      const paymentStatus = String(invoice.paymentStatus || 'Paid').trim();
+
+      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const templateName = 'mvss_payment_received';
+      const correlationKey = `payment_received_${invoice._id}_full`;
+      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+      const isValidContact = Boolean(customer && normalizedPhone && normalizedPhone.length >= 10);
+
+      // [Stage 3] Automation event triggered
+      console.log(`[Invoice Automation] [Stage 3] Automation event triggered: Event="Payment Received", InvoiceNo=${invoiceNumber}, Amount=${amountPaid}`);
+
+      // [Stage 4] Customer contact/template validation result
+      console.log(`[Invoice Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+
+      if (isValidContact) {
+        // [Stage 5] WhatsApp send attempted
+        console.log(`[Invoice Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+        try {
+          const waResult = await sendTemplateMessage({
+            to: normalizedPhone,
+            templateName,
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: customerName },
+                  { type: 'text', text: vehicleNumber },
+                  { type: 'text', text: invoiceNumber },
+                  { type: 'text', text: amountPaid },
+                  { type: 'text', text: paymentStatus }
+                ]
+              }
+            ],
+            recipientName: customerName,
+            relatedEntity: invoice._id,
+            onModel: 'Invoice',
+            idempotencyKey: correlationKey
+          });
+
+          // [Stage 6] Meta response accepted
+          console.log(`[Invoice Automation] [Stage 6] Meta response accepted: Invoice=${invoiceNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+        } catch (waSendErr) {
+          // [Stage 6] Meta response failed (isolated, does not fail payment update)
+          console.error(`[Invoice Automation] [Stage 6] Meta response failed: Invoice=${invoiceNumber}, Error=${waSendErr.message || waSendErr}`);
+        }
+      } else {
+        console.warn(`[Invoice Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
       }
     } catch (waError) {
-      console.error('[WhatsApp] Failed to trigger payment received message:', waError);
+      console.error('[Invoice Automation] Unexpected error in payment received WhatsApp hook:', waError.message || waError);
     }
 
     // Create audit log entry

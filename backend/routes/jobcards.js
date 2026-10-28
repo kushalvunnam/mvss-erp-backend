@@ -500,55 +500,101 @@ router.put('/:id', auth, async (req, res) => {
 
     await logAction(req.user, 'JOBCARD_UPDATE', `Updated Job Card ${jobCard.jobCardNo}. Status: ${jobCard.status}`, req);
 
+    // [Stage 2] Job Card updated
+    console.log(`[JobCard] [Stage 2] Job card updated successfully: ID=${jobCard._id}, JobCardNo=${jobCard.jobCardNo}, Status=${jobCard.status}, StatusChanged=${statusChanged}`);
+
     // WhatsApp Integration: Job Card Status Changes
     if (statusChanged) {
       try {
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const customer = await Customer.findById(jobCard.customerId);
-        const vehicle = await VehicleModel.findById(jobCard.vehicleId);
+        const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
 
-        if (customer && (customer.mobile || customer.phone)) {
-          const { sendTemplateMessage } = require('../services/whatsappService');
-          
-          let templateName = null;
-          let parameters = [];
-          const commonParams = [
-            { type: 'text', text: customer.name },
-            { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
-            { type: 'text', text: jobCard.jobCardNo }
+        const custId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
+        const vehId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
+
+        const customer = (jobCard.customerId && jobCard.customerId.name && (jobCard.customerId.mobile || jobCard.customerId.phone))
+          ? jobCard.customerId
+          : (custId ? await Customer.findById(custId).lean() : null);
+
+        const vehicle = (jobCard.vehicleId && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo))
+          ? jobCard.vehicleId
+          : (vehId ? await VehicleModel.findById(vehId).lean() : null);
+
+        const rawPhone = customer ? (customer.mobile || customer.phone || customer.contactNumber) : null;
+        const customerName = String(customer?.name || 'Valued Customer').trim();
+        const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
+        const jobCardNumber = String(jobCard.jobCardNo || 'N/A').trim();
+        const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+        const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+        const isValidContact = Boolean(customer && normalizedPhone && normalizedPhone.length >= 10);
+
+        let templateName = null;
+        let parameters = [];
+
+        if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
+          templateName = 'mvss_work_started';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber }
           ];
+        } else if (jobCard.status === 'Ready for Delivery') {
+          templateName = 'mvss_vehicle_ready';
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber }
+          ];
+        } else if (jobCard.status === 'Delivered') {
+          templateName = 'mvss_vehicle_delivered';
+          const Invoice = require('../models/Invoice');
+          const invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }).lean() 
+            || await Invoice.findOne({ jobCardId: jobCard._id }).lean();
+          parameters = [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: jobCardNumber },
+            { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' }
+          ];
+        }
 
-          if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
-            templateName = 'mvss_work_started';
-            parameters = [...commonParams];
-          } else if (jobCard.status === 'Ready for Delivery') {
-            templateName = 'mvss_vehicle_ready';
-            parameters = [...commonParams];
-          } else if (jobCard.status === 'Delivered') {
-            templateName = 'mvss_vehicle_delivered';
-            const Invoice = require('../models/Invoice');
-            let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
-            parameters = [
-              ...commonParams,
-              { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' }
-            ];
-          }
+        if (templateName) {
+          const correlationKey = `${templateName}_${jobCard._id}`;
 
-          if (templateName) {
-            sendTemplateMessage({
-              to: customer.mobile || customer.phone,
-              templateName,
-              components: [{ type: 'body', parameters }],
-              recipientName: customer.name,
-              relatedEntity: jobCard._id,
-              onModel: 'JobCard',
-              idempotencyKey: `${templateName}_${jobCard._id}`
-            }).catch(err => console.error(`[WhatsApp] Async ${templateName} error:`, err.message || err));
+          // [Stage 3] Automation event triggered
+          console.log(`[JobCard Automation] [Stage 3] Automation event triggered: Event="${templateName}", JobCard=${jobCardNumber}, Status="${jobCard.status}"`);
+
+          // [Stage 4] Customer contact/template validation result
+          console.log(`[JobCard Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+
+          if (isValidContact) {
+            // [Stage 5] WhatsApp send attempted
+            console.log(`[JobCard Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+            try {
+              const waResult = await sendTemplateMessage({
+                to: normalizedPhone,
+                templateName,
+                components: [{ type: 'body', parameters }],
+                recipientName: customerName,
+                relatedEntity: jobCard._id,
+                onModel: 'JobCard',
+                idempotencyKey: correlationKey
+              });
+
+              // [Stage 6] Meta response accepted
+              console.log(`[JobCard Automation] [Stage 6] Meta response accepted: JobCard=${jobCardNumber}, Template=${templateName}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+            } catch (waSendErr) {
+              // [Stage 6] Meta response failed (isolated, does not fail job card update)
+              console.error(`[JobCard Automation] [Stage 6] Meta response failed: JobCard=${jobCardNumber}, Template=${templateName}, Error=${waSendErr.message || waSendErr}`);
+            }
+          } else {
+            console.warn(`[JobCard Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
           }
         }
       } catch (waError) {
-        console.error('[WhatsApp] Failed to trigger job card status message:', waError);
+        console.error('[JobCard Automation] Unexpected error in status change WhatsApp hook:', waError.message || waError);
       }
     }
 

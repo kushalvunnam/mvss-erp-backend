@@ -138,38 +138,87 @@ router.put('/:id', auth, async (req, res) => {
 
     await claim.save();
     
+    // [Stage 2] Claim status updated
+    console.log(`[InsuranceClaim] [Stage 2] Claim updated successfully: ID=${claim._id}, ClaimNo=${claim.claimNo || claim.claimNumber}, Status=${claim.status}`);
+
     // WhatsApp Integration: Insurance Claim Update
     if (status && status !== oldStatus) {
       try {
         const JobCard = require('../models/JobCard');
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const jc = await JobCard.findById(claim.jobCardId);
-        if (jc) {
-          const customerRecord = await Customer.findById(jc.customerId);
-          const vehicle = await VehicleModel.findById(jc.vehicleId);
-          if (customerRecord && (customerRecord.mobile || customerRecord.phone)) {
-            const { sendTemplateMessage } = require('../services/whatsappService');
-            sendTemplateMessage({
-              to: customerRecord.mobile || customerRecord.phone,
-              templateName: 'mvss_insurance_claim_update',
+        const { sendTemplateMessage, normalizePhoneNumber, resolveTemplateSpec } = require('../services/whatsappService');
+
+        const custId = (claim.customerId && claim.customerId._id) ? claim.customerId._id : claim.customerId;
+        const vehId = (claim.vehicleId && claim.vehicleId._id) ? claim.vehicleId._id : claim.vehicleId;
+        const jcId = (claim.jobCardId && claim.jobCardId._id) ? claim.jobCardId._id : claim.jobCardId;
+
+        const jc = jcId ? await JobCard.findById(jcId).lean() : null;
+        const customerRecord = custId 
+          ? await Customer.findById(custId).lean() 
+          : (jc?.customerId ? await Customer.findById(jc.customerId).lean() : null);
+        const vehicle = vehId 
+          ? await VehicleModel.findById(vehId).lean() 
+          : (jc?.vehicleId ? await VehicleModel.findById(jc.vehicleId).lean() : null);
+
+        const rawPhone = customerRecord ? (customerRecord.mobile || customerRecord.phone || customerRecord.contactNumber) : null;
+        const customerName = String(customerRecord?.name || claim.customerName || 'Valued Customer').trim();
+        const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || claim.vehicleNumber || 'your vehicle').trim();
+        const claimNumber = String(claim.claimNumber || claim.claimNo || 'N/A').trim();
+        const claimStatus = String(claim.status || 'Updated').trim();
+
+        const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+        const templateName = 'mvss_insurance_claim_update';
+        const correlationKey = `insurance_claim_update_${claim._id}_${claimStatus.replace(/\s+/g, '')}`;
+        const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+        const isValidContact = Boolean(normalizedPhone && normalizedPhone.length >= 10);
+
+        // [Stage 3] Automation event triggered
+        console.log(`[Claim Automation] [Stage 3] Automation event triggered: ClaimNo=${claimNumber}, Status=${claimStatus}`);
+
+        // Check if template is registered/approved in Meta WABA
+        const templateSpec = resolveTemplateSpec(templateName);
+        const isMetaApproved = templateSpec && templateSpec.status === 'APPROVED';
+
+        // [Stage 4] Customer contact/template validation result
+        console.log(`[Claim Automation] [Stage 4] Contact/template validation: Customer="${customerName}", Phone="${maskedPhone}", ValidContact=${isValidContact}, Template="${templateName}", MetaApproved=${isMetaApproved}`);
+
+        if (isValidContact) {
+          // [Stage 5] WhatsApp send attempted
+          console.log(`[Claim Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+          try {
+            const waResult = await sendTemplateMessage({
+              to: normalizedPhone,
+              templateName,
               components: [
-                { type: 'body', parameters: [
-                  { type: 'text', text: customerRecord.name },
-                  { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
-                  { type: 'text', text: claim.claimNumber },
-                  { type: 'text', text: claim.status }
-                ]}
+                {
+                  type: 'body',
+                  parameters: [
+                    { type: 'text', text: customerName },
+                    { type: 'text', text: vehicleNumber },
+                    { type: 'text', text: claimNumber },
+                    { type: 'text', text: claimStatus }
+                  ]
+                }
               ],
-              recipientName: customerRecord.name,
+              recipientName: customerName,
               relatedEntity: claim._id,
               onModel: 'InsuranceClaim',
-              idempotencyKey: `insurance_claim_update_${claim._id}_${claim.status.replace(/\s+/g, '')}`
-            }).catch(err => console.error('[WhatsApp] Async insurance claim update error:', err));
+              idempotencyKey: correlationKey
+            });
+
+            // [Stage 6] Meta response accepted
+            console.log(`[Claim Automation] [Stage 6] Meta response accepted: Claim=${claimNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+          } catch (waSendErr) {
+            // [Stage 6] Meta response failed (isolated, does not fail claim update)
+            console.error(`[Claim Automation] [Stage 6] Meta response failed: Claim=${claimNumber}, Error=${waSendErr.message || waSendErr}`);
           }
+        } else {
+          console.warn(`[Claim Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
         }
       } catch (waError) {
-        console.error('[WhatsApp] Failed to trigger insurance claim update message:', waError);
+        console.error('[Claim Automation] Unexpected error in WhatsApp insurance claim hook:', waError.message || waError);
       }
     }
 

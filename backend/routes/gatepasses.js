@@ -135,40 +135,81 @@ router.post('/', auth, async (req, res) => {
     });
     await notification.save();
 
-    // WhatsApp Integration: Gate Pass Generated
+    // [Stage 2] Gate Pass saved
+    console.log(`[GatePass] [Stage 2] Gate Pass saved successfully: ID=${gatepass._id}, GatePassNo=${gatepass.gatePassNo}, Vehicle=${gatepass.vehicleNumber}`);
+
+    // WhatsApp Integration: Gate Pass Generated & Feedback Scheduling
     try {
-      if (gatepass.jobCardId) {
-        const JobCard = require('../models/JobCard');
-        const Customer = require('../models/Customer');
-        const VehicleModel = require('../models/Vehicle');
-        
-        const jc = await JobCard.findById(gatepass.jobCardId);
-        if (jc) {
-          const customerRecord = await Customer.findById(jc.customerId);
-          const vehicle = await VehicleModel.findById(jc.vehicleId);
-          if (customerRecord && (customerRecord.mobile || customerRecord.phone)) {
-            const { sendTemplateMessage } = require('../services/whatsappService');
-            sendTemplateMessage({
-              to: customerRecord.mobile || customerRecord.phone,
-              templateName: 'mvss_gate_pass_generated',
-              components: [
-                { type: 'body', parameters: [
-                  { type: 'text', text: customerRecord.name },
-                  { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
-                  { type: 'text', text: jc.jobCardNo },
-                  { type: 'text', text: gatepass.gatePassNo }
-                ]}
-              ],
-              recipientName: customerRecord.name,
-              relatedEntity: gatepass._id,
-              onModel: 'GatePass',
-              idempotencyKey: `gate_pass_generated_${gatepass._id}`
-            }).catch(err => console.error('[WhatsApp] Async gate pass generated error:', err));
-          }
+      const JobCard = require('../models/JobCard');
+      const { sendTemplateMessage, normalizePhoneNumber } = require('../services/whatsappService');
+      const { scheduleFeedbackReminder } = require('../services/feedbackReminderService');
+
+      let jc = null;
+      if (gatepass.jobCardNumber) {
+        jc = await JobCard.findOne({ jobCardNo: gatepass.jobCardNumber }).lean();
+      }
+
+      const rawPhone = gatepass.customerMobile;
+      const customerName = String(gatepass.customerName || 'Valued Customer').trim();
+      const vehicleNumber = String(gatepass.vehicleNumber || 'your vehicle').trim();
+      const jobCardNumber = String(gatepass.jobCardNumber || jc?.jobCardNo || 'N/A').trim();
+      const gatePassNo = String(gatepass.gatePassNo || 'N/A').trim();
+
+      const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) : null;
+      const templateName = 'mvss_gate_pass_generated';
+      const correlationKey = `gate_pass_generated_${gatepass._id}`;
+      const maskedPhone = rawPhone ? (rawPhone.substring(0, 3) + '****' + rawPhone.slice(-3)) : 'missing';
+      const isValidContact = Boolean(normalizedPhone && normalizedPhone.length >= 10);
+
+      // [Stage 3] Automation event triggered
+      console.log(`[GatePass Automation] [Stage 3] Automation event triggered: GatePassNo=${gatePassNo}, Vehicle=${vehicleNumber}, JobCardNo=${jobCardNumber}`);
+
+      // [Stage 4] Customer contact/template validation result
+      console.log(`[GatePass Automation] [Stage 4] Customer contact/template validation result: Customer="${customerName}", Phone="${maskedPhone}", Valid=${isValidContact}, Template="${templateName}"`);
+
+      if (isValidContact) {
+        // [Stage 5] WhatsApp send attempted
+        console.log(`[GatePass Automation] [Stage 5] WhatsApp send attempted: To=${maskedPhone}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+        try {
+          const waResult = await sendTemplateMessage({
+            to: normalizedPhone,
+            templateName,
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: customerName },
+                  { type: 'text', text: vehicleNumber },
+                  { type: 'text', text: jobCardNumber },
+                  { type: 'text', text: gatePassNo }
+                ]
+              }
+            ],
+            recipientName: customerName,
+            relatedEntity: gatepass._id,
+            onModel: 'GatePass',
+            idempotencyKey: correlationKey
+          });
+
+          // [Stage 6] Meta response accepted
+          console.log(`[GatePass Automation] [Stage 6] Meta response accepted: GatePass=${gatePassNo}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+        } catch (waSendErr) {
+          // [Stage 6] Meta response failed (isolated, does not fail gate pass creation)
+          console.error(`[GatePass Automation] [Stage 6] Meta response failed: GatePass=${gatePassNo}, Error=${waSendErr.message || waSendErr}`);
         }
+
+        // Schedule Customer Feedback Request (Default delay: 2 hours)
+        try {
+          await scheduleFeedbackReminder({ gatePass });
+        } catch (schedErr) {
+          console.error('[Feedback Automation] Failed to schedule feedback reminder:', schedErr.message || schedErr);
+        }
+      } else {
+        console.warn(`[GatePass Automation] [Stage 4] Skipping WhatsApp dispatch: Customer contact invalid (${maskedPhone})`);
       }
     } catch (waError) {
-      console.error('[WhatsApp] Failed to trigger gate pass message:', waError);
+      console.error('[GatePass Automation] Unexpected error in WhatsApp gate pass hook:', waError.message || waError);
     }
 
     // Log action in audit log
@@ -212,6 +253,14 @@ router.put('/:id', auth, async (req, res) => {
     if (status === 'Returned' && oldStatus !== 'Returned') {
       gatepass.returnDate = returnDate || new Date();
       
+      // Cancel any pending feedback reminders for this returned gate pass
+      try {
+        const { cancelFeedbackReminder } = require('../services/feedbackReminderService');
+        await cancelFeedbackReminder(gatepass._id, 'Gate pass material returned');
+      } catch (cancelErr) {
+        console.error('[Feedback Automation] Error cancelling feedback reminder:', cancelErr);
+      }
+
       // Save notification for returned material
       const notification = new Notification({
         type: 'gatepass',
@@ -242,6 +291,15 @@ router.delete('/:id', auth, restrictTo('Admin'), async (req, res) => {
     if (!gatepass) {
       return res.status(404).json({ error: 'Gate Pass not found' });
     }
+
+    // Cancel pending feedback reminder if gate pass is deleted
+    try {
+      const { cancelFeedbackReminder } = require('../services/feedbackReminderService');
+      await cancelFeedbackReminder(gatepass._id, 'Gate pass record deleted');
+    } catch (cancelErr) {
+      console.error('[Feedback Automation] Error cancelling feedback reminder on delete:', cancelErr);
+    }
+
     await GatePass.findByIdAndDelete(req.params.id);
     await logAction(req.user, 'GATEPASS_DELETE', `Deleted Gate Pass ${gatepass.gatePassNo}`, req);
     res.json({ message: 'Gate pass deleted successfully' });
