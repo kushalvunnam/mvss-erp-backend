@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.mvssautomobiles.erp",
       "sha256_cert_fingerprints": [
-        "FC:64:FB:1A:D2:82:BC:FB:9A:55:53:1E:0C:6C:27:06:12:A7:69:DC:07:AE:2C:E2:F6:0B:05:C2:22:16:5B:48"
+        "FC:64:FB:1A:D2:82:BC:FB:9A:55:53:1E:0C:6C:27:06:12:A7:69:DC:07:AE:2C:E2:F6:0B:05:C2:22:16:5B:48",
+        "2C:31:79:4F:60:A0:6C:7C:04:72:D9:B7:C9:05:FE:61:FD:FA:37:D8:EF:32:48:51:C8:5B:A9:4D:B3:F6:91:36"
       ]
     }
   },
