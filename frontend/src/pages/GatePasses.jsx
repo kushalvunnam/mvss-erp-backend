@@ -14,9 +14,14 @@ import {
   Phone, 
   Navigation, 
   Upload, 
-  X,
-  FileCheck
+  X, 
+  FileCheck,
+  CheckCircle2,
+  Car,
+  ShieldAlert,
+  AlertTriangle
 } from 'lucide-react';
+import GatePassReleaseDropdown from '../components/GatePassReleaseDropdown';
 
 export default function GatePasses({ token, user }) {
   const [gatepasses, setGatepasses] = useState([]);
@@ -25,6 +30,12 @@ export default function GatePasses({ token, user }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+
+  // Eligible Releases Auto-Fill State
+  const [eligibleReleases, setEligibleReleases] = useState([]);
+  const [loadingReleases, setLoadingReleases] = useState(false);
+  const [selectedRelease, setSelectedRelease] = useState(null);
+  const [allowUnpaidOverride, setAllowUnpaidOverride] = useState(false);
 
   // Stats
   const [stats, setStats] = useState({
@@ -48,7 +59,13 @@ export default function GatePasses({ token, user }) {
     receiverName: '',
     receiverMobile: '',
     status: 'Pending', // Pending = returnable gate pass initially
-    attachments: []
+    attachments: [],
+    invoiceId: undefined,
+    invoiceNo: '',
+    jobCardId: undefined,
+    customerId: undefined,
+    vehicleId: undefined,
+    passType: 'Vendor Material'
   });
 
   // Signatures State (base64 strings from canvas)
@@ -60,6 +77,81 @@ export default function GatePasses({ token, user }) {
   const authorizedCanvasRef = useRef(null);
   const [isDrawingReceiver, setIsDrawingReceiver] = useState(false);
   const [isDrawingAuth, setIsDrawingAuth] = useState(false);
+
+  const fetchEligibleReleases = async () => {
+    setLoadingReleases(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/gatepasses/eligible-releases`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEligibleReleases(data);
+      }
+    } catch (err) {
+      console.error('Failed to load eligible releases:', err);
+    } finally {
+      setLoadingReleases(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showForm) {
+      fetchEligibleReleases();
+    }
+  }, [showForm]);
+
+  const handleSelectRelease = (release) => {
+    setSelectedRelease(release);
+    setAllowUnpaidOverride(false);
+
+    if (!release) {
+      // Revert to custom / vendor material clearance
+      setFormData(prev => ({
+        ...prev,
+        invoiceId: undefined,
+        invoiceNo: '',
+        jobCardId: undefined,
+        customerId: undefined,
+        vehicleId: undefined,
+        passType: 'Vendor Material',
+        materialName: '',
+        quantity: 1,
+        unit: 'Nos',
+        reasonForIssue: '',
+        sentTo: '',
+        receiverName: '',
+        receiverMobile: '',
+        status: 'Pending'
+      }));
+      return;
+    }
+
+    // Auto-populate from selected completed invoice / eligible release
+    setFormData(prev => ({
+      ...prev,
+      vehicleNumber: (release.vehicleNumber || '').toUpperCase(),
+      jobCardNumber: (release.jobCardNumber || '').toUpperCase(),
+      customerName: release.customerName || '',
+      customerMobile: release.customerMobile || '',
+      materialName: `${release.vehicleDetails || 'Vehicle'} (${release.vehicleNumber}) - Customer Vehicle Release`,
+      quantity: 1,
+      unit: 'Vehicle',
+      reasonForIssue: 'Vehicle Delivery / Release after Service Completion',
+      sentTo: `${release.customerName} (Customer Delivery)`,
+      receiverName: release.customerName || '',
+      receiverMobile: release.customerMobile || '',
+      status: 'Issued', // Vehicle release is non-returnable
+      invoiceId: release.invoiceId || undefined,
+      invoiceNo: release.invoiceNo || '',
+      jobCardId: release.jobCardId || undefined,
+      customerId: release.customerId || undefined,
+      vehicleId: release.vehicleId || undefined,
+      passType: 'Vehicle Delivery',
+      paymentStatus: release.paymentStatus,
+      balanceDue: release.balanceDue
+    }));
+  };
 
   const fetchGatePasses = async () => {
     try {
@@ -184,10 +276,16 @@ export default function GatePasses({ token, user }) {
       return;
     }
 
+    if (selectedRelease && !selectedRelease.isPaid && selectedRelease.balanceDue > 0 && !allowUnpaidOverride) {
+      alert(`Warning: An outstanding payment balance of ₹${selectedRelease.balanceDue.toLocaleString('en-IN')} remains unpaid on invoice ${selectedRelease.invoiceNo}. Please check the authorization box below to confirm vehicle release.`);
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
         ...formData,
+        allowUnpaidOverride,
         receiverSignature: receiverSignData,
         authorizedSignature: authorizedSignData
       };
@@ -203,6 +301,8 @@ export default function GatePasses({ token, user }) {
 
       if (res.ok) {
         setShowForm(false);
+        setSelectedRelease(null);
+        setAllowUnpaidOverride(false);
         setFormData({
           jobCardNumber: '',
           vehicleNumber: '',
@@ -216,7 +316,13 @@ export default function GatePasses({ token, user }) {
           receiverName: '',
           receiverMobile: '',
           status: 'Pending',
-          attachments: []
+          attachments: [],
+          invoiceId: undefined,
+          invoiceNo: '',
+          jobCardId: undefined,
+          customerId: undefined,
+          vehicleId: undefined,
+          passType: 'Vendor Material'
         });
         setReceiverSignData('');
         setAuthorizedSignData('');
@@ -231,6 +337,12 @@ export default function GatePasses({ token, user }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCloseForm = () => {
+    setShowForm(false);
+    setSelectedRelease(null);
+    setAllowUnpaidOverride(false);
   };
 
   const handleReturnMaterial = async (id) => {
@@ -620,11 +732,15 @@ export default function GatePasses({ token, user }) {
             {/* Modal Header */}
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
               <div>
-                <h3 className="text-sm font-black text-slate-850 dark:text-white uppercase tracking-wider">Issue New Material Gate Pass</h3>
-                <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">Workshop floor material clearance document</p>
+                <h3 className="text-sm font-black text-slate-850 dark:text-white uppercase tracking-wider">
+                  {selectedRelease ? 'Issue Vehicle Delivery Gate Pass' : 'Issue Gate Pass (Vehicle / Material)'}
+                </h3>
+                <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
+                  Workshop floor clearance & vehicle exit document
+                </p>
               </div>
               <button 
-                onClick={() => setShowForm(false)}
+                onClick={handleCloseForm}
                 className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -634,6 +750,99 @@ export default function GatePasses({ token, user }) {
             {/* Modal Form */}
             <form onSubmit={handleCreate} className="flex-1 overflow-y-auto p-6 space-y-6">
               
+              {/* TOP SECTION: Customer / Vehicle / Invoice Auto-Fill Dropdown */}
+              <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-slate-50 to-indigo-50/40 dark:from-indigo-950/30 dark:via-slate-900/50 dark:to-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 shadow-xs space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <Car className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-850 dark:text-white">
+                        Select Customer / Vehicle / Invoice
+                      </h4>
+                      <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 rounded">
+                        Auto-Fill
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                      Select an eligible completed invoice or vehicle to auto-populate the Gate Pass, or choose Custom for vendor materials.
+                    </p>
+                  </div>
+                  {selectedRelease && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectRelease(null)}
+                      className="self-start sm:self-auto text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Switch to Custom / Vendor
+                    </button>
+                  )}
+                </div>
+
+                {/* Searchable Dropdown */}
+                <GatePassReleaseDropdown
+                  releases={eligibleReleases}
+                  loading={loadingReleases}
+                  selected={selectedRelease}
+                  onSelect={handleSelectRelease}
+                  onRefresh={fetchEligibleReleases}
+                />
+
+                {/* Eligibility / Warning Status Banners */}
+                {selectedRelease && (
+                  <div className="space-y-2 pt-1">
+                    {/* Fully Paid Badge */}
+                    {selectedRelease.isPaid && (
+                      <div className="flex items-center gap-2.5 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                        <div className="flex-1">
+                          <span className="font-bold">Eligible for Vehicle Release:</span> Invoice <strong>{selectedRelease.invoiceNo}</strong> is <strong>PAID IN FULL</strong> (₹{selectedRelease.totalAmount?.toLocaleString('en-IN')}).
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Outstanding Balance Warning */}
+                    {!selectedRelease.isPaid && selectedRelease.balanceDue > 0 && (
+                      <div className="p-3.5 bg-amber-50/90 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 rounded-xl text-amber-900 dark:text-amber-200 text-xs space-y-2.5 shadow-xs">
+                        <div className="flex items-start gap-2.5">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <div className="font-bold text-xs">
+                              Outstanding Balance Warning: ₹{selectedRelease.balanceDue?.toLocaleString('en-IN')} pending
+                            </div>
+                            <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                              Invoice <strong>{selectedRelease.invoiceNo}</strong> has an unpaid balance of ₹{selectedRelease.balanceDue?.toLocaleString('en-IN')} out of ₹{selectedRelease.totalAmount?.toLocaleString('en-IN')} (Payment Status: <strong>{selectedRelease.paymentStatus}</strong>). Standard policy requires full settlement prior to vehicle release.
+                            </p>
+                          </div>
+                        </div>
+
+                        <label className="flex items-center gap-2.5 p-2 bg-amber-100/70 dark:bg-amber-900/30 rounded-lg cursor-pointer border border-amber-300/60 dark:border-amber-800/50">
+                          <input
+                            type="checkbox"
+                            checked={allowUnpaidOverride}
+                            onChange={(e) => setAllowUnpaidOverride(e.target.checked)}
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-amber-400 cursor-pointer"
+                          />
+                          <span className="text-[11px] font-black uppercase text-amber-950 dark:text-amber-200">
+                            Authorize vehicle release despite pending balance (Manager / Credit Release)
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    {/* Active Gate Pass Warning */}
+                    {selectedRelease.hasActiveGatePass && selectedRelease.activeGatePass && (
+                      <div className="flex items-start gap-2.5 p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/50 rounded-xl text-rose-800 dark:text-rose-300 text-xs">
+                        <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Active Gate Pass Notice:</span> Gate Pass <strong>{selectedRelease.activeGatePass.gatePassNo}</strong> ({selectedRelease.activeGatePass.status}) was already issued for this vehicle on {new Date(selectedRelease.activeGatePass.date).toLocaleDateString('en-IN')}. Issuing another Gate Pass will create a supplementary clearance.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Form Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 
@@ -643,6 +852,17 @@ export default function GatePasses({ token, user }) {
                     <User className="w-3.5 h-3.5" /> Client / Vehicle Details
                   </h4>
                   <div className="space-y-3">
+                    {formData.invoiceNo && (
+                      <div>
+                        <label className="block text-[9px] font-extrabold uppercase text-slate-450 mb-1">Linked Invoice Number</label>
+                        <input
+                          type="text"
+                          value={formData.invoiceNo}
+                          readOnly
+                          className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-indigo-600 dark:text-indigo-400 font-bold text-xs cursor-not-allowed"
+                        />
+                      </div>
+                    )}
                     <div>
                       <label className="block text-[9px] font-extrabold uppercase text-slate-450 mb-1">Vehicle Plate Number *</label>
                       <input
@@ -897,7 +1117,7 @@ export default function GatePasses({ token, user }) {
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={handleCloseForm}
                   className="px-4 py-2 border border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-slate-700 dark:text-slate-350 font-bold transition-colors"
                 >
                   Cancel

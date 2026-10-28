@@ -617,7 +617,8 @@ const sendTemplateMessage = async ({
 }, customAxios = axios) => {
     // Masked recipient for privacy-safe diagnostic logging
     const maskedTo = to ? to.substring(0, 3) + '****' + to.slice(-3) : 'unknown';
-    console.log(`[WhatsApp] Attempting send -> Event: ${onModel || 'Manual'}, Template: ${templateName}, To: ${maskedTo}, Version: ${GRAPH_API_VERSION}`);
+    let finalTemplateName = templateName;
+    let initialLanguage = languageCode || 'en';
 
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
@@ -638,7 +639,7 @@ const sendTemplateMessage = async ({
 
         // Determine template specification via intelligent resolver
         const templateSpec = resolveTemplateSpec(templateName);
-        const finalTemplateName = templateSpec?.name || templateName;
+        finalTemplateName = templateSpec?.name || templateName;
         const staticSpec = TEMPLATE_CONFIG[templateName];
 
         if (!templateSpec && !staticSpec) {
@@ -646,7 +647,7 @@ const sendTemplateMessage = async ({
         }
 
         // Final primary language: explicit override > templateSpec language > staticSpec lang > 'en'
-        const initialLanguage = languageCode || templateSpec?.language || staticSpec?.lang || 'en';
+        initialLanguage = languageCode || templateSpec?.language || staticSpec?.lang || 'en';
 
         // Check template status on Meta if verified
         if (templateSpec && templateSpec.status && !['APPROVED', 'CONFIG_FALLBACK'].includes(templateSpec.status)) {

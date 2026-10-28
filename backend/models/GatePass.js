@@ -98,8 +98,52 @@ const gatePassSchema = new mongoose.Schema({
   attachments: [{
     type: String,
   }],
+  invoiceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Invoice',
+    index: true,
+  },
+  invoiceNo: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+  jobCardId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'JobCard',
+    index: true,
+  },
+  customerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Customer',
+    index: true,
+  },
+  vehicleId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vehicle',
+    index: true,
+  },
+  passType: {
+    type: String,
+    enum: ['Vehicle Delivery', 'Vendor Material', 'Material Return', 'General Material', 'Customer Delivery'],
+    default: 'Vehicle Delivery',
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['Paid', 'Partially Paid', 'Unpaid', 'N/A'],
+    default: 'Paid',
+  },
+  balanceDue: {
+    type: Number,
+    default: 0,
+  },
 }, {
   timestamps: true,
 });
 
+gatePassSchema.index({ vehicleNumber: 1, status: 1 });
+gatePassSchema.index({ jobCardNumber: 1, status: 1 });
+gatePassSchema.index({ invoiceNo: 1 });
+
 module.exports = mongoose.model('GatePass', gatePassSchema);
+
