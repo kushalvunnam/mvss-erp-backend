@@ -1421,23 +1421,59 @@ function drawCustomerVerticalLines(doc, yStart, yEnd) {
   });
 }
 
+function drawCustomerSectionHeader(doc, y, title) {
+  const rowHeight = 20;
+  doc.fillColor('#f1f5f9').rect(30, y, 535, rowHeight).fill();
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.5);
+  doc.text(title, 65, y + 6);
+
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, y).lineTo(565, y).stroke()
+     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
+  
+  // Left and right outer borders
+  doc.moveTo(30, y).lineTo(30, y + rowHeight).stroke();
+  doc.moveTo(565, y).lineTo(565, y + rowHeight).stroke();
+  return y + rowHeight;
+}
+
 function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, total) {
+  const rowHeight = 18;
   doc.fillColor('#000000').font('Helvetica').fontSize(8);
   
-  doc.text(index, 30, y + 4, { width: 30, align: 'center' });
-  doc.text(desc, 65, y + 4, { width: 320, height: 10, ellipsis: true });
-  doc.text(qty, 390, y + 4, { width: 30, align: 'center' });
-  doc.text(unitPrice, 420, y + 4, { width: 55, align: 'right' });
-  doc.text(total, 480, y + 4, { width: 80, align: 'right' });
+  doc.text(index, 30, y + 5, { width: 30, align: 'center' });
+  doc.text(desc, 65, y + 5, { width: 320, height: 11, ellipsis: true });
+  doc.text(qty, 390, y + 5, { width: 30, align: 'center' });
+  doc.text(unitPrice, 420, y + 5, { width: 55, align: 'right' });
+  doc.text(total, 480, y + 5, { width: 80, align: 'right' });
   
-  doc.strokeColor('#000000').lineWidth(2.0)
-     .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
   
-  drawCustomerVerticalLines(doc, y, y + 16);
+  drawCustomerVerticalLines(doc, y, y + rowHeight);
+  return y + rowHeight;
+}
+
+function drawCustomerSubtotalRow(doc, y, label, totalAmount) {
+  const rowHeight = 18;
+  doc.fillColor('#f8fafc').rect(30, y, 535, rowHeight).fill();
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
+  
+  doc.text(label, 65, y + 5, { width: 320 });
+  doc.text(totalAmount.toFixed(2), 480, y + 5, { width: 80, align: 'right' });
+  
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
+     
+  const subtotalXCoords = [30, 60, 480, 565];
+  subtotalXCoords.forEach(x => {
+    doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
+  });
+  return y + rowHeight;
 }
 
 function checkCustomerPageOverflow(doc, currentY) {
-  if (currentY > 730) {
+  if (currentY > 710) {
     doc.addPage();
     doc.strokeColor('#000000').lineWidth(1.5)
        .rect(30, 30, 535, 782).stroke();
@@ -1619,13 +1655,8 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
 
   // Parts List
   if (estimate.parts && estimate.parts.length > 0) {
-    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
-    doc.text('PARTS', 53, y + 4);
-    
-    doc.strokeColor('#000000').lineWidth(1.5)
-       .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
-    drawCustomerVerticalLines(doc, y, y + 16);
-    y += 16;
+    y = checkCustomerPageOverflow(doc, y);
+    y = drawCustomerSectionHeader(doc, y, 'PARTS');
     
     estimate.parts.forEach(part => {
       y = checkCustomerPageOverflow(doc, y);
@@ -1641,7 +1672,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
       // Inclusive Net Unit Price: Total line amount / quantity
       const inclusiveUnitPrice = total / qty;
 
-      drawCustomerTableRow(
+      y = drawCustomerTableRow(
         doc,
         y,
         sNo.toString(),
@@ -1650,19 +1681,12 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
         inclusiveUnitPrice.toFixed(2),
         total.toFixed(2)
       );
-      y += 16;
       sNo++;
     });
 
     // Parts Subtotal Row
     y = checkCustomerPageOverflow(doc, y);
-    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
-    doc.text('PARTS TOTAL', 53, y + 4, { width: 225 });
-    doc.text(partsTotalSum.toFixed(2), 480, y + 4, { width: 80, align: 'right' });
-    doc.strokeColor('#000000').lineWidth(1.5)
-       .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
-    drawCustomerVerticalLines(doc, y, y + 16);
-    y += 16;
+    y = drawCustomerSubtotalRow(doc, y, 'PARTS TOTAL', partsTotalSum);
   }
 
   let labourTotalSum = 0;
@@ -1670,13 +1694,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
   // Labour List
   if (estimate.labour && estimate.labour.length > 0) {
     y = checkCustomerPageOverflow(doc, y);
-    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
-    doc.text('LABOUR CHARGES', 53, y + 4);
-    
-    doc.strokeColor('#000000').lineWidth(1.5)
-       .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
-    drawCustomerVerticalLines(doc, y, y + 16);
-    y += 16;
+    y = drawCustomerSectionHeader(doc, y, 'LABOUR CHARGES');
 
     estimate.labour.forEach(item => {
       y = checkCustomerPageOverflow(doc, y);
@@ -1692,7 +1710,7 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
       // Inclusive Net Unit Price: Total line amount / quantity
       const inclusiveUnitPrice = total / qty;
 
-      drawCustomerTableRow(
+      y = drawCustomerTableRow(
         doc,
         y,
         sNo.toString(),
@@ -1701,32 +1719,29 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
         inclusiveUnitPrice.toFixed(2),
         total.toFixed(2)
       );
-      y += 16;
       sNo++;
     });
 
     // Labour Subtotal Row
     y = checkCustomerPageOverflow(doc, y);
-    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
-    doc.text('LABOUR TOTAL', 53, y + 4, { width: 225 });
-    doc.text(labourTotalSum.toFixed(2), 480, y + 4, { width: 80, align: 'right' });
-    doc.strokeColor('#000000').lineWidth(1.5)
-       .moveTo(30, y + 16).lineTo(565, y + 16).stroke();
-    drawCustomerVerticalLines(doc, y, y + 16);
-    y += 16;
+    y = drawCustomerSubtotalRow(doc, y, 'LABOUR TOTAL', labourTotalSum);
   }
 
   // Draw bottom border to close the table cells
   doc.strokeColor('#000000').lineWidth(1.5)
      .moveTo(30, y).lineTo(565, y).stroke();
 
+  // Clean gap before summary block
+  y += 10;
+
+  const grandTotal = estimate.totals?.grandTotal !== undefined ? estimate.totals.grandTotal : (partsTotalSum + labourTotalSum);
   const summaryTotals = {
     partsTotalSum,
     labourTotalSum,
-    grandTotal: estimate.totals.grandTotal
+    grandTotal
   };
   
-  const grandTotalWords = numberToWords(estimate.totals.grandTotal);
+  const grandTotalWords = numberToWords(grandTotal);
 
   y = drawCustomerSummaryBlock(doc, y, summaryTotals, grandTotalWords);
   drawInvoiceFooter(doc, y, false);
