@@ -230,17 +230,24 @@ async function resolveCustomerVehicleNumber(customer, context = {}) {
     console.warn('[Customer Automation] Error in resolveCustomerVehicleNumber:', err.message);
   }
 
-  return 'Not provided';
+  // If no vehicle is found, return null so no welcome message is sent without a vehicle
+  return null;
 }
 
 /**
  * Dispatches the customer welcome WhatsApp notification.
  * Ensures parameter 1 is customer name and parameter 2 is the resolved vehicle registration number.
+ * If no vehicle is registered for the customer, skips dispatch.
  */
 async function sendCustomerWelcomeNotification(customer, context = {}, options = {}) {
+  const vehicleNumber = await resolveCustomerVehicleNumber(customer, context);
+  if (!vehicleNumber) {
+    console.warn(`[Customer Automation] [Stage 3] Skipping welcome message: No vehicle registered for customer ID=${customer._id}. A valid vehicle registration number is required.`);
+    return { success: false, reason: 'No vehicle registered for customer. A valid vehicle registration number is required.', vehicleNumber: null };
+  }
+
   const rawPhone = customer.mobile || customer.phone;
   const customerName = String(customer.name || 'Valued Customer').trim();
-  const vehicleNumber = await resolveCustomerVehicleNumber(customer, context);
 
   const contactCheck = validateCustomerContact(customer, rawPhone);
   const templateName = 'mvss_welcome_customer';
@@ -298,13 +305,6 @@ router.post('/', auth, async (req, res) => {
     // [Stage 2] Customer created
     console.log(`[Customer] [Stage 2] Customer saved successfully: ID=${customer._id}, Name=${customer.name}, Mobile=${customer.mobile}`);
 
-    // WhatsApp Integration: Customer Welcome
-    try {
-      await sendCustomerWelcomeNotification(customer, req.body);
-    } catch (waError) {
-      console.error('[Customer Automation] Unexpected error in customer welcome WhatsApp hook:', waError.message || waError);
-    }
-    
     // Automatically create a notification
     try {
       const Notification = require('../models/Notification');
@@ -426,6 +426,13 @@ router.post('/:id/welcome', auth, async (req, res) => {
     if (!customer) return res.status(404).send({ error: 'Customer not found.' });
 
     const result = await sendCustomerWelcomeNotification(customer, req.body, { forceResend: req.body?.forceResend });
+    if (!result.success && !result.vehicleNumber) {
+      return res.status(400).send({
+        error: result.reason || 'Cannot send welcome message: No vehicle registered for this customer yet.',
+        success: false
+      });
+    }
+
     res.json({
       success: result.success,
       vehicleNumber: result.vehicleNumber,

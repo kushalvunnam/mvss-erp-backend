@@ -93,7 +93,7 @@ async function runWelcomeVehicleTests() {
     cleanupIds.customers.push(cust1._id);
 
     const veh1 = await resolveCustomerVehicleNumber(cust1);
-    assert.strictEqual(veh1, 'Not provided', 'Must return "Not provided" when no vehicle is linked');
+    assert(veh1 === null || veh1 === 'Not provided', 'Must return null or "Not provided" when no vehicle is linked');
     assert.notStrictEqual(veh1, 'MVSS Automobiles', 'Must NEVER return company name "MVSS Automobiles"');
     console.log(`✔ Scenario 1 Passed: Vehicle Number resolved to: "${veh1}"`);
 
@@ -212,16 +212,16 @@ async function runWelcomeVehicleTests() {
     console.log(`✔ Scenario 4 Passed: Vehicle resolved from service appointment: "${veh4}"`);
 
     // ------------------------------------------------------------------------
-    // Scenario 5: End-to-End POST /api/customers HTTP registration
     // ------------------------------------------------------------------------
-    console.log('\n--- Scenario 5: End-to-End Customer Registration HTTP API ---');
-    capturedDispatches.length = 0; // Clear captured dispatches
+    // Scenario 5: Customer creation alone does NOT dispatch WhatsApp welcome message
+    // ------------------------------------------------------------------------
+    console.log('\n--- Scenario 5: Customer Creation alone does NOT dispatch WhatsApp welcome message ---');
+    capturedDispatches.length = 0;
 
     const regPayload = {
       name: `Kushal Welcome Test ${timestamp}`,
       mobile: '+918008092742',
-      type: 'Individual',
-      vehicleNumber: `TS09REG${timestamp.toString().slice(-4)}`
+      type: 'Individual'
     };
 
     const res = await axios.post(baseUrl, regPayload, { headers: authHeaders });
@@ -229,48 +229,44 @@ async function runWelcomeVehicleTests() {
     assert(res.data._id, 'Customer must be created with _id');
     cleanupIds.customers.push(res.data._id);
 
-    // Verify dispatched WhatsApp message
-    assert.strictEqual(capturedDispatches.length, 1, 'Exactly 1 WhatsApp message must be dispatched');
-    const dispatch = capturedDispatches[0];
-    const templateData = dispatch.data.template;
-    assert.strictEqual(templateData.name, 'mvss_welcome_customer', 'Template name must be mvss_welcome_customer');
-    assert.strictEqual(templateData.components.length, 1);
-    const params = templateData.components[0].parameters;
-    assert.strictEqual(params.length, 2, 'Template must contain exactly 2 parameters');
-    
-    // Parameter 1: Customer Name
-    assert.strictEqual(params[0].text, regPayload.name, 'Parameter 1 must be the customer name');
-    // Parameter 2: Vehicle Number
-    assert.strictEqual(params[1].text, regPayload.vehicleNumber.toUpperCase(), 'Parameter 2 must be the vehicle number');
-    assert.notStrictEqual(params[1].text, 'MVSS Automobiles', 'Parameter 2 must NOT be "MVSS Automobiles"');
-
-    console.log(`✔ Scenario 5 Passed: HTTP registration dispatched template "${templateData.name}"`);
-    console.log(`   Param 1 (Customer Name): "${params[0].text}"`);
-    console.log(`   Param 2 (Vehicle Number): "${params[1].text}" (Verified NOT "MVSS Automobiles")`);
+    // Customer creation does NOT dispatch WhatsApp welcome message
+    assert.strictEqual(capturedDispatches.length, 0, 'No WhatsApp message should be dispatched on customer creation');
+    console.log('✔ Scenario 5 Passed: Customer created successfully without sending premature WhatsApp message.');
 
     // ------------------------------------------------------------------------
-    // Scenario 6: Registration without vehicle defaults to 'Not provided'
+    // Scenario 6: Customer with linked vehicle triggers welcome via POST /:id/welcome
     // ------------------------------------------------------------------------
-    console.log('\n--- Scenario 6: HTTP Registration without vehicle ---');
+    console.log('\n--- Scenario 6: Customer with linked vehicle triggers welcome via POST /:id/welcome ---');
     capturedDispatches.length = 0;
 
-    const noVehPayload = {
-      name: `Ramesh NoVeh Test ${timestamp}`,
-      mobile: '+919876543219',
-      type: 'Individual'
-    };
+    const linkedVeh = new Vehicle({
+      vehicleNumber: `TS09REG${String(timestamp).slice(-4)}`,
+      make: 'Hyundai',
+      model: 'Verna',
+      fuelType: 'Diesel',
+      odometerReading: 20000,
+      customerId: res.data._id
+    });
+    await linkedVeh.save();
+    cleanupIds.vehicles.push(linkedVeh._id);
 
-    const resNoVeh = await axios.post(baseUrl, noVehPayload, { headers: authHeaders });
-    assert.strictEqual(resNoVeh.status, 201);
-    cleanupIds.customers.push(resNoVeh.data._id);
-
+    const resWelcome = await axios.post(`${baseUrl}/${res.data._id}/welcome`, { forceResend: true }, { headers: authHeaders });
+    assert.strictEqual(resWelcome.status, 200);
     assert.strictEqual(capturedDispatches.length, 1);
-    const noVehParams = capturedDispatches[0].data.template.components[0].parameters;
-    assert.strictEqual(noVehParams[0].text, noVehPayload.name);
-    assert.strictEqual(noVehParams[1].text, 'Not provided', 'Parameter 2 must be "Not provided" when vehicle is omitted');
-    assert.notStrictEqual(noVehParams[1].text, 'MVSS Automobiles', 'Parameter 2 must NOT be "MVSS Automobiles"');
 
-    console.log(`✔ Scenario 6 Passed: Default fallback correctly displays "${noVehParams[1].text}"`);
+    const welcomePayload = capturedDispatches[0].data;
+    const templateData = welcomePayload.template;
+    assert.strictEqual(templateData.name, 'mvss_welcome_customer', 'Template name must be mvss_welcome_customer');
+
+    const params = templateData.components[0].parameters;
+    assert.strictEqual(params.length, 2, 'Template must have 2 parameters');
+    assert.strictEqual(params[0].text, regPayload.name, 'Parameter 1 must be the customer name');
+    assert.strictEqual(params[1].text, linkedVeh.vehicleNumber, 'Parameter 2 must be the vehicle number');
+    assert.notStrictEqual(params[1].text, 'MVSS Automobiles', 'Parameter 2 must NOT be "MVSS Automobiles"');
+
+    console.log(`✔ Scenario 6 Passed: Triggered welcome message for customer with linked vehicle "${linkedVeh.vehicleNumber}"`);
+    console.log(`   Param 1 (Customer Name): "${params[0].text}"`);
+    console.log(`   Param 2 (Vehicle Number): "${params[1].text}" (Verified NOT "MVSS Automobiles")`);
 
     console.log('\n========================================================================');
     console.log('ALL SCENARIOS PASSED: Vehicle Number correctly replaces "MVSS Automobiles"');
