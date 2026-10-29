@@ -181,7 +181,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
     }
 
     if (shouldForwardToQC) {
-      updatePayload.status = selectedJc.workCategory === 'Insurance Jobs' ? 'Surveyor Approval' : 'Quality Check';
+      updatePayload.status = selectedJc.workCategory === 'Insurance Jobs' ? 'Surveyor Approval' : 'Quality Test';
     }
 
     try {
@@ -724,37 +724,6 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                       className="px-4.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-90 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/10 flex items-center gap-1.5"
                     >
                       <Check className="w-4 h-4" /> {selectedJc.workCategory === 'Insurance Jobs' ? 'Mark Completed & Forward to Surveyor' : 'Mark Completed & Forward to Pre-Delivery Inspection (PDI)'}
-                    </button>
-                  )}
-                  
-                  {/* Fallback to transition to Body Shop status if advisor put it in WIP */}
-                  {selectedJc.status === 'Work In Progress' && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setUpdating(true);
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/jobcards/${selectedJc._id}`, {
-                            method: 'PUT',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify({ status: 'Body Shop' })
-                          });
-                          if (res.ok) {
-                            alert('Vehicle successfully pulled into Body Shop repair stage!');
-                            await fetchJobCards();
-                          }
-                        } catch(e) {
-                          console.error(e);
-                        } finally {
-                          setUpdating(false);
-                        }
-                      }}
-                      className="px-4.5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
-                    >
-                      Pull Vehicle into Body Shop
                     </button>
                   )}
                 </div>

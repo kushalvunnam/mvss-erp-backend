@@ -251,6 +251,12 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
         const timeStr = today.toTimeString().split(' ')[0].slice(0, 5); // HH:MM
 
         const initialStatus = req.body.status || 'Waiting for Customer Approval';
+        const retiredStages = ['Quality Check', 'Body Shop', 'Bodyshop', 'Repair'];
+        if (retiredStages.includes(initialStatus)) {
+          return res.status(400).send({
+            error: `The stage "${initialStatus}" has been removed from the active workflow. Please select a valid stage.`
+          });
+        }
         const jobCardData = {
           ...req.body,
           jobCardNo: currentJobCardNo,
@@ -439,6 +445,14 @@ router.put('/:id', auth, async (req, res) => {
       const allowedRoles = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager', 'Body Shop'];
       if (!allowedRoles.includes(req.user?.role)) {
         return res.status(403).send({ error: 'You do not have permission to update the Job Card workflow status.' });
+      }
+
+      // Check for retired stages
+      const retiredStages = ['Quality Check', 'Body Shop', 'Bodyshop', 'Repair'];
+      if (retiredStages.includes(newStatus)) {
+        return res.status(400).send({
+          error: `The stage "${newStatus}" has been removed from the active workflow. Please select a valid stage (e.g. Waiting for Allotment, Allotted, Parts Procuring, Work in Progress, Pre-Delivery Inspection, Ready for Delivery).`
+        });
       }
 
       // Rule 1: Delivered is allowed only after the invoice is generated and payment status is Fully Paid.

@@ -28,7 +28,12 @@ const formatStatusLabel = (status) => {
 const getStatusBadgeClass = (status) => {
   switch (status) {
     case 'Waiting for Customer Approval':
+    case 'Customer Approval':
       return 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200/50';
+    case 'Waiting for Allotment':
+      return 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200/50';
+    case 'Allotted':
+      return 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-200/50';
     case 'Parts Procuring':
       return 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-200/50';
     case 'Work In Progress':
@@ -692,52 +697,76 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               Send for Customer Approval
             </button>
           )}
-          {jc.status === 'Customer Approval' && (
+          {['Customer Approval', 'Waiting for Customer Approval'].includes(jc.status) && (
             <button
-              onClick={() => updateStatus('Work In Progress')}
+              onClick={() => updateStatus('Waiting for Allotment')}
               disabled={updating}
               className="px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              Approve & Start Work
+              Customer Approved &rarr; Move to Waiting for Allotment
+            </button>
+          )}
+          {jc.status === 'Waiting for Allotment' && (
+            <button
+              onClick={() => updateStatus('Allotted')}
+              disabled={updating}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            >
+              Allot Job Card
+            </button>
+          )}
+          {jc.status === 'Allotted' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => updateStatus('Parts Procuring')}
+                disabled={updating}
+                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              >
+                Procure Parts
+              </button>
+              <button
+                onClick={() => updateStatus('Work In Progress')}
+                disabled={updating}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              >
+                Start Work (WIP)
+              </button>
+            </div>
+          )}
+          {jc.status === 'Parts Procuring' && (
+            <button
+              onClick={() => updateStatus('Work In Progress')}
+              disabled={updating}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            >
+              Parts Received &rarr; Start Work
             </button>
           )}
           {['Work In Progress', 'Work in Progress'].includes(jc.status) && (
             <button
-              onClick={() => {
-                if (jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') {
-                  updateStatus('Body Shop');
-                } else {
-                  updateStatus('Quality Test');
-                }
-              }}
+              onClick={() => updateStatus('Quality Test')}
               disabled={updating}
               className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              {(jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') ? 'Submit to Body Shop' : 'Submit to Pre-Delivery Inspection (PDI)'}
+              Submit to Pre-Delivery Inspection (PDI)
             </button>
           )}
           {jc.status === 'Body Shop' && (
             <button
-              onClick={() => {
-                if (jc.workCategory === 'Insurance Jobs') {
-                  updateStatus('Surveyor Approval');
-                } else {
-                  updateStatus('Quality Test');
-                }
-              }}
+              onClick={() => updateStatus('Quality Test')}
               disabled={updating}
               className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              {jc.workCategory === 'Insurance Jobs' ? 'Forward to Surveyor Approval' : 'Forward to Pre-Delivery Inspection (PDI)'}
+              Forward to Pre-Delivery Inspection (PDI)
             </button>
           )}
           {jc.status === 'Surveyor Approval' && (
             <button
-              onClick={() => updateStatus('Repair')}
+              onClick={() => updateStatus('Quality Test')}
               disabled={updating}
               className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              Approve Surveyor Claim & Start Repair
+              Forward to Pre-Delivery Inspection (PDI)
             </button>
           )}
           {jc.status === 'Repair' && (
@@ -819,7 +848,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           >
             <Download className="w-4 h-4" /> Download PDF
           </button>
-          {['Work In Progress', 'Work in Progress', 'Body Shop'].includes(jc.status) && (
+          {['Work In Progress', 'Work in Progress', 'Body Shop', 'Allotted'].includes(jc.status) && (
             <button
               onClick={() => setShowUpdateModal(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
@@ -844,7 +873,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-6">
           <div>
             <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-wider">MVSS AUTOMOBILES PRIVATE LIMITED</h2>
-            <p className="text-xs text-slate-450 dark:text-slate-500 font-semibold mt-1">
+            <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold mt-1">
               Sy. No. 25/1, Opp. Cine Planet, Beside PSR Convention, Kompally, Hyderabad - 500014. <br />
               PH. No. {OWNER_SUPPORT_NUMBER} | Email: accounts@auto4m.in
             </p>
@@ -874,26 +903,27 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   }}
                   className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-805 dark:text-white font-bold text-xs uppercase tracking-wider focus:outline-none"
                 >
-                  {[
-                    'Waiting for Customer Approval',
-                    'Parts Procuring',
-                    'Work in Progress',
-                    'Quality Test',
-                    'Ready for Delivery',
-                    'Delivered',
-                    'Created',
-                    'Inspect Stage',
-                    'Estimation',
-                    'Customer Approval',
-                    'Work In Progress',
-                    'Body Shop',
-                    'Surveyor Approval',
-                    'Repair',
-                    'Quality Check',
-                    'Closed'
-                  ].map(statusOpt => (
-                    <option key={statusOpt} value={statusOpt}>{formatStatusLabel(statusOpt)}</option>
-                  ))}
+                  {(() => {
+                    const activeWorkflowStages = [
+                      'Waiting for Customer Approval',
+                      'Waiting for Allotment',
+                      'Allotted',
+                      'Parts Procuring',
+                      'Work in Progress',
+                      'Quality Test',
+                      'Ready for Delivery',
+                      'Delivered',
+                      'Closed'
+                    ];
+                    // If current status is a historical stage (e.g. Body Shop, Repair, Quality Check), keep it visible as current value
+                    const statusList = activeWorkflowStages.includes(jc.status)
+                      ? activeWorkflowStages
+                      : [jc.status, ...activeWorkflowStages];
+
+                    return statusList.map(statusOpt => (
+                      <option key={statusOpt} value={statusOpt}>{formatStatusLabel(statusOpt)}</option>
+                    ));
+                  })()}
                 </select>
               ) : (
                 <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] uppercase border ${getStatusBadgeClass(jc.status)}`}>
@@ -1789,8 +1819,8 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             <form onSubmit={handleModalSave} className="flex flex-col min-h-0 flex-1">
               <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0 text-xs font-semibold text-slate-600 dark:text-slate-400">
               
-              {/* If WIP or Body Shop stage */}
-              {['Work In Progress', 'Work in Progress', 'Body Shop'].includes(jc.status) && (
+              {/* If WIP, Allotted, or Body Shop stage */}
+              {['Work In Progress', 'Work in Progress', 'Body Shop', 'Allotted'].includes(jc.status) && (
                 <>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Technician Remarks</label>

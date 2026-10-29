@@ -212,7 +212,7 @@ export default function Reports({ token, user }) {
         case 'completed':
           return baseList.filter(jc => jc.status === 'Delivered');
         case 'pending':
-          return baseList.filter(jc => ['Created', 'Inspect Stage', 'Estimation', 'Customer Approval', 'Waiting for Customer Approval'].includes(jc.status));
+          return baseList.filter(jc => ['Created', 'Inspect Stage', 'Estimation', 'Customer Approval', 'Waiting for Customer Approval', 'Waiting for Allotment'].includes(jc.status));
         case 'technician':
           const techGroups = {};
           baseList.forEach(jc => {
