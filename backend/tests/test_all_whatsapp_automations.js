@@ -437,7 +437,7 @@ async function runTests() {
         type: 'body',
         parameters: [
           { type: 'text', text: 'Kushal Vunnam' },
-          { type: 'text', text: 'MVSS Automobiles' }
+          { type: 'text', text: 'TS09EA1234' }
         ]
       }
     ],
@@ -449,8 +449,8 @@ async function runTests() {
   assert.strictEqual(capturedWelcome.payload.template.name, 'mvss_welcome_customer');
   assert.strictEqual(capturedWelcome.payload.template.components[0].parameters.length, 2);
   assert.strictEqual(capturedWelcome.payload.template.components[0].parameters[0].text, 'Kushal Vunnam');
-  assert.strictEqual(capturedWelcome.payload.template.components[0].parameters[1].text, 'MVSS Automobiles');
-  console.log('✔ Test 11 Passed: Welcome message triggers dispatch with 2 exact parameters (customer name, workshop name).');
+  assert.strictEqual(capturedWelcome.payload.template.components[0].parameters[1].text, 'TS09EA1234');
+  console.log('✔ Test 11 Passed: Welcome message triggers dispatch with 2 exact parameters (customer name, vehicle registration number).');
 
   // =========================================================================
   // Test 12: Safe Phone Normalization (Indian & International formats)

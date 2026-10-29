@@ -5,8 +5,10 @@ const JobCard = require('../models/JobCard');
 const Estimate = require('../models/Estimate');
 const Invoice = require('../models/Invoice');
 const InsuranceClaim = require('../models/InsuranceClaim');
+const Booking = require('../models/Booking');
 const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
+const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
 const router = express.Router();
 
 // Get Customers with search
@@ -139,6 +141,154 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+/**
+ * Resolves the vehicle registration number for a customer welcome message.
+ * Follows priority:
+ * 1. Explicit vehicleNumber passed in context/req.body
+ * 2. Explicit vehicleId passed in context/req.body -> Vehicle.vehicleNumber
+ * 3. Associated JobCard (explicit jobCardId or latest JobCard for this customer) -> Vehicle.vehicleNumber
+ * 4. Vehicles directly linked to this customer (sorted by latest updatedAt/createdAt)
+ * 5. Service Booking/Appointment linked to customer's mobile number
+ * 6. Fallback to 'Not provided' (never company name)
+ */
+async function resolveCustomerVehicleNumber(customer, context = {}) {
+  try {
+    // 1. Explicit vehicleNumber in context/body
+    if (context && context.vehicleNumber && typeof context.vehicleNumber === 'string' && context.vehicleNumber.trim()) {
+      return context.vehicleNumber.trim().toUpperCase();
+    }
+
+    // 2. Explicit vehicleId in context/body
+    if (context && context.vehicleId) {
+      try {
+        const directVeh = await Vehicle.findById(context.vehicleId).select('vehicleNumber').lean();
+        if (directVeh?.vehicleNumber) {
+          return directVeh.vehicleNumber.trim().toUpperCase();
+        }
+      } catch (vehErr) {
+        console.warn('[Customer Automation] Error resolving vehicle from vehicleId:', vehErr.message);
+      }
+    }
+
+    // 3. Vehicle associated with relevant Job Card (explicit jobCardId or most recent for customer)
+    try {
+      let jc = null;
+      if (context && context.jobCardId) {
+        jc = await JobCard.findById(context.jobCardId).populate('vehicleId', 'vehicleNumber').lean();
+      }
+      if (!jc && customer?._id) {
+        jc = await JobCard.findOne({ customerId: customer._id })
+          .sort({ date: -1, createdAt: -1 })
+          .populate('vehicleId', 'vehicleNumber')
+          .lean();
+      }
+      if (jc?.vehicleId?.vehicleNumber) {
+        return jc.vehicleId.vehicleNumber.trim().toUpperCase();
+      }
+    } catch (jcErr) {
+      console.warn('[Customer Automation] Error resolving vehicle from JobCard:', jcErr.message);
+    }
+
+    // 4. Vehicles linked to this customer (if multiple, pick most recently updated/created)
+    if (customer?._id) {
+      try {
+        const custVeh = await Vehicle.findOne({ customerId: customer._id })
+          .sort({ updatedAt: -1, createdAt: -1 })
+          .select('vehicleNumber')
+          .lean();
+        if (custVeh?.vehicleNumber) {
+          return custVeh.vehicleNumber.trim().toUpperCase();
+        }
+      } catch (cvErr) {
+        console.warn('[Customer Automation] Error resolving customer vehicles:', cvErr.message);
+      }
+    }
+
+    // 5. Service Appointment / Booking linked to customer mobile
+    const rawPhone = customer?.mobile || customer?.phone || context?.mobile || context?.phone;
+    if (rawPhone) {
+      try {
+        const cleanDigits = String(rawPhone).replace(/\D/g, '');
+        const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+        const booking = await Booking.findOne({
+          $or: [
+            { mobile: rawPhone },
+            { mobile: `+${cleanDigits}` },
+            { mobile: last10 },
+            { mobile: new RegExp(last10 + '$') }
+          ]
+        }).sort({ createdAt: -1 }).select('vehicleNumber').lean();
+
+        if (booking?.vehicleNumber) {
+          return booking.vehicleNumber.trim().toUpperCase();
+        }
+      } catch (bErr) {
+        console.warn('[Customer Automation] Error resolving vehicle from Booking:', bErr.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[Customer Automation] Error in resolveCustomerVehicleNumber:', err.message);
+  }
+
+  return 'Not provided';
+}
+
+/**
+ * Dispatches the customer welcome WhatsApp notification.
+ * Ensures parameter 1 is customer name and parameter 2 is the resolved vehicle registration number.
+ */
+async function sendCustomerWelcomeNotification(customer, context = {}, options = {}) {
+  const rawPhone = customer.mobile || customer.phone;
+  const customerName = String(customer.name || 'Valued Customer').trim();
+  const vehicleNumber = await resolveCustomerVehicleNumber(customer, context);
+
+  const contactCheck = validateCustomerContact(customer, rawPhone);
+  const templateName = 'mvss_welcome_customer';
+  const correlationKey = context.idempotencyKey || (options.forceResend ? `customer_welcome_${customer._id}_${Date.now()}` : `customer_created_${customer._id}`);
+
+  // [Stage 3] Automation event triggered
+  console.log(`[Customer Automation] [Stage 3] Automation event triggered: Event="Customer Welcome", CustomerId=${customer._id}, Name=${customerName}, VehicleNumber=${vehicleNumber}`);
+
+  // [Stage 4] Customer contact/template validation result
+  console.log(`[Customer Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
+
+  if (contactCheck.valid) {
+    // [Stage 5] WhatsApp send attempted
+    console.log(`[Customer Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}, VehicleNumber=${vehicleNumber}`);
+
+    try {
+      const waResult = await sendTemplateMessage({
+        to: contactCheck.phone,
+        templateName,
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: customerName },
+              { type: 'text', text: vehicleNumber }
+            ]
+          }
+        ],
+        recipientName: customerName,
+        relatedEntity: customer._id,
+        onModel: 'Customer',
+        idempotencyKey: correlationKey
+      });
+
+      // [Stage 6] Meta response accepted
+      console.log(`[Customer Automation] [Stage 6] Meta response accepted: Customer=${customerName}, Vehicle=${vehicleNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+      return { success: true, waResult, vehicleNumber };
+    } catch (waSendErr) {
+      // [Stage 6] Meta response failed (isolated, does not fail customer creation)
+      console.error(`[Customer Automation] [Stage 6] Meta response failed: Customer=${customerName}, Error=${waSendErr.message || waSendErr}`);
+      return { success: false, error: waSendErr.message || waSendErr, vehicleNumber };
+    }
+  } else {
+    console.warn(`[Customer Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
+    return { success: false, reason: contactCheck.reason, vehicleNumber };
+  }
+}
+
 // Create Customer
 router.post('/', auth, async (req, res) => {
   try {
@@ -150,53 +300,7 @@ router.post('/', auth, async (req, res) => {
 
     // WhatsApp Integration: Customer Welcome
     try {
-      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
-      const rawPhone = customer.mobile || customer.phone;
-      const customerName = String(customer.name || 'Valued Customer').trim();
-      const workshopName = 'MVSS Automobiles';
-
-      const contactCheck = validateCustomerContact(customer, rawPhone);
-      const templateName = 'mvss_welcome_customer';
-      const correlationKey = `customer_created_${customer._id}`;
-
-      // [Stage 3] Automation event triggered
-      console.log(`[Customer Automation] [Stage 3] Automation event triggered: Event="Customer Welcome", CustomerId=${customer._id}, Name=${customerName}`);
-
-      // [Stage 4] Customer contact/template validation result
-      console.log(`[Customer Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
-
-      if (contactCheck.valid) {
-        // [Stage 5] WhatsApp send attempted
-        console.log(`[Customer Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
-
-        try {
-          const waResult = await sendTemplateMessage({
-            to: contactCheck.phone,
-            templateName,
-            components: [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: customerName },
-                  { type: 'text', text: workshopName }
-                ]
-              }
-            ],
-            recipientName: customerName,
-            relatedEntity: customer._id,
-            onModel: 'Customer',
-            idempotencyKey: correlationKey
-          });
-
-          // [Stage 6] Meta response accepted
-          console.log(`[Customer Automation] [Stage 6] Meta response accepted: Customer=${customerName}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
-        } catch (waSendErr) {
-          // [Stage 6] Meta response failed (isolated, does not fail customer creation)
-          console.error(`[Customer Automation] [Stage 6] Meta response failed: Customer=${customerName}, Error=${waSendErr.message || waSendErr}`);
-        }
-      } else {
-        console.warn(`[Customer Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
-      }
+      await sendCustomerWelcomeNotification(customer, req.body);
     } catch (waError) {
       console.error('[Customer Automation] Unexpected error in customer welcome WhatsApp hook:', waError.message || waError);
     }
@@ -315,4 +419,25 @@ router.delete('/:id', auth, restrictTo('Admin'), async (req, res) => {
   }
 });
 
+// Trigger/Resend Customer Welcome WhatsApp Message
+router.post('/:id/welcome', auth, async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) return res.status(404).send({ error: 'Customer not found.' });
+
+    const result = await sendCustomerWelcomeNotification(customer, req.body, { forceResend: req.body?.forceResend });
+    res.json({
+      success: result.success,
+      vehicleNumber: result.vehicleNumber,
+      customerName: customer.name,
+      result
+    });
+  } catch (error) {
+    console.error('[Customer Automation] Failed to send welcome message:', error);
+    res.status(500).send({ error: 'Failed to send welcome message.' });
+  }
+});
+
+router.resolveCustomerVehicleNumber = resolveCustomerVehicleNumber;
+router.sendCustomerWelcomeNotification = sendCustomerWelcomeNotification;
 module.exports = router;
