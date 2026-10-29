@@ -27,6 +27,12 @@ const formatStatusLabel = (status) => {
 
 const getStatusBadgeClass = (status) => {
   switch (status) {
+    case 'Created':
+      return 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
+    case 'Inspect Stage':
+      return 'bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-400 border-sky-200/50';
+    case 'Estimation':
+      return 'bg-teal-50 dark:bg-teal-950/20 text-teal-700 dark:text-teal-400 border-teal-200/50';
     case 'Waiting for Customer Approval':
     case 'Customer Approval':
       return 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200/50';
@@ -905,6 +911,9 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 >
                   {(() => {
                     const activeWorkflowStages = [
+                      'Created',
+                      'Inspect Stage',
+                      'Estimation',
                       'Waiting for Customer Approval',
                       'Waiting for Allotment',
                       'Allotted',

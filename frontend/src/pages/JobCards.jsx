@@ -240,6 +240,9 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
           className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-750 dark:text-slate-300 text-xs font-bold focus:outline-none focus:border-indigo-500"
         >
           <option value="">All Card Statuses</option>
+          <option value="Created">Created</option>
+          <option value="Inspect Stage">Inspect Stage</option>
+          <option value="Estimation">Estimation</option>
           <option value="Waiting for Customer Approval">Waiting for Customer Approval</option>
           <option value="Waiting for Allotment">Waiting for Allotment</option>
           <option value="Allotted">Allotted</option>
@@ -248,11 +251,6 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
           <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
           <option value="Ready for Delivery">Ready for Delivery</option>
           <option value="Delivered">Delivered</option>
-          <option value="Created">Created</option>
-          <option value="Inspect Stage">Inspect Stage</option>
-          <option value="Estimation">Estimation</option>
-          <option value="Customer Approval">Customer Approval</option>
-          <option value="Work In Progress">Work In Progress</option>
           <option value="Closed">Closed</option>
         </select>
       </div>
@@ -279,14 +277,17 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
         ) : jobCards.length > 0 ? (
           jobCards.map(jc => {
             let statusColor = 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
-            if (jc.status === 'Waiting for Customer Approval') statusColor = 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border border-purple-200/50';
+            if (jc.status === 'Created') statusColor = 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border border-slate-200/50';
+            else if (jc.status === 'Inspect Stage') statusColor = 'bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-400 border border-sky-200/50';
+            else if (jc.status === 'Estimation') statusColor = 'bg-teal-50 dark:bg-teal-950/20 text-teal-700 dark:text-teal-400 border border-teal-200/50';
+            else if (['Waiting for Customer Approval', 'Customer Approval'].includes(jc.status)) statusColor = 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border border-purple-200/50';
             else if (jc.status === 'Waiting for Allotment') statusColor = 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200/50';
             else if (jc.status === 'Allotted') statusColor = 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border border-indigo-200/50';
             else if (jc.status === 'Parts Procuring') statusColor = 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border border-orange-200/50';
             else if (['Work in Progress', 'Work In Progress'].includes(jc.status)) statusColor = 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200/50';
             else if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
             else if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
-            else if (jc.status === 'Delivered') statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
+            else if (['Delivered', 'Closed'].includes(jc.status)) statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
 
             return (
               <div
@@ -304,6 +305,9 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                           onChange={(e) => handleStatusChange(jc._id, e.target.value)}
                           className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 border ${statusColor}`}
                         >
+                          <option value="Created">⚪ Created</option>
+                          <option value="Inspect Stage">🔍 Inspect Stage</option>
+                          <option value="Estimation">📝 Estimation</option>
                           <option value="Waiting for Customer Approval">🟣 Waiting for Customer Approval</option>
                           <option value="Waiting for Allotment">🕒 Waiting for Allotment</option>
                           <option value="Allotted">📋 Allotted</option>
@@ -312,7 +316,8 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                           <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
                           <option value="Ready for Delivery">🟢 Ready for Delivery</option>
                           <option value="Delivered">✅ Delivered</option>
-                          {!['Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered'].includes(jc.status) && (
+                          <option value="Closed">⬛ Closed</option>
+                          {!['Created', 'Inspect Stage', 'Estimation', 'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed'].includes(jc.status) && (
                             <option value={jc.status}>{jc.status}</option>
                           )}
                         </select>
