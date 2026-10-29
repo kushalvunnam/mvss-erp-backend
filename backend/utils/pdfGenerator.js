@@ -288,7 +288,7 @@ function generateJobCardPDF(jobCard, customer, vehicle, stream) {
     { label: 'Technician Notes', val: jobCard.technicianNotes },
     { label: 'Internal Remarks', val: jobCard.internalRemarks },
     { label: 'Technician Remarks', val: jobCard.technicianRemarks },
-    { label: 'QC Remarks', val: jobCard.qcRemarks }
+    { label: 'Final Quality Inspection (FQI) Remarks', val: jobCard.qcRemarks }
   ];
 
   noteItems.forEach(note => {
@@ -312,10 +312,10 @@ function generateJobCardPDF(jobCard, customer, vehicle, stream) {
      .text(`Promised Date: ${jobCard.promDate ? new Date(jobCard.promDate).toLocaleDateString('en-IN') : 'TBD'}`, 45, currentY + 36)
      .text(`Promised Time: ${jobCard.promTime || 'TBD'}`, 45, currentY + 50);
  
-  doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#1e293b').text('Workshop & QC Status details:', 300, currentY + 8);
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#1e293b').text('Workshop & FQI Status details:', 300, currentY + 8);
   doc.font('Helvetica').fontSize(8).fillColor('#000000')
      .text(`Job Progress: ${jobCard.jobProgress || 0}% Completed`, 300, currentY + 22)
-     .text(`QC Status: ${jobCard.qcStatus || 'Pending Inspection'}`, 300, currentY + 36)
+     .text(`FQI Status: ${jobCard.qcStatus || 'Pending Inspection'}`, 300, currentY + 36)
      .text(`Est. Completion: ${jobCard.estimatedCompletionDate ? new Date(jobCard.estimatedCompletionDate).toLocaleDateString('en-IN') : 'TBD'}`, 300, currentY + 50);
  
   currentY += 95;

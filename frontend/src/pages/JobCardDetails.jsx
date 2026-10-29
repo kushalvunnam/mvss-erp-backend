@@ -18,6 +18,13 @@ import {
   CreditCard
 } from 'lucide-react';
 
+const formatStatusLabel = (status) => {
+  if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(status)) {
+    return 'Final Quality Inspection (FQI)';
+  }
+  return status;
+};
+
 const getStatusBadgeClass = (status) => {
   switch (status) {
     case 'Waiting for Customer Approval':
@@ -29,8 +36,10 @@ const getStatusBadgeClass = (status) => {
       return 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200/50';
     case 'Quality Check':
     case 'Quality Test':
+    case 'Final Quality Inspection':
       return 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border-yellow-200/50';
     case 'Ready for Delivery':
+    case 'Vehicle Ready':
       return 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-200/50';
     case 'Delivered':
     case 'Closed':
@@ -477,6 +486,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         body: JSON.stringify(updates)
       });
       if (res.ok) {
+        const updated = await res.json().catch(() => null);
+        if (updated && updated._id) {
+          setJc(updated);
+        }
         fetchDetails();
       } else {
         const errObj = await res.json().catch(() => ({}));
@@ -497,9 +510,13 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const handleModalSave = async (e) => {
     e.preventDefault();
     const updates = { ...modalData };
-    if (jc.status === 'Quality Check') {
+    if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status)) {
+      if (!modalData.qcStatus) {
+        alert('Please select a Final Quality Inspection result (Pass, Fail, or Rework Required).');
+        return;
+      }
       if (modalData.qcStatus === 'Fail' || modalData.qcStatus === 'Rework Required') {
-        updates.status = 'Work In Progress';
+        updates.status = 'Work in Progress';
       } else if (modalData.qcStatus === 'Pass') {
         updates.status = 'Ready for Delivery';
       }
@@ -584,19 +601,19 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               Approve & Start Work
             </button>
           )}
-          {jc.status === 'Work In Progress' && (
+          {['Work In Progress', 'Work in Progress'].includes(jc.status) && (
             <button
               onClick={() => {
                 if (jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') {
                   updateStatus('Body Shop');
                 } else {
-                  updateStatus('Quality Check');
+                  updateStatus('Quality Test');
                 }
               }}
               disabled={updating}
               className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              {(jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') ? 'Submit to Body Shop' : 'Submit to Quality Check'}
+              {(jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') ? 'Submit to Body Shop' : 'Submit to Final Quality Inspection (FQI)'}
             </button>
           )}
           {jc.status === 'Body Shop' && (
@@ -605,13 +622,13 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 if (jc.workCategory === 'Insurance Jobs') {
                   updateStatus('Surveyor Approval');
                 } else {
-                  updateStatus('Quality Check');
+                  updateStatus('Quality Test');
                 }
               }}
               disabled={updating}
               className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              {jc.workCategory === 'Insurance Jobs' ? 'Forward to Surveyor Approval' : 'Forward to Quality Check'}
+              {jc.workCategory === 'Insurance Jobs' ? 'Forward to Surveyor Approval' : 'Forward to Final Quality Inspection (FQI)'}
             </button>
           )}
           {jc.status === 'Surveyor Approval' && (
@@ -625,21 +642,30 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           )}
           {jc.status === 'Repair' && (
             <button
-              onClick={() => updateStatus('Quality Check')}
+              onClick={() => updateStatus('Quality Test')}
               disabled={updating}
               className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              Submit Repair to Quality Check
+              Submit Repair to Final Quality Inspection (FQI)
             </button>
           )}
-          {jc.status === 'Quality Check' && (
-            <button
-              onClick={() => updateFields({ status: 'Ready for Delivery', qcStatus: 'Pass' })}
-              disabled={updating}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-            >
-              Pass Quality Check
-            </button>
+          {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) && (
+            <>
+              <button
+                onClick={() => setShowUpdateModal(true)}
+                disabled={updating}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              >
+                Record Inspection Result
+              </button>
+              <button
+                onClick={() => updateFields({ status: 'Ready for Delivery', qcStatus: 'Pass' })}
+                disabled={updating}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              >
+                Pass Final Quality Inspection (FQI)
+              </button>
+            </>
           )}
           {(jc.status === 'Ready for Delivery' || jc.status === 'Vehicle Ready') && (
             <button
@@ -691,12 +717,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           >
             <Download className="w-4 h-4" /> Download PDF
           </button>
-          {['Work In Progress', 'Body Shop', 'Quality Check'].includes(jc.status) && (
+          {['Work In Progress', 'Work in Progress', 'Body Shop', 'Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) && (
             <button
               onClick={() => setShowUpdateModal(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
             >
-              Update Work Log / QC
+              Update Work Log / Inspection
             </button>
           )}
 
@@ -734,7 +760,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   value={jc.status}
                   onChange={(e) => {
                     const nextStatus = e.target.value;
-                    const confirmChange = window.confirm(`Are you sure you want to update the job card status to "${nextStatus}"?`);
+                    if (['Ready for Delivery', 'Vehicle Ready'].includes(nextStatus) && jc.qcStatus !== 'Pass') {
+                      alert('Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+                      setShowUpdateModal(true);
+                      return;
+                    }
+                    const confirmChange = window.confirm(`Are you sure you want to update the job card status to "${formatStatusLabel(nextStatus)}"?`);
                     if (confirmChange) {
                       updateStatus(nextStatus);
                     }
@@ -759,12 +790,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                     'Quality Check',
                     'Closed'
                   ].map(statusOpt => (
-                    <option key={statusOpt} value={statusOpt}>{statusOpt}</option>
+                    <option key={statusOpt} value={statusOpt}>{formatStatusLabel(statusOpt)}</option>
                   ))}
                 </select>
               ) : (
                 <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] uppercase border ${getStatusBadgeClass(jc.status)}`}>
-                  {jc.status}
+                  {formatStatusLabel(jc.status)}
                 </span>
               )}
             </div>
@@ -819,7 +850,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
               <p className="font-semibold text-slate-550">Service Advisor: <span className="font-bold text-slate-900 dark:text-white">{jc.serviceAdvisorName || 'N/A'}</span></p>
               <p className="font-semibold text-slate-550">Technician: <span className="font-bold text-slate-900 dark:text-white">{jc.technicianName || 'N/A'}</span></p>
-              <p className="font-semibold text-slate-550">Quality Checker (QC): <span className="font-bold text-slate-900 dark:text-white">{jc.qcName || 'N/A'}</span></p>
+              <p className="font-semibold text-slate-550">Final Quality Inspector (FQI): <span className="font-bold text-slate-900 dark:text-white">{jc.qcName || 'N/A'}</span></p>
               <p className="font-semibold text-slate-550">Floor Incharge: <span className="font-bold text-slate-900 dark:text-white">{jc.floorInchargeName || 'N/A'}</span></p>
               {jc.jobProgress !== undefined && jc.jobProgress > 0 && (
                 <p className="font-semibold text-slate-550">
@@ -833,11 +864,11 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               )}
               {jc.qcStatus && (
                 <p className="font-semibold text-slate-550">
-                  QC Status: <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                  FQI Status: <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
                     jc.qcStatus === 'Pass' 
                       ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400' 
                       : 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400'
-                  }`}>{jc.qcStatus}</span>
+                  }`}>{jc.qcStatus === 'Pass' ? 'Passed' : jc.qcStatus}</span>
                 </p>
               )}
             </div>
@@ -1640,7 +1671,9 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                Update Job Card Work Log / QC
+                {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status)
+                  ? 'Record Final Quality Inspection (FQI)'
+                  : 'Update Job Card Work Log / Inspection'}
               </h3>
               <button
                 type="button"
@@ -1655,7 +1688,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0 text-xs font-semibold text-slate-600 dark:text-slate-400">
               
               {/* If WIP or Body Shop stage */}
-              {['Work In Progress', 'Body Shop'].includes(jc.status) && (
+              {['Work In Progress', 'Work in Progress', 'Body Shop'].includes(jc.status) && (
                 <>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Technician Remarks</label>
@@ -1693,32 +1726,36 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </>
               )}
 
-              {/* If Quality Check stage */}
-              {jc.status === 'Quality Check' && (
+              {/* If Final Quality Inspection stage */}
+              {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) && (
                 <>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">QC Remarks / Comments</label>
+                    <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">
+                      Final Quality Inspection (FQI) Remarks / Notes
+                    </label>
                     <textarea
                       rows="3"
                       value={modalData.qcRemarks}
                       onChange={(e) => setModalData({ ...modalData, qcRemarks: e.target.value })}
-                      placeholder="Log quality checking notes or details of rework required..."
+                      placeholder="Log final quality inspection notes, checklist verification, or rework required..."
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 resize-none font-medium"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">QC Status Check</label>
+                    <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">
+                      Final Quality Inspection (FQI) Result
+                    </label>
                     <select
                       value={modalData.qcStatus}
                       onChange={(e) => setModalData({ ...modalData, qcStatus: e.target.value })}
                       className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-slate-800 dark:text-slate-250"
                       required
                     >
-                      <option value="">-- Select QC Verification --</option>
+                      <option value="">-- Select Inspection Result --</option>
                       <option value="Pass">Pass (Ready for Delivery)</option>
-                      <option value="Fail">Fail (Revert to Work In Progress)</option>
-                      <option value="Rework Required">Rework Required (Revert to WIP)</option>
+                      <option value="Fail">Fail (Revert to Work in Progress)</option>
+                      <option value="Rework Required">Rework Required (Revert to Work in Progress)</option>
                     </select>
                   </div>
                 </>

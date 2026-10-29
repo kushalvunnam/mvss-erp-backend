@@ -42,7 +42,11 @@ router.get('/', auth, async (req, res) => {
     let query = {};
 
     if (status) {
-      query.status = status;
+      if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(status)) {
+        query.status = { $in: ['Quality Test', 'Quality Check', 'Final Quality Inspection'] };
+      } else {
+        query.status = status;
+      }
     } else if (excludeDelivered === 'true') {
       query.status = { $nin: ['Delivered', 'Closed'] };
     }
@@ -449,11 +453,16 @@ router.put('/:id', auth, async (req, res) => {
         }
       }
 
-      // Rule 2: Ready for Delivery should require Quality Test completion.
+      // Rule 2: Ready for Delivery requires Final Quality Inspection (FQI) completion.
       if (['Ready for Delivery', 'Vehicle Ready'].includes(newStatus)) {
-        const effectiveQcStatus = req.body.qcStatus !== undefined ? req.body.qcStatus : jobCard.qcStatus;
+        const effectiveQcStatus = (req.body.qcStatus && typeof req.body.qcStatus === 'string' && req.body.qcStatus.trim())
+          ? req.body.qcStatus.trim()
+          : (jobCard.qcStatus || '');
+
         if (effectiveQcStatus !== 'Pass') {
-          return res.status(400).send({ error: 'Ready for Delivery status requires Quality Test completion (QC status must be Pass).' });
+          return res.status(400).send({
+            error: 'Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.'
+          });
         }
       }
 
@@ -550,7 +559,7 @@ router.put('/:id', auth, async (req, res) => {
             { type: 'text', text: vehicleNumber },
             { type: 'text', text: jobCardNumber }
           ];
-        } else if (['Quality Check', 'Quality Test', 'QC Pass', 'Inspection Completed'].includes(jobCard.status) || (req.body.qcStatus === 'Pass')) {
+        } else if (['Quality Check', 'Quality Test', 'Final Quality Inspection', 'QC Pass', 'Inspection Completed'].includes(jobCard.status) || (req.body.qcStatus === 'Pass')) {
           templateName = 'mvss_inspection_completed';
           parameters = [
             { type: 'text', text: customerName },
@@ -625,7 +634,12 @@ router.put('/:id', auth, async (req, res) => {
       }
     }
 
-    res.send(jobCard);
+    const updatedJobCard = await JobCard.findById(jobCard._id)
+      .populate('customerId')
+      .populate('vehicleId')
+      .populate('serviceAdvisorId', 'name');
+
+    res.send(updatedJobCard || jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to update job card: ' + error.message });
   }

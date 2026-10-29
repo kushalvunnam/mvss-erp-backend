@@ -1563,7 +1563,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-450 uppercase">Quality Checker (QC)</label>
+                    <label className="block text-[10px] font-bold text-slate-450 uppercase">Final Quality Inspector (FQI)</label>
                     <input
                       type="text"
                       value={formData.qcName}
