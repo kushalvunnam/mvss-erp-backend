@@ -143,6 +143,8 @@ const TEMPLATE_CONFIG = {
     'mvss_job_card_created': { lang: 'en', paramCount: 4 },
     'mvss_vehicle_received': { lang: 'en', paramCount: 3 },
     'mvss_inspection_completed': { lang: 'en', paramCount: 3 },
+    'estimate_awaiting_customer_approval': { lang: 'en', paramCount: 4 },
+    'mvss_estimate_awaiting_customer_approval': { lang: 'en', paramCount: 4 },
     'mvss_estimate_created': { lang: 'en', paramCount: 5 },
     'mvss_estimate_approved': { lang: 'en', paramCount: 5 },
     'mvss_work_started': { lang: 'en', paramCount: 3 },

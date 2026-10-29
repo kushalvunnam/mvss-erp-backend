@@ -331,71 +331,112 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     // [Stage 2] Estimate saved
     console.log(`[Estimate] [Stage 2] Estimate saved successfully: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, JobCard=${jobCard.jobCardNo}`);
 
-    // WhatsApp Integration: Estimate Created
+    // WhatsApp Integration: Estimate Awaiting Customer Approval
     try {
-      const Customer = require('../models/Customer');
-      const VehicleModel = require('../models/Vehicle');
-      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
-
-      const customerRecord = jobCard.customerId && jobCard.customerId.name
-        ? jobCard.customerId
-        : await Customer.findById(jobCard.customerId).lean();
-
-      const vehicle = jobCard.vehicleId && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo)
-        ? jobCard.vehicleId
-        : await VehicleModel.findById(jobCard.vehicleId).lean();
-
-      const rawPhone = customerRecord ? (customerRecord.mobile || customerRecord.phone || customerRecord.contactNumber) : null;
-      const customerName = String(customerRecord?.name || 'Valued Customer').trim();
-      const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
-      const estimateNumber = String(estimate.estimateNo || 'N/A').trim();
-      const jobCardNumber = String(jobCard.jobCardNo || 'N/A').trim();
-      const totalAmount = String(calculations.totals.roundedGrandTotal || calculations.totals.grandTotal || '0').trim();
-
-      const contactCheck = validateCustomerContact(customerRecord, rawPhone);
-      const templateName = 'mvss_estimate_created';
-      const correlationKey = `estimate_created_${estimate._id}`;
-
-      // [Stage 3] Automation event triggered
-      console.log(`[Estimate Automation] [Stage 3] Automation event triggered: EstimateId=${estimate._id}, EstimateNo=${estimateNumber}, JobCardNo=${jobCardNumber}`);
-
-      // [Stage 4] Customer contact/template validation result
-      console.log(`[Estimate Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
-
-      if (contactCheck.valid) {
-        // [Stage 5] WhatsApp send attempted
-        console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
-
-        try {
-          const waResult = await sendTemplateMessage({
-            to: contactCheck.phone,
-            templateName,
-            components: [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: customerName },
-                  { type: 'text', text: vehicleNumber },
-                  { type: 'text', text: estimateNumber },
-                  { type: 'text', text: jobCardNumber },
-                  { type: 'text', text: totalAmount }
-                ]
-              }
-            ],
-            recipientName: customerName,
-            relatedEntity: estimate._id,
-            onModel: 'Estimate',
-            idempotencyKey: correlationKey
-          });
-
-          // [Stage 6] Meta response accepted
-          console.log(`[Estimate Automation] [Stage 6] Meta response accepted: Estimate=${estimateNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
-        } catch (waSendErr) {
-          // [Stage 6] Meta response failed (isolated, does not fail estimate creation)
-          console.error(`[Estimate Automation] [Stage 6] Meta response failed: Estimate=${estimateNumber}, Error=${waSendErr.message || waSendErr}`);
-        }
+      const awaitingApprovalStatuses = ['Draft', 'Sent', 'Pending', 'Pending Approval'];
+      if (!awaitingApprovalStatuses.includes(estimate.status)) {
+        console.log(`[Estimate Automation] Skipping WhatsApp notification: Estimate status is '${estimate.status}', not awaiting customer approval.`);
       } else {
-        console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
+        const Customer = require('../models/Customer');
+        const VehicleModel = require('../models/Vehicle');
+        const WhatsAppLog = require('../models/WhatsAppLog');
+        const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+
+        const customerRecord = jobCard.customerId && jobCard.customerId.name
+          ? jobCard.customerId
+          : await Customer.findById(jobCard.customerId).lean();
+
+        let vehicle = null;
+        if (jobCard.vehicleId) {
+          if (typeof jobCard.vehicleId === 'object' && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo)) {
+            vehicle = jobCard.vehicleId;
+          } else {
+            vehicle = await VehicleModel.findById(jobCard.vehicleId).lean();
+          }
+        }
+        if (!vehicle && customerRecord?._id) {
+          vehicle = await VehicleModel.findOne({ customerId: customerRecord._id })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .lean();
+        }
+
+        const rawPhone = customerRecord ? (customerRecord.mobile || customerRecord.phone || customerRecord.contactNumber) : null;
+        const customerName = String(customerRecord?.name || 'Valued Customer').trim();
+
+        // Ensure real vehicle registration number is used; never the workshop name "MVSS Automobiles"
+        let vehicleNumber = 'Not provided';
+        const rawVeh = vehicle?.vehicleNumber || vehicle?.regNo;
+        if (rawVeh && typeof rawVeh === 'string') {
+          const cleanVeh = rawVeh.trim();
+          if (!/mvss\s*automobiles/i.test(cleanVeh) && cleanVeh !== '') {
+            vehicleNumber = cleanVeh.toUpperCase();
+          }
+        }
+
+        const estimateNumber = String(estimate.estimateNo || 'N/A').trim();
+
+        // Quoted amount formatted in INR (e.g. 14,500 or rounded integer)
+        const rawGrandTotal = calculations.totals?.grandTotal ?? estimate.totals?.grandTotal ?? 0;
+        const numTotal = typeof rawGrandTotal === 'number' ? rawGrandTotal : Number(rawGrandTotal);
+        const formattedAmount = isNaN(numTotal)
+          ? String(rawGrandTotal).trim()
+          : Math.round(numTotal).toLocaleString('en-IN');
+
+        const contactCheck = validateCustomerContact(customerRecord, rawPhone);
+        const templateName = 'estimate_awaiting_customer_approval';
+        const correlationKey = `estimate_awaiting_approval_${estimate._id}`;
+        const legacyCorrelationKey = `estimate_created_${estimate._id}`;
+
+        // Idempotency check: prevent duplicate dispatches
+        const alreadyDispatched = await WhatsAppLog.findOne({
+          idempotencyKey: { $in: [correlationKey, legacyCorrelationKey] },
+          status: { $in: ['sent', 'delivered', 'read', 'pending'] }
+        }).lean();
+
+        if (alreadyDispatched) {
+          console.log(`[Estimate Automation] Duplicate skipped: message already sent for estimate ID=${estimate._id} (key=${alreadyDispatched.idempotencyKey})`);
+        } else {
+          // [Stage 3] Automation event triggered
+          console.log(`[Estimate Automation] [Stage 3] Automation event triggered: EstimateId=${estimate._id}, EstimateNo=${estimateNumber}, JobCardNo=${jobCard.jobCardNo}`);
+
+          // [Stage 4] Customer contact/template validation result
+          console.log(`[Estimate Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
+
+          if (contactCheck.valid) {
+            // [Stage 5] WhatsApp send attempted
+            console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
+
+            try {
+              const waResult = await sendTemplateMessage({
+                to: contactCheck.phone,
+                templateName,
+                components: [
+                  {
+                    type: 'body',
+                    parameters: [
+                      { type: 'text', text: customerName },
+                      { type: 'text', text: vehicleNumber },
+                      { type: 'text', text: estimateNumber },
+                      { type: 'text', text: formattedAmount }
+                    ]
+                  }
+                ],
+                recipientName: customerName,
+                relatedEntity: estimate._id,
+                onModel: 'Estimate',
+                idempotencyKey: correlationKey
+              });
+
+              // [Stage 6] Meta response accepted
+              console.log(`[Estimate Automation] [Stage 6] Meta response accepted: Estimate=${estimateNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
+            } catch (waSendErr) {
+              // [Stage 6] Meta response failed (isolated, does not fail estimate creation)
+              console.error(`[Estimate Automation] [Stage 6] Meta response failed: Estimate=${estimateNumber}, Error=${waSendErr.message || waSendErr}`);
+            }
+          } else {
+            console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
+          }
+        }
       }
     } catch (waError) {
       console.error('[Estimate Automation] Unexpected error in WhatsApp automation hook:', waError.message || waError);
