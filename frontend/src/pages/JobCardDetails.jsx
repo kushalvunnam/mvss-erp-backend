@@ -507,40 +507,138 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     await updateFields({ status: nextStatus });
   };
 
+  const handlePassFQI = async () => {
+    setUpdating(true);
+    try {
+      // Step 1: Persist QC Pass to database first
+      const qcRes = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          qcStatus: 'Pass',
+          qcRemarks: jc.qcRemarks || 'Final Quality Inspection Passed'
+        })
+      });
+
+      if (!qcRes.ok) {
+        const errObj = await qcRes.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to record inspection pass.');
+        return;
+      }
+
+      // Step 2: Now transition status to Ready for Delivery
+      const statusRes = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          status: 'Ready for Delivery',
+          qcStatus: 'Pass'
+        })
+      });
+
+      if (statusRes.ok) {
+        const updated = await statusRes.json().catch(() => null);
+        if (updated && updated._id) setJc(updated);
+        fetchDetails();
+      } else {
+        const errObj = await statusRes.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to update job card status.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to connect to the server.');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleModalSave = async (e) => {
     e.preventDefault();
-    const updates = { ...modalData };
     if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status)) {
       if (!modalData.qcStatus) {
         alert('Please select a Final Quality Inspection result (Pass, Fail, or Rework Required).');
         return;
       }
-      if (modalData.qcStatus === 'Fail' || modalData.qcStatus === 'Rework Required') {
-        updates.status = 'Work in Progress';
-      } else if (modalData.qcStatus === 'Pass') {
-        updates.status = 'Ready for Delivery';
+
+      setUpdating(true);
+      try {
+        // Step 1: Save QC inspection result and remarks first
+        const qcRes = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            qcStatus: modalData.qcStatus,
+            qcRemarks: modalData.qcRemarks
+          })
+        });
+
+        if (!qcRes.ok) {
+          const errObj = await qcRes.json().catch(() => ({}));
+          alert(errObj.error || 'Failed to save inspection result.');
+          return;
+        }
+
+        // Step 2: Transition status based on inspection outcome
+        let nextStatus = jc.status;
+        if (modalData.qcStatus === 'Pass') {
+          nextStatus = 'Ready for Delivery';
+        } else if (modalData.qcStatus === 'Fail' || modalData.qcStatus === 'Rework Required') {
+          nextStatus = 'Work in Progress';
+        }
+
+        if (nextStatus !== jc.status) {
+          const statusRes = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              status: nextStatus,
+              qcStatus: modalData.qcStatus
+            })
+          });
+
+          if (statusRes.ok) {
+            const updated = await statusRes.json().catch(() => null);
+            if (updated && updated._id) setJc(updated);
+          } else {
+            const errObj = await statusRes.json().catch(() => ({}));
+            alert(errObj.error || 'Failed to advance job card status.');
+          }
+        } else {
+          const updated = await qcRes.json().catch(() => null);
+          if (updated && updated._id) setJc(updated);
+        }
+
+        fetchDetails();
+        setShowUpdateModal(false);
+      } catch (err) {
+        console.error(err);
+        alert('Failed to connect to the server.');
+      } finally {
+        setUpdating(false);
       }
+      return;
     }
-    await updateFields(updates);
+
+    await updateFields(modalData);
     setShowUpdateModal(false);
   };
 
   const printGatePass = () => {
     if (!jc) return;
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/gatepass/pdf`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Failed to retrieve Gate Pass PDF from server');
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        window.open(url, '_blank');
-      } catch (err) {
-        console.error(err);
-        alert('Error viewing Gate Pass PDF: ' + err.message);
-      }
-    })();
+    const url = `${API_BASE_URL}/jobcards/${jc._id}/gatepass/pdf?token=${encodeURIComponent(token)}`;
+    window.open(url, '_blank');
   };
 
   if (loading) {
@@ -659,7 +757,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 Record Inspection Result
               </button>
               <button
-                onClick={() => updateFields({ status: 'Ready for Delivery', qcStatus: 'Pass' })}
+                onClick={handlePassFQI}
                 disabled={updating}
                 className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
               >
@@ -704,11 +802,13 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                     a.download = `jobcard-${jc.jobCardNo || 'latest'}.pdf`;
                     document.body.appendChild(a);
                     a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
+                    setTimeout(() => {
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(url);
+                    }, 200);
                   } catch (err) {
                     console.error(err);
-                    alert('Error downloading PDF: ' + err.message);
+                    window.open(`${API_BASE_URL}/jobcards/${jc._id}/pdf?token=${encodeURIComponent(token)}`, '_blank');
                   }
                 })();
               }
@@ -717,12 +817,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           >
             <Download className="w-4 h-4" /> Download PDF
           </button>
-          {['Work In Progress', 'Work in Progress', 'Body Shop', 'Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) && (
+          {['Work In Progress', 'Work in Progress', 'Body Shop'].includes(jc.status) && (
             <button
               onClick={() => setShowUpdateModal(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
             >
-              Update Work Log / Inspection
+              Update Work Log
             </button>
           )}
 
