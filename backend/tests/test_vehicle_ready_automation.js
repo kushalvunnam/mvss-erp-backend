@@ -252,7 +252,7 @@ async function runVehicleReadyTests() {
 
     assert.strictEqual(res4.status, 400, 'Must return 400 when QC is not Pass');
     const errBody4 = await res4.json();
-    assert(errBody4.error.includes('Final Quality Inspection must be marked as Passed'), 'Error message must specify inspection requirement');
+    assert(errBody4.error.includes('Pre-Delivery Inspection must be marked as Passed'), 'Error message must specify inspection requirement');
     assert.strictEqual(capturedDispatches.length, 0, 'No WhatsApp message must be sent on validation rejection');
 
     // Verify DB was NOT updated

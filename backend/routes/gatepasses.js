@@ -55,7 +55,7 @@ router.get('/eligible-releases', auth, async (req, res) => {
 
     const readyJobCards = await JobCard.find({
       _id: { $nin: Array.from(invoicedJobCardIds) },
-      status: { $in: ['Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Quality Check', 'Quality Test', 'Final Quality Inspection', 'Closed', 'Work In Progress'] }
+      status: { $in: ['Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Closed', 'Work In Progress'] }
     })
       .populate('customerId', 'name mobile phone contactNumber email')
       .populate('vehicleId', 'vehicleNumber make model variant color chassisNumber')
@@ -372,7 +372,7 @@ router.post('/', auth, async (req, res) => {
       try {
         const JobCard = require('../models/JobCard');
         const existingJc = await JobCard.findById(gatepass.jobCardId);
-        if (existingJc && ['Ready for Delivery', 'Vehicle Ready', 'Quality Check', 'Quality Test', 'Final Quality Inspection', 'Work In Progress'].includes(existingJc.status)) {
+        if (existingJc && ['Ready for Delivery', 'Vehicle Ready', 'Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Work In Progress'].includes(existingJc.status)) {
           existingJc.status = 'Delivered';
           await existingJc.save();
           console.log(`[GatePass] JobCard ${existingJc.jobCardNo} marked as 'Delivered' upon gate pass issuance.`);

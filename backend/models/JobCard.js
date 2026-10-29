@@ -230,7 +230,7 @@ const JobCardSchema = new mongoose.Schema({
     type: String,
     enum: [
       'Created', 'Inspect Stage', 'Estimation', 'Customer Approval', 'Work In Progress', 'Body Shop', 'Surveyor Approval', 'Repair', 'Quality Check', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed',
-      'Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Final Quality Inspection'
+      'Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection'
     ],
     default: 'Waiting for Customer Approval',
   },

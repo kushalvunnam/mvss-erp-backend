@@ -146,7 +146,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
 
   const paintingCount = bodyShopJobs.filter(jc => jc.status === 'Body Shop' && getProgressVal(jc, 'paintProgress') < 100).length;
   const dentCount = bodyShopJobs.filter(jc => jc.status === 'Body Shop' && getProgressVal(jc, 'dentProgress') < 100).length;
-  const qcWaitingCount = bodyShopJobs.filter(jc => ['Quality Check', 'Quality Test', 'Final Quality Inspection'].includes(jc.status)).length;
+  const qcWaitingCount = bodyShopJobs.filter(jc => ['Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)).length;
   const completedCount = bodyShopJobs.filter(jc => jc.status === 'Ready for Delivery' || jc.status === 'Vehicle Ready' || jc.status === 'Delivered').length;
 
   // Submit Body Shop progress update
@@ -198,7 +198,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
         alert(shouldForwardToQC 
           ? (selectedJc.workCategory === 'Insurance Jobs' 
               ? 'Repair completed! Forwarded to Surveyor Approval successfully.' 
-              : 'Repair completed! Vehicle forwarded to Final Quality Inspection (FQI) successfully.') 
+              : 'Repair completed! Vehicle forwarded to Pre-Delivery Inspection (PDI) successfully.') 
           : 'Repair progress updated successfully!');
         await fetchJobCards();
       } else {
@@ -359,7 +359,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                     let badgeColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800';
                     if (jc.status === 'Work In Progress') badgeColor = 'bg-indigo-50 text-indigo-700 dark:bg-indigo-955/20 dark:text-indigo-400';
                     if (jc.status === 'Body Shop') badgeColor = 'bg-orange-50 text-orange-700 dark:bg-orange-955/20 dark:text-orange-400';
-                    if (['Quality Check', 'Quality Test', 'Final Quality Inspection'].includes(jc.status)) badgeColor = 'bg-cyan-50 text-cyan-700 dark:bg-cyan-955/20 dark:text-cyan-400';
+                    if (['Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)) badgeColor = 'bg-cyan-50 text-cyan-700 dark:bg-cyan-955/20 dark:text-cyan-400';
                     if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) badgeColor = 'bg-amber-50 text-amber-700 dark:bg-amber-955/20 dark:text-amber-400';
                     if (jc.status === 'Delivered') badgeColor = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-955/20 dark:text-emerald-400';
 
@@ -388,7 +388,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                         </td>
                         <td className="p-4">
                           <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${badgeColor}`}>
-                            {['Quality Check', 'Quality Test', 'Final Quality Inspection'].includes(jc.status) ? 'Final Quality Inspection (FQI)' : jc.status}
+                            {['Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status) ? 'Pre-Delivery Inspection (PDI)' : jc.status}
                           </span>
                         </td>
                         <td className="p-4 text-right">
@@ -723,7 +723,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                       disabled={updating}
                       className="px-4.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-90 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/10 flex items-center gap-1.5"
                     >
-                      <Check className="w-4 h-4" /> {selectedJc.workCategory === 'Insurance Jobs' ? 'Mark Completed & Forward to Surveyor' : 'Mark Completed & Forward to Final Quality Inspection (FQI)'}
+                      <Check className="w-4 h-4" /> {selectedJc.workCategory === 'Insurance Jobs' ? 'Mark Completed & Forward to Surveyor' : 'Mark Completed & Forward to Pre-Delivery Inspection (PDI)'}
                     </button>
                   )}
                   
@@ -769,7 +769,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
               </div>
               <h3 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">No Vehicle Selected</h3>
               <p className="text-xs text-slate-450 dark:text-slate-500 font-semibold max-w-xs mt-1.5 leading-relaxed">
-                Select an assigned vehicle from the left pane to view progress gauges, log labor assignments, upload repair photos, or forward the vehicle to Final Quality Inspection (FQI).
+                Select an assigned vehicle from the left pane to view progress gauges, log labor assignments, upload repair photos, or forward the vehicle to Pre-Delivery Inspection (PDI).
               </p>
             </div>
           )}

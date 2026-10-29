@@ -173,13 +173,13 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
 
     if (['Ready for Delivery', 'Vehicle Ready'].includes(newStatus)) {
       if (currentJc && currentJc.qcStatus !== 'Pass') {
-        alert('Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+        alert('Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
         handleOpenDetails(jcId);
         return;
       }
     }
 
-    const displayStatus = ['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(newStatus) ? 'Final Quality Inspection (FQI)' : newStatus;
+    const displayStatus = ['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(newStatus) ? 'Pre-Delivery Inspection (PDI)' : newStatus;
     const remarks = window.prompt(`Enter optional remarks for changing status to "${displayStatus}":`);
     if (remarks === null) return; // user cancelled
 
@@ -243,7 +243,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
           <option value="Waiting for Customer Approval">Waiting for Customer Approval</option>
           <option value="Parts Procuring">Parts Procuring</option>
           <option value="Work in Progress">Work in Progress</option>
-          <option value="Quality Test">Final Quality Inspection (FQI)</option>
+          <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
           <option value="Ready for Delivery">Ready for Delivery</option>
           <option value="Delivered">Delivered</option>
           <option value="Created">Created</option>
@@ -281,7 +281,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
             if (jc.status === 'Waiting for Customer Approval') statusColor = 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border border-purple-200/50';
             else if (jc.status === 'Parts Procuring') statusColor = 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border border-orange-200/50';
             else if (['Work in Progress', 'Work In Progress'].includes(jc.status)) statusColor = 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200/50';
-            else if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
+            else if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
             else if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
             else if (jc.status === 'Delivered') statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
 
@@ -304,16 +304,16 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                           <option value="Waiting for Customer Approval">🟣 Waiting for Customer Approval</option>
                           <option value="Parts Procuring">🟠 Parts Procuring</option>
                           <option value="Work in Progress">🔵 Work in Progress</option>
-                          <option value="Quality Test">🟡 Final Quality Inspection (FQI)</option>
+                          <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
                           <option value="Ready for Delivery">🟢 Ready for Delivery</option>
                           <option value="Delivered">✅ Delivered</option>
-                          {!['Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered'].includes(jc.status) && (
+                          {!['Waiting for Customer Approval', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered'].includes(jc.status) && (
                             <option value={jc.status}>{jc.status}</option>
                           )}
                         </select>
                       ) : (
                         <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${statusColor}`}>
-                          {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) ? 'Final Quality Inspection (FQI)' : jc.status}
+                          {['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status) ? 'Pre-Delivery Inspection (PDI)' : jc.status}
                         </span>
                       )}
                     </div>

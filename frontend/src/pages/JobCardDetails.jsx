@@ -19,8 +19,8 @@ import {
 } from 'lucide-react';
 
 const formatStatusLabel = (status) => {
-  if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(status)) {
-    return 'Final Quality Inspection (FQI)';
+  if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(status)) {
+    return 'Pre-Delivery Inspection (PDI)';
   }
   return status;
 };
@@ -37,6 +37,7 @@ const getStatusBadgeClass = (status) => {
     case 'Quality Check':
     case 'Quality Test':
     case 'Final Quality Inspection':
+    case 'Pre-Delivery Inspection':
       return 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border-yellow-200/50';
     case 'Ready for Delivery':
     case 'Vehicle Ready':
@@ -507,7 +508,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     await updateFields({ status: nextStatus });
   };
 
-  const handlePassFQI = async () => {
+  const handlePassPDI = async () => {
     setUpdating(true);
     try {
       // Step 1: Persist QC Pass to database first
@@ -519,7 +520,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         },
         body: JSON.stringify({
           qcStatus: 'Pass',
-          qcRemarks: jc.qcRemarks || 'Final Quality Inspection Passed'
+          qcRemarks: jc.qcRemarks || 'Pre-Delivery Inspection Passed'
         })
       });
 
@@ -557,12 +558,13 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
       setUpdating(false);
     }
   };
+  const handlePassFQI = handlePassPDI;
 
   const handleModalSave = async (e) => {
     e.preventDefault();
-    if (['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status)) {
+    if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)) {
       if (!modalData.qcStatus) {
-        alert('Please select a Final Quality Inspection result (Pass, Fail, or Rework Required).');
+        alert('Please select a Pre-Delivery Inspection result (Pass, Fail, or Rework Required).');
         return;
       }
 
@@ -711,7 +713,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               disabled={updating}
               className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              {(jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') ? 'Submit to Body Shop' : 'Submit to Final Quality Inspection (FQI)'}
+              {(jc.workCategory === 'B/P' || jc.workCategory === 'Insurance Jobs') ? 'Submit to Body Shop' : 'Submit to Pre-Delivery Inspection (PDI)'}
             </button>
           )}
           {jc.status === 'Body Shop' && (
@@ -726,7 +728,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               disabled={updating}
               className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              {jc.workCategory === 'Insurance Jobs' ? 'Forward to Surveyor Approval' : 'Forward to Final Quality Inspection (FQI)'}
+              {jc.workCategory === 'Insurance Jobs' ? 'Forward to Surveyor Approval' : 'Forward to Pre-Delivery Inspection (PDI)'}
             </button>
           )}
           {jc.status === 'Surveyor Approval' && (
@@ -744,10 +746,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               disabled={updating}
               className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
-              Submit Repair to Final Quality Inspection (FQI)
+              Submit Repair to Pre-Delivery Inspection (PDI)
             </button>
           )}
-          {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) && (
+          {['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status) && (
             <>
               <button
                 onClick={() => setShowUpdateModal(true)}
@@ -757,11 +759,11 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 Record Inspection Result
               </button>
               <button
-                onClick={handlePassFQI}
+                onClick={handlePassPDI}
                 disabled={updating}
                 className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
               >
-                Pass Final Quality Inspection (FQI)
+                Pass Pre-Delivery Inspection (PDI)
               </button>
             </>
           )}
@@ -861,7 +863,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   onChange={(e) => {
                     const nextStatus = e.target.value;
                     if (['Ready for Delivery', 'Vehicle Ready'].includes(nextStatus) && jc.qcStatus !== 'Pass') {
-                      alert('Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+                      alert('Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
                       setShowUpdateModal(true);
                       return;
                     }
@@ -950,7 +952,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
               <p className="font-semibold text-slate-550">Service Advisor: <span className="font-bold text-slate-900 dark:text-white">{jc.serviceAdvisorName || 'N/A'}</span></p>
               <p className="font-semibold text-slate-550">Technician: <span className="font-bold text-slate-900 dark:text-white">{jc.technicianName || 'N/A'}</span></p>
-              <p className="font-semibold text-slate-550">Final Quality Inspector (FQI): <span className="font-bold text-slate-900 dark:text-white">{jc.qcName || 'N/A'}</span></p>
+              <p className="font-semibold text-slate-550">Pre-Delivery Inspector (PDI): <span className="font-bold text-slate-900 dark:text-white">{jc.qcName || 'N/A'}</span></p>
               <p className="font-semibold text-slate-550">Floor Incharge: <span className="font-bold text-slate-900 dark:text-white">{jc.floorInchargeName || 'N/A'}</span></p>
               {jc.jobProgress !== undefined && jc.jobProgress > 0 && (
                 <p className="font-semibold text-slate-550">
@@ -964,7 +966,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               )}
               {jc.qcStatus && (
                 <p className="font-semibold text-slate-550">
-                  FQI Status: <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                  PDI Status: <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
                     jc.qcStatus === 'Pass' 
                       ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400' 
                       : 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400'
@@ -1771,8 +1773,8 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status)
-                  ? 'Record Final Quality Inspection (FQI)'
+                {['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)
+                  ? 'Record Pre-Delivery Inspection (PDI)'
                   : 'Update Job Card Work Log / Inspection'}
               </h3>
               <button
@@ -1826,25 +1828,25 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </>
               )}
 
-              {/* If Final Quality Inspection stage */}
-              {['Quality Test', 'Quality Check', 'Final Quality Inspection'].includes(jc.status) && (
+              {/* If Pre-Delivery Inspection stage */}
+              {['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status) && (
                 <>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">
-                      Final Quality Inspection (FQI) Remarks / Notes
+                      Pre-Delivery Inspection (PDI) Remarks / Notes
                     </label>
                     <textarea
                       rows="3"
                       value={modalData.qcRemarks}
                       onChange={(e) => setModalData({ ...modalData, qcRemarks: e.target.value })}
-                      placeholder="Log final quality inspection notes, checklist verification, or rework required..."
+                      placeholder="Log pre-delivery inspection notes, checklist verification, or rework required..."
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 resize-none font-medium"
                     />
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">
-                      Final Quality Inspection (FQI) Result
+                      Pre-Delivery Inspection (PDI) Result
                     </label>
                     <select
                       value={modalData.qcStatus}

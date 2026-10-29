@@ -73,13 +73,13 @@ async function runFQIWorkflowTests() {
     console.log(`Setup test customer: ${testCustomer.name}, vehicle: ${testVehicle.vehicleNumber}\n`);
 
     // TEST 1: Block transition to "Ready for Delivery" if inspection is Pending / incomplete
-    console.log('--- TEST 1: Block "Ready for Delivery" when FQI is Pending / incomplete ---');
+    console.log('--- TEST 1: Block "Ready for Delivery" when PDI is Pending / incomplete ---');
     const jc1 = await JobCard.create({
-      jobCardNo: `JC-TEST-FQI-1-${rand}`,
+      jobCardNo: `JC-TEST-PDI-1-${rand}`,
       customerId: testCustomer._id,
       vehicleId: testVehicle._id,
       serviceAdvisorId: adminUser._id,
-      status: 'Final Quality Inspection',
+      status: 'Pre-Delivery Inspection',
       time: '10:00 AM',
       qcStatus: '',
       odometerReading: 12500,
@@ -92,7 +92,7 @@ async function runFQIWorkflowTests() {
       assert.fail('Expected 400 rejection when moving to Ready for Delivery with Pending QC status');
     } catch (err) {
       assert.strictEqual(err.response?.status, 400, 'Must return HTTP 400');
-      const expectedMsg = 'Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.';
+      const expectedMsg = 'Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.';
       assert.strictEqual(err.response?.data?.error, expectedMsg, 'Must return the exact validation message');
       console.log('✓ Correctly rejected with HTTP 400 and exact error message:');
       console.log(`  "${err.response?.data?.error}"`);
@@ -100,17 +100,17 @@ async function runFQIWorkflowTests() {
 
     // Verify job card status was NOT changed in DB
     const freshJc1 = await JobCard.findById(jc1._id);
-    assert.strictEqual(freshJc1.status, 'Final Quality Inspection', 'Job card status must remain Final Quality Inspection');
+    assert.strictEqual(freshJc1.status, 'Pre-Delivery Inspection', 'Job card status must remain Pre-Delivery Inspection');
     console.log('✓ Database verification: Status unchanged.');
 
     // TEST 2: Block transition to "Ready for Delivery" if inspection is Failed / Rework Required
-    console.log('\n--- TEST 2: Block "Ready for Delivery" when FQI is Failed / Rework Required ---');
+    console.log('\n--- TEST 2: Block "Ready for Delivery" when PDI is Failed / Rework Required ---');
     const jc2 = await JobCard.create({
-      jobCardNo: `JC-TEST-FQI-2-${rand}`,
+      jobCardNo: `JC-TEST-PDI-2-${rand}`,
       customerId: testCustomer._id,
       vehicleId: testVehicle._id,
       serviceAdvisorId: adminUser._id,
-      status: 'Final Quality Inspection',
+      status: 'Pre-Delivery Inspection',
       time: '10:00 AM',
       qcStatus: 'Fail',
       qcRemarks: 'Brake pads need adjustment',
@@ -124,18 +124,18 @@ async function runFQIWorkflowTests() {
       assert.fail('Expected 400 rejection when moving to Ready for Delivery with Failed QC status');
     } catch (err) {
       assert.strictEqual(err.response?.status, 400, 'Must return HTTP 400');
-      assert.strictEqual(err.response?.data?.error, 'Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+      assert.strictEqual(err.response?.data?.error, 'Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
       console.log('✓ Correctly rejected transition for Failed inspection with exact message.');
     }
 
     // TEST 3: Pass inspection first, then move to "Ready for Delivery" without re-prompting
     console.log('\n--- TEST 3: Pass inspection first, then move to "Ready for Delivery" ---');
     const jc3 = await JobCard.create({
-      jobCardNo: `JC-TEST-FQI-3-${rand}`,
+      jobCardNo: `JC-TEST-PDI-3-${rand}`,
       customerId: testCustomer._id,
       vehicleId: testVehicle._id,
       serviceAdvisorId: adminUser._id,
-      status: 'Final Quality Inspection',
+      status: 'Pre-Delivery Inspection',
       time: '10:00 AM',
       qcStatus: '',
       odometerReading: 20000,
@@ -162,13 +162,13 @@ async function runFQIWorkflowTests() {
     console.log('✓ Transition to "Ready for Delivery" succeeded smoothly without re-prompting (persisted qcStatus used).');
 
     // TEST 4: Atomic Inspection Pass + Ready for Delivery in one call
-    console.log('\n--- TEST 4: Atomic FQI Pass + Ready for Delivery ---');
+    console.log('\n--- TEST 4: Atomic PDI Pass + Ready for Delivery ---');
     const jc4 = await JobCard.create({
-      jobCardNo: `JC-TEST-FQI-4-${rand}`,
+      jobCardNo: `JC-TEST-PDI-4-${rand}`,
       customerId: testCustomer._id,
       vehicleId: testVehicle._id,
       serviceAdvisorId: adminUser._id,
-      status: 'Final Quality Inspection',
+      status: 'Pre-Delivery Inspection',
       time: '10:00 AM',
       qcStatus: '',
       odometerReading: 22000,
@@ -179,15 +179,15 @@ async function runFQIWorkflowTests() {
     const atomicRes = await axios.put(`${baseUrl}/${jc4._id}`, {
       status: 'Ready for Delivery',
       qcStatus: 'Pass',
-      qcRemarks: 'Final inspection verified. Cleared for customer delivery.'
+      qcRemarks: 'Pre-delivery inspection verified. Cleared for customer delivery.'
     }, { headers: authHeaders });
     assert.strictEqual(atomicRes.status, 200);
     assert.strictEqual(atomicRes.data.status, 'Ready for Delivery');
     assert.strictEqual(atomicRes.data.qcStatus, 'Pass');
     console.log('✓ Atomic inspection pass + transition to Ready for Delivery succeeded.');
 
-    // TEST 5: Backward compatibility with legacy "Quality Test" and "Quality Check" statuses
-    console.log('\n--- TEST 5: Backward compatibility with legacy Quality Test & Quality Check ---');
+    // TEST 5: Backward compatibility with legacy "Quality Test", "Quality Check", and "Final Quality Inspection" statuses
+    console.log('\n--- TEST 5: Backward compatibility with legacy Quality Test & Final Quality Inspection ---');
     const jcLegacyTest = await JobCard.create({
       jobCardNo: `JC-TEST-LEGACY-1-${rand}`,
       customerId: testCustomer._id,
@@ -206,7 +206,7 @@ async function runFQIWorkflowTests() {
       customerId: testCustomer._id,
       vehicleId: testVehicle._id,
       serviceAdvisorId: adminUser._id,
-      status: 'Quality Check',
+      status: 'Final Quality Inspection',
       time: '10:00 AM',
       qcStatus: '',
       odometerReading: 32000,
@@ -220,17 +220,17 @@ async function runFQIWorkflowTests() {
       assert.fail('Expected rejection for legacy Quality Test without pass');
     } catch (err) {
       assert.strictEqual(err.response?.status, 400);
-      assert.strictEqual(err.response?.data?.error, 'Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
-      console.log('✓ Legacy "Quality Test" record enforces FQI pass requirement.');
+      assert.strictEqual(err.response?.data?.error, 'Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+      console.log('✓ Legacy "Quality Test" record enforces PDI pass requirement.');
     }
 
     try {
       await axios.put(`${baseUrl}/${jcLegacyCheck._id}`, { status: 'Ready for Delivery' }, { headers: authHeaders });
-      assert.fail('Expected rejection for legacy Quality Check without pass');
+      assert.fail('Expected rejection for legacy Final Quality Inspection without pass');
     } catch (err) {
       assert.strictEqual(err.response?.status, 400);
-      assert.strictEqual(err.response?.data?.error, 'Final Quality Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
-      console.log('✓ Legacy "Quality Check" record enforces FQI pass requirement.');
+      assert.strictEqual(err.response?.data?.error, 'Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+      console.log('✓ Legacy "Final Quality Inspection" record enforces PDI pass requirement.');
     }
 
     // 5b. When passed, both transition smoothly
@@ -248,15 +248,17 @@ async function runFQIWorkflowTests() {
     }, { headers: authHeaders });
     assert.strictEqual(legacyPassRes2.status, 200);
     assert.strictEqual(legacyPassRes2.data.status, 'Ready for Delivery');
-    console.log('✓ Legacy "Quality Check" record transitions to Ready for Delivery when passed.');
+    console.log('✓ Legacy "Final Quality Inspection" record transitions to Ready for Delivery when passed.');
 
-    // 5c. Query filtering with ?status=Quality Test or ?status=Final Quality Inspection
-    const queryRes = await axios.get(`${baseUrl}?status=Quality%20Test`, { headers: authHeaders });
-    assert.strictEqual(queryRes.status, 200);
-    console.log('✓ Status query filtering successfully retrieves cards across legacy and updated FQI statuses.');
+    // 5c. Query filtering with ?status=Quality Test or ?status=Pre-Delivery Inspection
+    const queryRes1 = await axios.get(`${baseUrl}?status=Quality%20Test`, { headers: authHeaders });
+    assert.strictEqual(queryRes1.status, 200);
+    const queryRes2 = await axios.get(`${baseUrl}?status=Pre-Delivery%20Inspection`, { headers: authHeaders });
+    assert.strictEqual(queryRes2.status, 200);
+    console.log('✓ Status query filtering successfully retrieves cards across legacy and updated PDI statuses.');
 
     console.log('\n========================================================================');
-    console.log('ALL FINAL QUALITY INSPECTION (FQI) TESTS PASSED SUCCESSFULLY!');
+    console.log('ALL PRE-DELIVERY INSPECTION (PDI) TESTS PASSED SUCCESSFULLY!');
     console.log('========================================================================\n');
 
   } finally {

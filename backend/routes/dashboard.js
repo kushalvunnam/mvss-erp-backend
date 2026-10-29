@@ -109,7 +109,7 @@ router.get('/stats', auth, async (req, res) => {
           { status: { $ne: 'Delivered' } },
           { updatedAt: { $gt: endOfDay } }
         ]
-      }) : JobCard.countDocuments({ status: { $in: ['Work in Progress', 'Work In Progress', 'Body Shop', 'Repair', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Ready for Delivery', 'Vehicle Ready'] } }),
+      }) : JobCard.countDocuments({ status: { $in: ['Work in Progress', 'Work In Progress', 'Body Shop', 'Repair', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready'] } }),
       
       isHistorical ? JobCard.countDocuments({
         status: 'Delivered',
