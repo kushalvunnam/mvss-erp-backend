@@ -18,6 +18,7 @@ export default function Customers({ token, user }) {
   const [customerVehicles, setCustomerVehicles] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('add'); // 'add' or 'edit'
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -33,7 +34,10 @@ export default function Customers({ token, user }) {
   const fetchCustomers = async () => {
     const url = `${API_BASE_URL}/customers?search=${encodeURIComponent(debouncedSearch)}&type=${typeFilter}`;
     const cached = getCachedData(url);
-    if (cached && customers.length === 0) setCustomers(cached);
+    if (cached && customers.length === 0) {
+      const uniqueCached = Array.from(new Map(cached.map(c => [c._id, c])).values());
+      setCustomers(uniqueCached);
+    }
 
     try {
       const res = await fetch(url, {
@@ -41,8 +45,9 @@ export default function Customers({ token, user }) {
       });
       if (res.ok) {
         const data = await res.json();
-        setCachedData(url, data);
-        setCustomers(data);
+        const uniqueData = Array.from(new Map((Array.isArray(data) ? data : []).map(c => [c._id, c])).values());
+        setCachedData(url, uniqueData);
+        setCustomers(uniqueData);
       }
     } catch (err) {
       console.error('Failed to load customers:', err);
@@ -108,6 +113,7 @@ export default function Customers({ token, user }) {
   };
 
   const handleOpenAdd = () => {
+    setIsSubmitting(false);
     setFormData({
       name: '',
       mobile: '',
@@ -125,6 +131,7 @@ export default function Customers({ token, user }) {
 
   const handleOpenEdit = (c, e) => {
     e.stopPropagation(); // prevent opening details panel
+    setIsSubmitting(false);
     setFormData({
       name: c.name,
       mobile: c.mobile,
@@ -165,6 +172,7 @@ export default function Customers({ token, user }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
 
     if (!formData.mobile) {
       alert('Please enter a valid phone number.');
@@ -191,6 +199,7 @@ export default function Customers({ token, user }) {
     
     const method = modalMode === 'add' ? 'POST' : 'PUT';
 
+    setIsSubmitting(true);
     try {
       const res = await fetch(url, {
         method,
@@ -213,7 +222,10 @@ export default function Customers({ token, user }) {
         alert(err.error || 'Operation failed');
       }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to save customer:', err);
+      alert('Network error or server unavailable. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -621,9 +633,18 @@ export default function Customers({ token, user }) {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition-all"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
                 >
-                  {modalMode === 'add' ? 'Register' : 'Save Changes'}
+                  {isSubmitting && (
+                    <svg className="animate-spin h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                  )}
+                  {isSubmitting
+                    ? (modalMode === 'add' ? 'Registering...' : 'Saving...')
+                    : (modalMode === 'add' ? 'Register' : 'Save Changes')}
                 </button>
               </div>
             </form>

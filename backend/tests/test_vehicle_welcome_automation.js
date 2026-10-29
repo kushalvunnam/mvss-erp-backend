@@ -79,7 +79,7 @@ async function runVehicleWelcomeTests() {
 
   try {
     const timestamp = Date.now();
-    const testPhone = '+918008092742';
+    const testPhone = '+9198' + String(timestamp).slice(-8);
 
     // ========================================================================
     // Scenario 1: Customer Creation without Vehicle -> MUST NOT trigger WhatsApp
@@ -105,6 +105,15 @@ async function runVehicleWelcomeTests() {
       'No WhatsApp message should be dispatched when customer is created without a vehicle'
     );
     console.log(`✔ Scenario 1 Passed: Customer created (ID=${createdCustomer._id}). Zero WhatsApp welcome messages dispatched.`);
+
+    // Sub-scenario 1b: Verify duplicate customer submission with same mobile is rejected with 409
+    try {
+      await axios.post(`${baseUrl}/customers`, customerPayload, { headers: authHeaders });
+      assert.fail('Duplicate customer creation should have thrown 409');
+    } catch (dupErr) {
+      assert.strictEqual(dupErr.response?.status, 409, 'Expected 409 Conflict for duplicate customer mobile');
+      console.log(`✔ Scenario 1b Passed: Duplicate customer creation blocked with HTTP 409: "${dupErr.response.data.error}"`);
+    }
 
     // ========================================================================
     // Scenario 2: Vehicle Creation with Linked Customer -> MUST trigger Welcome
@@ -136,7 +145,7 @@ async function runVehicleWelcomeTests() {
     const dispatch1 = capturedDispatches[capturedDispatches.length - 1];
     const template1 = dispatch1.data.template;
     assert.strictEqual(template1.name, 'mvss_welcome_customer', 'Template name must be mvss_welcome_customer');
-    assert.strictEqual(dispatch1.data.to, '918008092742', 'Recipient must be customer normalized phone');
+    assert.strictEqual(dispatch1.data.to, testPhone.replace(/\D/g, ''), 'Recipient must be customer normalized phone');
 
     const params1 = template1.components[0].parameters;
     assert.strictEqual(params1.length, 2, 'Template components must contain 2 parameters');

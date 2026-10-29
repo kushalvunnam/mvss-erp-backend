@@ -299,6 +299,30 @@ async function sendCustomerWelcomeNotification(customer, context = {}, options =
 // Create Customer
 router.post('/', auth, async (req, res) => {
   try {
+    const rawMobile = req.body.mobile ? String(req.body.mobile).trim() : '';
+    if (rawMobile) {
+      const cleanDigits = rawMobile.replace(/\D/g, '');
+      const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+      if (last10.length >= 7) {
+        const existingCustomer = await Customer.findOne({
+          $or: [
+            { mobile: rawMobile },
+            { mobile: `+91${last10}` },
+            { mobile: last10 },
+            { mobile: `91${last10}` },
+            { mobile: new RegExp(last10 + '$') }
+          ]
+        });
+
+        if (existingCustomer) {
+          return res.status(409).json({
+            error: `A customer with this mobile number is already registered (${existingCustomer.name}).`,
+            customer: existingCustomer
+          });
+        }
+      }
+    }
+
     const customer = new Customer(req.body);
     await customer.save();
     
@@ -323,7 +347,7 @@ router.post('/', auth, async (req, res) => {
     await logAction(req.user, 'CUSTOMER_CREATE', `Created customer ${customer.name} (Mobile: ${customer.mobile})`, req);
     res.status(201).send(customer);
   } catch (error) {
-    res.status(400).send({ error: 'Failed to create customer.' });
+    res.status(400).send({ error: error.message || 'Failed to create customer.' });
   }
 });
 

@@ -220,7 +220,7 @@ async function runWelcomeVehicleTests() {
 
     const regPayload = {
       name: `Kushal Welcome Test ${timestamp}`,
-      mobile: '+918008092742',
+      mobile: '+9198' + String(timestamp).slice(-8),
       type: 'Individual'
     };
 
