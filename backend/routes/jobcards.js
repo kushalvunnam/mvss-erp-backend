@@ -30,6 +30,23 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+// Dedicated Body Shop 13 Stages Workflow
+const BODY_SHOP_STAGES = [
+  'Vehicle Reported',
+  'Customer Not Responding',
+  'Survey Pending',
+  'Awaiting for Documents',
+  'Awaiting for Work Approval',
+  'Work in Progress',
+  'Part not Available',
+  'Awaiting for Reinspection',
+  'Awaiting for Delivery Order',
+  'Ready for Delivery',
+  'Delivered',
+  'Closed',
+  'Estimation Pending'
+];
+
 // Helper to auto-generate Job Card Number
 const generateJobCardNo = async () => {
   return await getNextSequence('JC', 'JobCard');
@@ -44,6 +61,17 @@ router.get('/', auth, async (req, res) => {
     if (status) {
       if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(status)) {
         query.status = { $in: ['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'] };
+      } else if (status === 'Body Shop') {
+        query.$or = [
+          { status: 'Body Shop' },
+          { bodyShopStatus: { $exists: true, $ne: '' } }
+        ];
+      } else if (BODY_SHOP_STAGES.includes(status)) {
+        query.$or = [
+          { status: 'Body Shop', bodyShopStatus: status },
+          { bodyShopStatus: status },
+          { status: status }
+        ];
       } else {
         query.status = status;
       }
@@ -80,7 +108,7 @@ router.get('/', auth, async (req, res) => {
     }
 
     const jobCards = await JobCard.find(query)
-      .select('jobCardNo status vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails')
+      .select('jobCardNo status bodyShopStatus bodyShopStage vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails')
       .populate('customerId')
       .populate('vehicleId')
       .populate('serviceAdvisorId', 'name')
@@ -251,20 +279,26 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
         const timeStr = today.toTimeString().split(' ')[0].slice(0, 5); // HH:MM
 
         const initialStatus = req.body.status || 'Waiting for Customer Approval';
-        const retiredStages = ['Quality Check', 'Body Shop', 'Bodyshop', 'Repair'];
+        const retiredStages = ['Quality Check', 'Repair'];
         if (retiredStages.includes(initialStatus)) {
           return res.status(400).send({
             error: `The stage "${initialStatus}" has been removed from the active workflow. Please select a valid stage.`
           });
         }
+        const initialBodyShopStatus = (initialStatus === 'Body Shop' || req.body.bodyShopStatus)
+          ? (req.body.bodyShopStatus || 'Vehicle Reported')
+          : '';
+
         const jobCardData = {
           ...req.body,
           jobCardNo: currentJobCardNo,
           time: req.body.time || timeStr,
           serviceAdvisorId: req.user._id,
           status: initialStatus,
+          bodyShopStatus: initialBodyShopStatus,
+          bodyShopStage: initialBodyShopStatus,
           statusHistory: [{
-            status: initialStatus,
+            status: initialStatus === 'Body Shop' ? `Body Shop (${initialBodyShopStatus})` : initialStatus,
             changedAt: new Date(),
             changedBy: req.user ? req.user.name : 'System',
             remarks: 'Initial Job Card Creation'
@@ -435,7 +469,52 @@ router.put('/:id', auth, async (req, res) => {
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
 
     let statusChanged = false;
-    if (req.body.status && req.body.status !== jobCard.status) {
+    const requestedStatus = req.body.status;
+    const requestedBodyShopStatus = req.body.bodyShopStatus || req.body.bodyShopStage;
+    const isBodyShopRequest = requestedStatus === 'Body Shop' || 
+                              req.body.isBodyShop === true || 
+                              Boolean(requestedBodyShopStatus) || 
+                              (BODY_SHOP_STAGES.includes(requestedStatus) && jobCard.status === 'Body Shop');
+
+    if (isBodyShopRequest) {
+      // Role check: Admin, Service Advisor, Workshop Manager, Branch Manager, Body Shop can update the status.
+      const allowedRoles = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager', 'Body Shop'];
+      if (!allowedRoles.includes(req.user?.role)) {
+        return res.status(403).send({ error: 'You do not have permission to update the Job Card workflow status.' });
+      }
+
+      let targetStage = '';
+      if (requestedBodyShopStatus && BODY_SHOP_STAGES.includes(requestedBodyShopStatus)) {
+        targetStage = requestedBodyShopStatus;
+      } else if (BODY_SHOP_STAGES.includes(requestedStatus)) {
+        targetStage = requestedStatus;
+      } else {
+        targetStage = jobCard.bodyShopStatus || 'Vehicle Reported';
+      }
+
+      const isStatusDifferent = jobCard.status !== 'Body Shop';
+      const isStageDifferent = jobCard.bodyShopStatus !== targetStage;
+
+      if (isStatusDifferent || isStageDifferent) {
+        statusChanged = true;
+        const oldDisplay = jobCard.status === 'Body Shop'
+          ? `Body Shop (${jobCard.bodyShopStatus || 'Vehicle Reported'})`
+          : jobCard.status;
+        const newDisplay = `Body Shop (${targetStage})`;
+
+        jobCard.status = 'Body Shop';
+        jobCard.bodyShopStatus = targetStage;
+        jobCard.bodyShopStage = targetStage;
+
+        jobCard.statusHistory.push({
+          status: newDisplay,
+          previousStatus: oldDisplay,
+          changedAt: new Date(),
+          changedBy: req.user ? req.user.name : 'System',
+          remarks: req.body.statusRemarks || `Body Shop stage updated to ${targetStage}`
+        });
+      }
+    } else if (req.body.status && req.body.status !== jobCard.status) {
       statusChanged = true;
       const newStatus = req.body.status;
       const oldStatus = jobCard.status;
@@ -448,7 +527,7 @@ router.put('/:id', auth, async (req, res) => {
       }
 
       // Check for retired stages
-      const retiredStages = ['Quality Check', 'Body Shop', 'Bodyshop', 'Repair'];
+      const retiredStages = ['Quality Check', 'Repair'];
       if (retiredStages.includes(newStatus)) {
         return res.status(400).send({
           error: `The stage "${newStatus}" has been removed from the active workflow. Please select a valid stage (e.g. Waiting for Allotment, Allotted, Parts Procuring, Work in Progress, Pre-Delivery Inspection, Ready for Delivery).`
@@ -491,17 +570,25 @@ router.put('/:id', auth, async (req, res) => {
         }
       }
 
+      const oldDisplay = oldStatus === 'Body Shop'
+        ? `Body Shop (${jobCard.bodyShopStatus || 'Vehicle Reported'})`
+        : oldStatus;
+
+      jobCard.status = newStatus;
       jobCard.statusHistory.push({
         status: newStatus,
-        previousStatus: oldStatus,
+        previousStatus: oldDisplay,
         changedAt: new Date(),
         changedBy: req.user ? req.user.name : 'System',
-        remarks: req.body.statusRemarks || `Status changed from ${oldStatus} to ${newStatus}`
+        remarks: req.body.statusRemarks || `Status changed from ${oldDisplay} to ${newStatus}`
       });
     }
 
     // Apply updates
     const updates = { ...req.body };
+    delete updates.status;
+    delete updates.bodyShopStatus;
+    delete updates.bodyShopStage;
     delete updates.statusHistory;
     delete updates.statusRemarks;
 
@@ -703,7 +790,7 @@ router.get('/search', auth, async (req, res) => {
 
     // Limit results for dropdown search (max 50 for rapid rendering)
     const jobCards = await JobCard.find(query)
-      .select('jobCardNo status vehicleId customerId date createdAt')
+      .select('jobCardNo status bodyShopStatus bodyShopStage vehicleId customerId date createdAt')
       .populate('customerId', 'name companyName mobile')
       .populate('vehicleId', 'vehicleNumber make model')
       .sort({ createdAt: -1 })

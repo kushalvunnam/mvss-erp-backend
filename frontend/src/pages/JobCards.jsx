@@ -5,6 +5,7 @@ import JobCardForm from './JobCardForm';
 import JobCardDetails from './JobCardDetails';
 
 import { getCachedData, setCachedData, invalidateCache } from '../utils/apiCache';
+import BodyShopStatusModal, { BODY_SHOP_STAGES } from '../components/BodyShopStatusModal';
 
 export default function JobCards({ token, user, setActiveTab, viewJcId = null, setViewJcId = null }) {
   const [jobCards, setJobCards] = useState(() => getCachedData(`${API_BASE_URL}/jobcards?search=&status=`) || []);
@@ -14,6 +15,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit', 'details'
   const [selectedJcId, setSelectedJcId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [bodyShopModalJc, setBodyShopModalJc] = useState(null);
 
   // If a global viewJcId is passed down, open details immediately
   useEffect(() => {
@@ -169,6 +171,52 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
 
   const handleStatusChange = async (jcId, newStatus) => {
     const currentJc = jobCards.find(j => j._id === jcId);
+
+    // If opening dedicated Body Shop workflow modal
+    if (newStatus === 'Body Shop') {
+      if (currentJc) {
+        setBodyShopModalJc(currentJc);
+      }
+      return;
+    }
+
+    // If changing to a specific Body Shop stage (prefixed with BS:)
+    if (newStatus.startsWith('BS:')) {
+      const targetStage = newStatus.replace('BS:', '');
+      if (currentJc && currentJc.status === 'Body Shop' && (currentJc.bodyShopStatus === targetStage || currentJc.bodyShopStage === targetStage)) {
+        return;
+      }
+      const remarks = window.prompt(`Enter optional remarks for updating Body Shop stage to "${targetStage}":`);
+      if (remarks === null) return; // cancelled
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            status: 'Body Shop',
+            bodyShopStatus: targetStage,
+            bodyShopStage: targetStage,
+            statusRemarks: remarks ? remarks.trim() : `Body Shop stage updated to ${targetStage}`
+          })
+        });
+        if (res.ok) {
+          invalidateCache('service-history');
+          fetchJobCards();
+        } else {
+          const errObj = await res.json().catch(() => ({}));
+          alert(errObj.error || 'Failed to update Body Shop stage.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Failed to connect to the server.');
+      }
+      return;
+    }
+
     if (currentJc && currentJc.status === newStatus) return;
 
     if (['Ready for Delivery', 'Vehicle Ready'].includes(newStatus)) {
@@ -240,18 +288,26 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
           className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-750 dark:text-slate-300 text-xs font-bold focus:outline-none focus:border-indigo-500"
         >
           <option value="">All Card Statuses</option>
-          <option value="Created">Created</option>
-          <option value="Inspect Stage">Inspect Stage</option>
-          <option value="Estimation">Estimation</option>
-          <option value="Waiting for Customer Approval">Waiting for Customer Approval</option>
-          <option value="Waiting for Allotment">Waiting for Allotment</option>
-          <option value="Allotted">Allotted</option>
-          <option value="Parts Procuring">Parts Procuring</option>
-          <option value="Work in Progress">Work in Progress</option>
-          <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
-          <option value="Ready for Delivery">Ready for Delivery</option>
-          <option value="Delivered">Delivered</option>
-          <option value="Closed">Closed</option>
+          <optgroup label="General Service Workflow">
+            <option value="Created">Created</option>
+            <option value="Inspect Stage">Inspect Stage</option>
+            <option value="Estimation">Estimation</option>
+            <option value="Waiting for Customer Approval">Waiting for Customer Approval</option>
+            <option value="Waiting for Allotment">Waiting for Allotment</option>
+            <option value="Allotted">Allotted</option>
+            <option value="Parts Procuring">Parts Procuring</option>
+            <option value="Work in Progress">Work in Progress</option>
+            <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
+            <option value="Ready for Delivery">Ready for Delivery</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Closed">Closed</option>
+          </optgroup>
+          <optgroup label="Body Shop Workflow (13 Stages)">
+            <option value="Body Shop">All Body Shop Cards</option>
+            {BODY_SHOP_STAGES.map((stg, i) => (
+              <option key={stg} value={stg}>{i + 1}. {stg}</option>
+            ))}
+          </optgroup>
         </select>
       </div>
 
@@ -288,6 +344,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
             else if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
             else if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
             else if (['Delivered', 'Closed'].includes(jc.status)) statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
+            else if (jc.status === 'Body Shop') statusColor = 'bg-fuchsia-50 dark:bg-fuchsia-950/30 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-300/50';
 
             return (
               <div
@@ -300,30 +357,76 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                     <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">{jc.jobCardNo}</span>
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                       {isAuthorizedToEdit ? (
-                        <select
-                          value={jc.status}
-                          onChange={(e) => handleStatusChange(jc._id, e.target.value)}
-                          className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 border ${statusColor}`}
-                        >
-                          <option value="Created">⚪ Created</option>
-                          <option value="Inspect Stage">🔍 Inspect Stage</option>
-                          <option value="Estimation">📝 Estimation</option>
-                          <option value="Waiting for Customer Approval">🟣 Waiting for Customer Approval</option>
-                          <option value="Waiting for Allotment">🕒 Waiting for Allotment</option>
-                          <option value="Allotted">📋 Allotted</option>
-                          <option value="Parts Procuring">🟠 Parts Procuring</option>
-                          <option value="Work in Progress">🔵 Work in Progress</option>
-                          <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
-                          <option value="Ready for Delivery">🟢 Ready for Delivery</option>
-                          <option value="Delivered">✅ Delivered</option>
-                          <option value="Closed">⬛ Closed</option>
-                          {!['Created', 'Inspect Stage', 'Estimation', 'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed'].includes(jc.status) && (
-                            <option value={jc.status}>{jc.status}</option>
-                          )}
-                        </select>
+                        jc.status === 'Body Shop' ? (
+                          <div className="flex items-center gap-1">
+                            <select
+                              value={`BS:${jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'}`}
+                              onChange={(e) => handleStatusChange(jc._id, e.target.value)}
+                              className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-fuchsia-500 border ${statusColor}`}
+                              title="Body Shop Stage - Click to change"
+                            >
+                              <optgroup label="Body Shop Stages (13 Stages)">
+                                {BODY_SHOP_STAGES.map((stg, i) => (
+                                  <option key={stg} value={`BS:${stg}`}>
+                                    🚗 {i + 1}. {stg}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Switch to General Service">
+                                <option value="Created">⚪ Created</option>
+                                <option value="Inspect Stage">🔍 Inspect Stage</option>
+                                <option value="Estimation">📝 Estimation</option>
+                                <option value="Waiting for Customer Approval">🟣 Waiting for Customer Approval</option>
+                                <option value="Waiting for Allotment">🕒 Waiting for Allotment</option>
+                                <option value="Allotted">📋 Allotted</option>
+                                <option value="Parts Procuring">🟠 Parts Procuring</option>
+                                <option value="Work in Progress">🔵 Work in Progress</option>
+                                <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
+                                <option value="Ready for Delivery">🟢 Ready for Delivery</option>
+                                <option value="Delivered">✅ Delivered</option>
+                                <option value="Closed">⬛ Closed</option>
+                              </optgroup>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setBodyShopModalJc(jc); }}
+                              className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-fuchsia-600 hover:bg-fuchsia-700 text-white shadow-xs"
+                              title="Open Body Shop Workflow Modal"
+                            >
+                              ⚙️
+                            </button>
+                          </div>
+                        ) : (
+                          <select
+                            value={jc.status}
+                            onChange={(e) => handleStatusChange(jc._id, e.target.value)}
+                            className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 border ${statusColor}`}
+                          >
+                            <option value="Created">⚪ Created</option>
+                            <option value="Inspect Stage">🔍 Inspect Stage</option>
+                            <option value="Estimation">📝 Estimation</option>
+                            <option value="Waiting for Customer Approval">🟣 Waiting for Customer Approval</option>
+                            <option value="Waiting for Allotment">🕒 Waiting for Allotment</option>
+                            <option value="Allotted">📋 Allotted</option>
+                            <option value="Parts Procuring">🟠 Parts Procuring</option>
+                            <option value="Work in Progress">🔵 Work in Progress</option>
+                            <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
+                            <option value="Ready for Delivery">🟢 Ready for Delivery</option>
+                            <option value="Delivered">✅ Delivered</option>
+                            <option value="Closed">⬛ Closed</option>
+                            <option value="Body Shop">🚗 Body Shop (13 Stages)...</option>
+                            {!['Created', 'Inspect Stage', 'Estimation', 'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed', 'Body Shop'].includes(jc.status) && (
+                              <option value={jc.status}>{jc.status}</option>
+                            )}
+                          </select>
+                        )
                       ) : (
                         <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${statusColor}`}>
-                          {['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status) ? 'Pre-Delivery Inspection (PDI)' : jc.status}
+                          {jc.status === 'Body Shop'
+                            ? `🚗 ${jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'}`
+                            : ['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)
+                            ? 'Pre-Delivery Inspection (PDI)'
+                            : jc.status}
                         </span>
                       )}
                     </div>
@@ -380,6 +483,19 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
           </div>
         )}
       </div>
+
+      {/* Body Shop Status Workflow Modal */}
+      <BodyShopStatusModal
+        jobCard={bodyShopModalJc}
+        token={token}
+        user={user}
+        isOpen={Boolean(bodyShopModalJc)}
+        onClose={() => setBodyShopModalJc(null)}
+        onSuccess={() => {
+          setBodyShopModalJc(null);
+          fetchJobCards();
+        }}
+      />
     </div>
   );
 }

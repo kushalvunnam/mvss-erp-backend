@@ -226,11 +226,40 @@ const JobCardSchema = new mongoose.Schema({
     default: '',
   },
 
+  bodyShopStatus: {
+    type: String,
+    enum: [
+      '',
+      'Vehicle Reported',
+      'Customer Not Responding',
+      'Survey Pending',
+      'Awaiting for Documents',
+      'Awaiting for Work Approval',
+      'Work in Progress',
+      'Part not Available',
+      'Awaiting for Reinspection',
+      'Awaiting for Delivery Order',
+      'Ready for Delivery',
+      'Delivered',
+      'Closed',
+      'Estimation Pending'
+    ],
+    default: '',
+    trim: true,
+  },
+
+  bodyShopStage: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+
   status: {
     type: String,
     enum: [
       'Created', 'Inspect Stage', 'Estimation', 'Customer Approval', 'Work In Progress', 'Body Shop', 'Surveyor Approval', 'Repair', 'Quality Check', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed',
-      'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection'
+      'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection',
+      'Vehicle Reported', 'Customer Not Responding', 'Survey Pending', 'Awaiting for Documents', 'Awaiting for Work Approval', 'Part not Available', 'Awaiting for Reinspection', 'Awaiting for Delivery Order', 'Estimation Pending'
     ],
     default: 'Waiting for Customer Approval',
   },
@@ -386,6 +415,7 @@ JobCardSchema.pre('save', function(next) {
 });
 
 JobCardSchema.index({ status: 1 });
+JobCardSchema.index({ bodyShopStatus: 1 });
 JobCardSchema.index({ status: 1, updatedAt: 1 });
 JobCardSchema.index({ createdAt: 1 });
 

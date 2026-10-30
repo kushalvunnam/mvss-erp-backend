@@ -15,17 +15,27 @@ import {
   Users,
   Receipt,
   Trash2,
-  CreditCard
+  CreditCard,
+  Wrench,
+  X
 } from 'lucide-react';
+import BodyShopStatusModal, { BODY_SHOP_STAGES } from '../components/BodyShopStatusModal';
 
-const formatStatusLabel = (status) => {
+const formatStatusLabel = (status, jc) => {
   if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(status)) {
     return 'Pre-Delivery Inspection (PDI)';
+  }
+  if (status === 'Body Shop') {
+    const stage = jc?.bodyShopStatus || jc?.bodyShopStage;
+    return stage ? `Body Shop (${stage})` : 'Body Shop';
   }
   return status;
 };
 
 const getStatusBadgeClass = (status) => {
+  if (status && (status.startsWith('Body Shop') || status.startsWith('🚗 Body Shop'))) {
+    return 'bg-fuchsia-50 dark:bg-fuchsia-950/30 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-300/50';
+  }
   switch (status) {
     case 'Created':
       return 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
@@ -45,17 +55,19 @@ const getStatusBadgeClass = (status) => {
     case 'Work In Progress':
     case 'Work in Progress':
       return 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200/50';
+    case 'Body Shop':
+      return 'bg-fuchsia-50 dark:bg-fuchsia-950/30 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-300/50';
     case 'Quality Check':
     case 'Quality Test':
     case 'Final Quality Inspection':
     case 'Pre-Delivery Inspection':
-      return 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border-yellow-200/50';
+      return 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
     case 'Ready for Delivery':
     case 'Vehicle Ready':
       return 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-200/50';
     case 'Delivered':
     case 'Closed':
-      return 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200/50';
+      return 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
     default:
       return 'bg-slate-50 dark:bg-slate-950/20 text-slate-700 dark:text-slate-400 border-slate-200/50';
   }
@@ -69,6 +81,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const [estimate, setEstimate] = useState(null);
   const [qtyInputs, setQtyInputs] = useState({});
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showBodyShopModal, setShowBodyShopModal] = useState(false);
   const [modalData, setModalData] = useState({
     technicianRemarks: '',
     estimatedCompletionDate: '',
@@ -757,6 +770,16 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               Submit to Pre-Delivery Inspection (PDI)
             </button>
           )}
+          {(jc.status === 'Body Shop' || jc.workCategory === 'B/P') && (
+            <button
+              onClick={() => setShowBodyShopModal(true)}
+              disabled={updating}
+              className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-fuchsia-600/15"
+              title="Manage Body Shop Stage"
+            >
+              🚗 Body Shop Stage: {jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'} ▾
+            </button>
+          )}
           {jc.status === 'Body Shop' && (
             <button
               onClick={() => updateStatus('Quality Test')}
@@ -893,50 +916,114 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             <div className="text-xs text-slate-400 font-semibold mt-1.5 flex items-center justify-end gap-1.5 select-none">
               <span>Status:</span>
               {['Super Admin', 'Admin', 'Branch Manager', 'Service Advisor', 'Workshop Manager', 'Body Shop'].includes(user?.role) ? (
-                <select
-                  value={jc.status}
-                  onChange={(e) => {
-                    const nextStatus = e.target.value;
-                    if (['Ready for Delivery', 'Vehicle Ready'].includes(nextStatus) && jc.qcStatus !== 'Pass') {
-                      alert('Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
-                      setShowUpdateModal(true);
-                      return;
-                    }
-                    const confirmChange = window.confirm(`Are you sure you want to update the job card status to "${formatStatusLabel(nextStatus)}"?`);
-                    if (confirmChange) {
-                      updateStatus(nextStatus);
-                    }
-                  }}
-                  className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-805 dark:text-white font-bold text-xs uppercase tracking-wider focus:outline-none"
-                >
-                  {(() => {
-                    const activeWorkflowStages = [
-                      'Created',
-                      'Inspect Stage',
-                      'Estimation',
-                      'Waiting for Customer Approval',
-                      'Waiting for Allotment',
-                      'Allotted',
-                      'Parts Procuring',
-                      'Work in Progress',
-                      'Quality Test',
-                      'Ready for Delivery',
-                      'Delivered',
-                      'Closed'
-                    ];
-                    // If current status is a historical stage (e.g. Body Shop, Repair, Quality Check), keep it visible as current value
-                    const statusList = activeWorkflowStages.includes(jc.status)
-                      ? activeWorkflowStages
-                      : [jc.status, ...activeWorkflowStages];
+                jc.status === 'Body Shop' ? (
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={`BS:${jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'}`}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.startsWith('BS:')) {
+                          const stage = val.replace('BS:', '');
+                          updateFields({
+                            status: 'Body Shop',
+                            bodyShopStatus: stage,
+                            bodyShopStage: stage,
+                            statusRemarks: `Body Shop stage changed to ${stage}`
+                          });
+                        } else {
+                          const confirmChange = window.confirm(`Are you sure you want to change status to "${formatStatusLabel(val)}"?`);
+                          if (confirmChange) {
+                            updateStatus(val);
+                          }
+                        }
+                      }}
+                      className="bg-fuchsia-50 dark:bg-fuchsia-950/40 border border-fuchsia-300 dark:border-fuchsia-700 text-fuchsia-800 dark:text-fuchsia-200 rounded-lg px-2 py-1 font-bold text-xs uppercase tracking-wider focus:outline-none"
+                    >
+                      <optgroup label="Body Shop Stages (13 Stages)">
+                        {BODY_SHOP_STAGES.map((stg, idx) => (
+                          <option key={stg} value={`BS:${stg}`}>
+                            🚗 {idx + 1}. {stg}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Switch to General Service">
+                        <option value="Created">Created</option>
+                        <option value="Inspect Stage">Inspect Stage</option>
+                        <option value="Estimation">Estimation</option>
+                        <option value="Waiting for Customer Approval">Waiting for Customer Approval</option>
+                        <option value="Waiting for Allotment">Waiting for Allotment</option>
+                        <option value="Allotted">Allotted</option>
+                        <option value="Parts Procuring">Parts Procuring</option>
+                        <option value="Work in Progress">Work in Progress</option>
+                        <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
+                        <option value="Ready for Delivery">Ready for Delivery</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Closed">Closed</option>
+                      </optgroup>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowBodyShopModal(true)}
+                      className="p-1 px-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-bold shadow-sm"
+                      title="Manage Body Shop Stage & Remarks"
+                    >
+                      Manage ⚙️
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={jc.status}
+                    onChange={(e) => {
+                      const nextStatus = e.target.value;
+                      if (nextStatus === 'Body Shop') {
+                        setShowBodyShopModal(true);
+                        return;
+                      }
+                      if (['Ready for Delivery', 'Vehicle Ready'].includes(nextStatus) && jc.qcStatus !== 'Pass') {
+                        alert('Pre-Delivery Inspection must be marked as Passed before this vehicle can be moved to Ready for Delivery. Please complete and save the inspection result.');
+                        setShowUpdateModal(true);
+                        return;
+                      }
+                      const confirmChange = window.confirm(`Are you sure you want to update the job card status to "${formatStatusLabel(nextStatus)}"?`);
+                      if (confirmChange) {
+                        updateStatus(nextStatus);
+                      }
+                    }}
+                    className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-805 dark:text-white font-bold text-xs uppercase tracking-wider focus:outline-none"
+                  >
+                    {(() => {
+                      const activeWorkflowStages = [
+                        'Created',
+                        'Inspect Stage',
+                        'Estimation',
+                        'Waiting for Customer Approval',
+                        'Waiting for Allotment',
+                        'Allotted',
+                        'Parts Procuring',
+                        'Work in Progress',
+                        'Quality Test',
+                        'Ready for Delivery',
+                        'Delivered',
+                        'Closed',
+                        'Body Shop'
+                      ];
+                      const statusList = activeWorkflowStages.includes(jc.status)
+                        ? activeWorkflowStages
+                        : [jc.status, ...activeWorkflowStages];
 
-                    return statusList.map(statusOpt => (
-                      <option key={statusOpt} value={statusOpt}>{formatStatusLabel(statusOpt)}</option>
-                    ));
-                  })()}
-                </select>
+                      return statusList.map(statusOpt => (
+                        <option key={statusOpt} value={statusOpt}>
+                          {statusOpt === 'Body Shop' ? '🚗 Body Shop (13 Stages)...' : formatStatusLabel(statusOpt, jc)}
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                )
               ) : (
                 <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] uppercase border ${getStatusBadgeClass(jc.status)}`}>
-                  {formatStatusLabel(jc.status)}
+                  {jc.status === 'Body Shop'
+                    ? `🚗 Body Shop: ${jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'}`
+                    : formatStatusLabel(jc.status, jc)}
                 </span>
               )}
             </div>
@@ -2045,6 +2132,18 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         </div>
       )}
 
+      {/* Body Shop Status Workflow Modal */}
+      <BodyShopStatusModal
+        jobCard={jc}
+        token={token}
+        user={user}
+        isOpen={showBodyShopModal}
+        onClose={() => setShowBodyShopModal(false)}
+        onSuccess={() => {
+          setShowBodyShopModal(false);
+          fetchDetails();
+        }}
+      />
     </div>
   );
 }
