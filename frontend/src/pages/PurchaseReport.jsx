@@ -45,6 +45,21 @@ export default function PurchaseReport({ token, user }) {
   const [loading, setLoading] = useState(false);
   const [brokenAttachments, setBrokenAttachments] = useState({});
   const [error, setError] = useState('');
+  const [uploadingPurchaseId, setUploadingPurchaseId] = useState(null);
+  const directFileInputRef = useRef(null);
+  const [targetPurchaseForUpload, setTargetPurchaseForUpload] = useState(null);
+
+  const hasValidAttachment = (p) => {
+    if (!p) return false;
+    if (p.attachments && Array.isArray(p.attachments) && p.attachments.length > 0) {
+      return p.attachments.some(a => a && a.key && !['undefined', 'null'].includes(a.key));
+    }
+    if (p.attachmentUrl) {
+      const raw = p.attachmentUrl.trim();
+      return raw !== '' && !['undefined', '/api/purchases/attachment/undefined', 'null'].includes(raw);
+    }
+    return false;
+  };
 
   const getAttachmentSrc = (urlOrKey) => {
     if (!urlOrKey) return '';
@@ -69,21 +84,93 @@ export default function PurchaseReport({ token, user }) {
     return src;
   };
 
-  const handleViewAttachment = async (e, url) => {
+  const handleViewAttachment = async (e, purchaseOrUrl, index = 0) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!url) return;
-    const src = getAttachmentSrc(url);
+    if (!purchaseOrUrl) return;
+
+    let src = '';
+    let purchaseId = null;
+
+    if (purchaseOrUrl && typeof purchaseOrUrl === 'object') {
+      purchaseId = purchaseOrUrl._id;
+      src = `${API_BASE_URL}/purchases/${purchaseId}/attachment?index=${index}&token=${token}`;
+    } else if (typeof purchaseOrUrl === 'string' && purchaseOrUrl.match(/^[a-f\d]{24}$/i)) {
+      src = `${API_BASE_URL}/purchases/attachment/${purchaseOrUrl}?token=${token}`;
+    } else {
+      src = getAttachmentSrc(purchaseOrUrl);
+    }
+
     try {
       const res = await fetch(src, { method: 'HEAD' });
-      if (res.status === 404) {
-        setBrokenAttachments(prev => ({ ...prev, [url]: true }));
-        alert('Attachment unavailable — file is missing from storage.');
+      if (res.status === 404 || res.status === 400) {
+        const errorKey = purchaseId || purchaseOrUrl;
+        setBrokenAttachments(prev => ({ ...prev, [errorKey]: true }));
+        alert('Attachment unavailable — file is missing from persistent storage. Please use the "Upload Invoice" button to re-attach the vendor invoice.');
         return;
       }
     } catch (err) {
       console.warn('Failed to verify attachment status:', err);
     }
     window.open(src, '_blank');
+  };
+
+  const triggerReupload = (purchase) => {
+    setTargetPurchaseForUpload(purchase);
+    if (directFileInputRef.current) {
+      directFileInputRef.current.value = '';
+      directFileInputRef.current.click();
+    }
+  };
+
+  const handleDirectInvoiceUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !targetPurchaseForUpload) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Invalid file format. Please upload JPG, PNG, WEBP, or PDF.');
+      return;
+    }
+
+    const purchaseId = targetPurchaseForUpload._id;
+    setUploadingPurchaseId(purchaseId);
+
+    try {
+      const formData = new FormData();
+      formData.append('attachment', file);
+
+      const res = await fetch(`${API_BASE_URL}/purchases/${purchaseId}/reupload-attachment`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPurchaseHistory(prev => prev.map(p => p._id === purchaseId ? data.purchase : p));
+        if (selectedVoucher && selectedVoucher._id === purchaseId) {
+          setSelectedVoucher(data.purchase);
+        }
+        setBrokenAttachments(prev => {
+          const next = { ...prev };
+          delete next[purchaseId];
+          if (data.purchase.attachmentUrl) delete next[data.purchase.attachmentUrl];
+          return next;
+        });
+        alert(`Invoice "${file.name}" uploaded and attached successfully!`);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to upload invoice: ${errData.error || res.statusText}`);
+      }
+    } catch (err) {
+      console.error('Error uploading invoice attachment:', err);
+      alert('Failed to upload invoice attachment due to network error.');
+    } finally {
+      setUploadingPurchaseId(null);
+      setTargetPurchaseForUpload(null);
+    }
   };
 
   // Filtering & Search for History & Reports
@@ -1340,6 +1427,15 @@ export default function PurchaseReport({ token, user }) {
 
   return (
     <div className="space-y-6 animate-fade-in p-1 print:p-0">
+      {/* Hidden file input for direct invoice attachment & re-upload */}
+      <input
+        type="file"
+        ref={directFileInputRef}
+        onChange={handleDirectInvoiceUpload}
+        accept=".pdf,.jpg,.jpeg,.png,.webp"
+        style={{ display: 'none' }}
+      />
+
       {/* Module Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
         <div>
@@ -2279,37 +2375,49 @@ export default function PurchaseReport({ token, user }) {
 
                             <td className="py-3 px-4 text-slate-800 dark:text-slate-300">
                               <div className="font-mono font-bold">{p.invoiceNo || 'N/A'}</div>
-                              {((p.attachments && p.attachments.length > 0) || p.attachmentUrl) ? (
-                                <div className="flex flex-col items-start gap-1">
-                                  {(p.attachments && p.attachments.length > 0
-                                    ? p.attachments.map(att => ({ url: att.key, name: att.originalName, type: att.mimeType }))
-                                    : [{ url: p.attachmentUrl, name: p.attachmentName || 'Attachment', type: p.attachmentType || 'image/jpeg' }]
-                                  ).map((att, idx) => {
-                                    if (brokenAttachments[att.url]) {
-                                      return (
-                                        <div key={idx} className="text-[10px] text-red-500 font-semibold mt-1">
-                                          Attachment unavailable — file is missing from storage.
-                                        </div>
-                                      );
-                                    }
-                                    return (
-                                      <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={(e) => handleViewAttachment(e, att.url)}
-                                        className="inline-flex items-center gap-1 mt-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/20 text-indigo-650 dark:text-indigo-400 rounded-lg text-[10px] font-black transition-all"
-                                        title={`View/Download Document: ${att.name || 'Attachment'}`}
-                                      >
-                                        📎 View Invoice {p.attachments && p.attachments.length > 1 ? `#${idx + 1}` : ''}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <div className="text-[10px] text-slate-400 italic font-semibold mt-1">
-                                  No Invoice Attached
-                                </div>
-                              )}
+                              <div className="flex flex-col items-start gap-1 mt-1">
+                                {hasValidAttachment(p) && !brokenAttachments[p._id] && !brokenAttachments[p.attachmentUrl] ? (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleViewAttachment(e, p)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/20 text-indigo-650 dark:text-indigo-400 rounded-lg text-[10px] font-black transition-all"
+                                      title={`View/Download Document: ${p.attachmentName || 'Invoice'}`}
+                                    >
+                                      📎 View Invoice {p.attachments && p.attachments.length > 1 ? `(${p.attachments.length})` : ''}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => triggerReupload(p)}
+                                      disabled={uploadingPurchaseId === p._id}
+                                      className="text-[10px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 underline font-semibold transition-colors"
+                                      title="Replace invoice file"
+                                    >
+                                      {uploadingPurchaseId === p._id ? 'Uploading...' : 'Replace'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col items-start gap-1">
+                                    {(p.attachmentUrl && p.attachmentUrl.startsWith('/uploads/')) || brokenAttachments[p._id] || brokenAttachments[p.attachmentUrl] ? (
+                                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                        ⚠️ Attachment unavailable
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 italic font-semibold">
+                                        No Invoice Attached
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => triggerReupload(p)}
+                                      disabled={uploadingPurchaseId === p._id}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/30 text-indigo-650 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/50 rounded text-[10px] font-bold transition-all"
+                                    >
+                                      📤 {uploadingPurchaseId === p._id ? 'Uploading...' : ((p.attachmentUrl && p.attachmentUrl.startsWith('/uploads/')) || brokenAttachments[p._id] ? 'Re-upload Invoice' : 'Upload Invoice')}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
                             <td className="py-3 px-4">
@@ -2858,23 +2966,39 @@ export default function PurchaseReport({ token, user }) {
               </div>
 
               {/* Document Attachment Display in Voucher */}
-              {((selectedVoucher.attachments && selectedVoucher.attachments.length > 0) || selectedVoucher.attachmentUrl) && (
-                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 print:hidden text-xs">
-                  <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-2 tracking-wider">
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 print:hidden text-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
                     Attached Document(s)
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => triggerReupload(selectedVoucher)}
+                    disabled={uploadingPurchaseId === selectedVoucher._id}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/30 text-indigo-650 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/50 rounded-lg text-xs font-bold transition-all"
+                  >
+                    📤 {uploadingPurchaseId === selectedVoucher._id ? 'Uploading...' : (hasValidAttachment(selectedVoucher) ? 'Re-upload / Replace Invoice' : 'Upload Invoice')}
+                  </button>
+                </div>
+                {hasValidAttachment(selectedVoucher) && !brokenAttachments[selectedVoucher._id] ? (
                   <div className="grid grid-cols-1 gap-4">
                     {(selectedVoucher.attachments && selectedVoucher.attachments.length > 0
                       ? selectedVoucher.attachments.map(att => ({ url: att.key, name: att.originalName, type: att.mimeType }))
                       : [{ url: selectedVoucher.attachmentUrl, name: selectedVoucher.attachmentName || 'purchase_document', type: selectedVoucher.attachmentType || 'image/jpeg' }]
                     ).map((att, idx) => (
                       <div key={idx} className="flex flex-col gap-2 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                        <a href={getAttachmentSrc(att.url)} onClick={(e) => handleViewAttachment(e, att.url)} target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-1.5 break-all">
-                          📎 {att.name || `Attachment ${idx + 1}`}
-                        </a>
-                        {brokenAttachments[att.url] ? (
-                          <div className="text-slate-400 dark:text-slate-500 text-[10px] font-bold p-3 bg-slate-100 dark:bg-slate-850 rounded-lg text-center">
-                            Attachment unavailable — file is missing from storage.
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={(e) => handleViewAttachment(e, selectedVoucher, idx)}
+                            className="font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-1.5 break-all text-xs text-left"
+                          >
+                            📎 {att.name || `Attachment ${idx + 1}`} (Click to View / Download)
+                          </button>
+                        </div>
+                        {brokenAttachments[selectedVoucher._id] || brokenAttachments[att.url] ? (
+                          <div className="text-amber-600 dark:text-amber-400 text-[10px] font-bold p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg text-center">
+                            Attachment unavailable — file is missing from persistent storage. Click "Re-upload / Replace Invoice" above to attach the document.
                           </div>
                         ) : (
                           <>
@@ -2883,7 +3007,7 @@ export default function PurchaseReport({ token, user }) {
                                 src={getAttachmentSrc(att.url)} 
                                 alt={att.name || "Attachment"} 
                                 className="max-h-60 rounded-lg object-contain bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750" 
-                                onError={() => setBrokenAttachments(prev => ({ ...prev, [att.url]: true }))}
+                                onError={() => setBrokenAttachments(prev => ({ ...prev, [selectedVoucher._id]: true, [att.url]: true }))}
                               />
                             )}
                           </>
@@ -2891,8 +3015,12 @@ export default function PurchaseReport({ token, user }) {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="text-center py-4 bg-slate-50 dark:bg-slate-800/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                    <p className="text-xs text-slate-400 italic">No invoice file attached to this purchase voucher.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -49,11 +49,18 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
 
     // Upload buffer to GridFS
     const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
-    
+    const fileKey = fileId.toString();
+
     res.status(200).send({
-      key: fileId.toString(),
+      key: fileKey,
+      url: `/api/purchases/attachment/${fileKey}`,
+      attachmentUrl: `/api/purchases/attachment/${fileKey}`,
       originalName: req.file.originalname,
+      name: req.file.originalname,
+      attachmentName: req.file.originalname,
       mimeType: req.file.mimetype,
+      type: req.file.mimetype,
+      attachmentType: req.file.mimetype,
       size: req.file.size
     });
   } catch (error) {
@@ -110,6 +117,168 @@ router.get('/attachment/:fileId', async (req, res) => {
   } catch (error) {
     console.error('Download attachment error:', error);
     res.status(500).send({ error: 'Failed to download attachment: ' + error.message });
+  }
+});
+
+// Get attachment by Purchase ID (Supports both GET and HEAD)
+router.get('/:id/attachment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`[PURCHASE_ATTACHMENT_BY_ID] purchaseId: ${id}, method: ${req.method}`);
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid purchase ID format.' });
+    }
+
+    const purchase = await Purchase.findById(id);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase entry not found.' });
+    }
+
+    const index = parseInt(req.query.index) || 0;
+    let fileKey = null;
+    let originalName = 'purchase_invoice';
+    let mimeType = 'application/pdf';
+
+    if (purchase.attachments && Array.isArray(purchase.attachments) && purchase.attachments.length > index) {
+      const att = purchase.attachments[index];
+      fileKey = att.key;
+      originalName = att.originalName || originalName;
+      mimeType = att.mimeType || mimeType;
+    } else if (purchase.attachments && Array.isArray(purchase.attachments) && purchase.attachments.length > 0) {
+      const att = purchase.attachments[0];
+      fileKey = att.key;
+      originalName = att.originalName || originalName;
+      mimeType = att.mimeType || mimeType;
+    } else if (purchase.attachmentUrl) {
+      const rawUrl = purchase.attachmentUrl.trim();
+      if (rawUrl && rawUrl !== 'undefined' && rawUrl !== '/api/purchases/attachment/undefined' && rawUrl !== 'null') {
+        if (rawUrl.includes('/api/purchases/attachment/')) {
+          fileKey = rawUrl.split('/api/purchases/attachment/')[1].split('?')[0];
+        } else if (rawUrl.startsWith('/uploads/')) {
+          fileKey = rawUrl.replace('/uploads/', '');
+        } else {
+          fileKey = rawUrl;
+        }
+        originalName = purchase.attachmentName || originalName;
+        mimeType = purchase.attachmentType || mimeType;
+      }
+    }
+
+    if (!fileKey || fileKey === 'undefined' || fileKey === 'null') {
+      return res.status(404).json({
+        error: 'No invoice attachment recorded for this purchase entry.',
+        purchaseId: purchase._id,
+        purchaseNo: purchase.purchaseNo,
+        missing: true
+      });
+    }
+
+    // 1. Check GridFS persistent database
+    if (mongoose.isValidObjectId(fileKey)) {
+      const file = await fileExists(fileKey);
+      if (file) {
+        res.set('Content-Type', file.contentType || mimeType || 'application/octet-stream');
+        res.set('Content-Length', file.length);
+        res.set('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename || originalName)}"`);
+        
+        if (req.method === 'HEAD') {
+          return res.end();
+        }
+
+        const downloadStream = downloadFileStream(fileKey);
+        downloadStream.on('error', (err) => {
+          console.error(`[Attachment Stream Error] purchaseId: ${id}, fileKey: ${fileKey}:`, err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to stream attachment.' });
+          }
+        });
+        return downloadStream.pipe(res);
+      }
+    }
+
+    // 2. Check legacy local disk path
+    const safeFileName = path.basename(fileKey);
+    const localPath = path.join(__dirname, '../uploads', safeFileName);
+    if (fs.existsSync(localPath)) {
+      const stat = fs.statSync(localPath);
+      res.set('Content-Type', mimeType || (safeFileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'));
+      res.set('Content-Length', stat.size);
+      res.set('Content-Disposition', `inline; filename="${encodeURIComponent(originalName || safeFileName)}"`);
+      if (req.method === 'HEAD') {
+        return res.end();
+      }
+      return fs.createReadStream(localPath).pipe(res);
+    }
+
+    // Not found in GridFS or local storage
+    return res.status(404).json({
+      error: 'Attachment unavailable — file is missing from persistent storage.',
+      purchaseId: purchase._id,
+      purchaseNo: purchase.purchaseNo,
+      missing: true
+    });
+  } catch (error) {
+    console.error('Error fetching purchase attachment by ID:', error);
+    res.status(500).json({ error: 'Failed to retrieve purchase attachment: ' + error.message });
+  }
+});
+
+// Re-upload or attach invoice file to an existing purchase record
+router.post('/:id/reupload-attachment', upload.single('attachment'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid purchase ID format.' });
+    }
+
+    const purchase = await Purchase.findById(id);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase entry not found.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded.' });
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      return res.status(400).json({ error: 'Invalid file type. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.' });
+    }
+
+    // Upload buffer to persistent GridFS
+    const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const fileKey = fileId.toString();
+
+    const attachmentObj = {
+      key: fileKey,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      uploadedAt: new Date()
+    };
+
+    purchase.attachments = [attachmentObj];
+    purchase.attachmentUrl = `/api/purchases/attachment/${fileKey}`;
+    purchase.attachmentName = req.file.originalname;
+    purchase.attachmentType = req.file.mimetype;
+    await purchase.save();
+
+    await logAction(
+      req.user,
+      'PURCHASE_ATTACHMENT_UPLOAD',
+      `Uploaded invoice attachment "${req.file.originalname}" (${req.file.size} bytes) for purchase ${purchase.purchaseNo}`,
+      req
+    );
+
+    res.status(200).json({
+      message: 'Invoice attached successfully.',
+      purchase,
+      attachment: attachmentObj
+    });
+  } catch (error) {
+    console.error('Error uploading purchase attachment:', error);
+    res.status(500).json({ error: 'Failed to upload invoice attachment: ' + error.message });
   }
 });
 
@@ -388,29 +557,47 @@ router.post('/', async (req, res) => {
       amountPaid: paidAmt,
       notes: notes || '',
       createdBy: req.user ? req.user.name : 'Staff',
-      attachmentUrl: req.body.attachmentUrl || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? req.body.attachments[0] : (req.body.attachments[0].url || `/api/purchases/attachment/${req.body.attachments[0].key}`)) : ''),
+      attachmentUrl: (() => {
+        const raw = req.body.attachmentUrl;
+        if (raw && !['undefined', '/api/purchases/attachment/undefined', 'null'].includes(raw)) return raw;
+        if (req.body.attachments && req.body.attachments.length > 0) {
+          const first = req.body.attachments[0];
+          if (typeof first === 'string' && !['undefined', 'null'].includes(first)) return first;
+          if (first && typeof first === 'object') {
+            if (first.url && !first.url.includes('undefined')) return first.url;
+            if (first.key && !['undefined', 'null'].includes(first.key)) return `/api/purchases/attachment/${first.key}`;
+          }
+        }
+        return '';
+      })(),
       attachmentName: req.body.attachmentName || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'Attached Document' : (req.body.attachments[0].originalName || req.body.attachments[0].name)) : ''),
       attachmentType: req.body.attachmentType || (req.body.attachments && req.body.attachments.length > 0 ? (typeof req.body.attachments[0] === 'string' ? 'image/jpeg' : (req.body.attachments[0].mimeType || req.body.attachments[0].type)) : ''),
       attachments: Array.isArray(req.body.attachments)
         ? req.body.attachments.map(att => {
             if (typeof att === 'string') {
+              if (['undefined', 'null'].includes(att)) return null;
               const fileKey = att.includes('/api/purchases/attachment/')
                 ? att.split('/api/purchases/attachment/')[1].split('?')[0]
                 : att.split('/').pop();
+              if (!fileKey || ['undefined', 'null'].includes(fileKey)) return null;
               return {
-                key: fileKey || att,
+                key: fileKey,
                 originalName: 'Attached Document',
                 mimeType: att.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
-                size: 0
+                size: 0,
+                uploadedAt: new Date()
               };
             }
+            const key = att.key || (att.url && !att.url.includes('undefined') ? att.url.split('/').pop() : '') || '';
+            if (!key || ['undefined', 'null'].includes(key)) return null;
             return {
-              key: att.key || att.url?.split('/').pop() || '',
+              key: key,
               originalName: att.originalName || att.name || 'Attached Document',
               mimeType: att.mimeType || att.type || (att.url?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-              size: Number(att.size) || 0
+              size: Number(att.size) || 0,
+              uploadedAt: att.uploadedAt || new Date()
             };
-          }).filter(att => att.key)
+          }).filter(att => att && att.key)
         : []
     });
 
@@ -763,30 +950,39 @@ router.put('/:id', async (req, res) => {
       const parsedAttachments = Array.isArray(req.body.attachments)
         ? req.body.attachments.map(att => {
             if (typeof att === 'string') {
+              if (['undefined', 'null'].includes(att)) return null;
               const fileKey = att.includes('/api/purchases/attachment/')
                 ? att.split('/api/purchases/attachment/')[1].split('?')[0]
                 : att.split('/').pop();
+              if (!fileKey || ['undefined', 'null'].includes(fileKey)) return null;
               return {
-                key: fileKey || att,
+                key: fileKey,
                 originalName: 'Attached Document',
                 mimeType: att.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
-                size: 0
+                size: 0,
+                uploadedAt: new Date()
               };
             }
+            const key = att.key || (att.url && !att.url.includes('undefined') ? att.url.split('/').pop() : '') || '';
+            if (!key || ['undefined', 'null'].includes(key)) return null;
             return {
-              key: att.key || att.url?.split('/').pop() || '',
+              key: key,
               originalName: att.originalName || att.name || 'Attached Document',
               mimeType: att.mimeType || att.type || (att.url?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-              size: Number(att.size) || 0
+              size: Number(att.size) || 0,
+              uploadedAt: att.uploadedAt || new Date()
             };
-          }).filter(att => att.key)
+          }).filter(att => att && att.key)
         : [];
       purchase.attachments = parsedAttachments;
       purchase.attachmentUrl = parsedAttachments.length > 0 ? (parsedAttachments[0].url || `/api/purchases/attachment/${parsedAttachments[0].key}`) : '';
       purchase.attachmentName = parsedAttachments.length > 0 ? parsedAttachments[0].originalName : '';
       purchase.attachmentType = parsedAttachments.length > 0 ? parsedAttachments[0].mimeType : '';
     } else {
-      if (req.body.attachmentUrl !== undefined) purchase.attachmentUrl = req.body.attachmentUrl;
+      if (req.body.attachmentUrl !== undefined) {
+        const raw = req.body.attachmentUrl;
+        purchase.attachmentUrl = (!raw || ['undefined', '/api/purchases/attachment/undefined', 'null'].includes(raw)) ? '' : raw;
+      }
       if (req.body.attachmentName !== undefined) purchase.attachmentName = req.body.attachmentName;
       if (req.body.attachmentType !== undefined) purchase.attachmentType = req.body.attachmentType;
     }
