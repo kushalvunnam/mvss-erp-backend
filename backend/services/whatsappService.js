@@ -1111,14 +1111,22 @@ const createDocumentTemplate = async (customAxios = axios) => {
         let appId = process.env.META_WA_APP_ID;
         if (!appId) {
             try {
+                const appRes = await customAxios.get(`${GRAPH_API_BASE_URL}/app`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                appId = appRes.data?.id;
+                console.log(`[WhatsApp] Discovered Meta App ID via /app: ${appId}`);
+            } catch (appErr) {
+                console.warn('[WhatsApp] Could not determine appId from /app:', appErr.message);
+            }
+        }
+        if (!appId) {
+            try {
                 const debugRes = await customAxios.get(`${GRAPH_API_BASE_URL}/debug_token?input_token=${token}&access_token=${token}`);
                 appId = debugRes.data?.data?.app_id;
             } catch (debugErr) {
                 console.warn('[WhatsApp] Could not determine appId from debug_token:', debugErr.message);
             }
-        }
-        if (!appId) {
-            appId = wabaId;
         }
 
         let headerHandle = null;
