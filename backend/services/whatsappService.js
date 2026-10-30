@@ -838,8 +838,194 @@ const sendTemplateMessage = async ({
     }
 };
 
+/**
+ * Send a document/PDF attachment message via Meta WhatsApp Cloud API
+ */
+const sendDocumentMessage = async ({
+    to,
+    documentUrl,
+    pdfBuffer,
+    filename = 'Customer_Estimate.pdf',
+    caption = '',
+    recipientName = 'Unknown',
+    relatedEntity,
+    onModel = 'Estimate',
+    idempotencyKey
+}, customAxios = axios) => {
+    const maskedTo = to ? to.substring(0, 3) + '****' + to.slice(-3) : 'unknown';
+
+    try {
+        const token = process.env.META_WA_ACCESS_TOKEN;
+        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+
+        if (!token || !phoneNumberId) {
+            const err = 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID). Skipping document message.';
+            console.warn(`[WhatsApp] ${err}`);
+            throw new Error(err);
+        }
+
+        const normalizedPhone = normalizePhoneNumber(to);
+        if (!normalizedPhone || normalizedPhone.length < 10) {
+            const err = `Invalid phone number: ${to}`;
+            console.warn(`[WhatsApp] ${err}`);
+            throw new Error(err);
+        }
+
+        if (!documentUrl && !pdfBuffer) {
+            const err = 'Either documentUrl or pdfBuffer must be provided to send a WhatsApp document message.';
+            console.error(`[WhatsApp] ${err}`);
+            throw new Error(err);
+        }
+
+        // Idempotency Check: Prevent duplicate messages for the same event
+        if (idempotencyKey) {
+            try {
+                const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
+                if (existingLog && ['sent', 'delivered', 'read'].includes(existingLog.status)) {
+                    console.log(`[WhatsApp] Duplicate document skipped for key: ${idempotencyKey}`);
+                    return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped', alreadySent: true };
+                }
+            } catch (dbReadErr) {
+                console.warn(`[WhatsApp] Warning: Failed to query existing WhatsAppLog for idempotencyKey '${idempotencyKey}':`, dbReadErr.message || dbReadErr);
+            }
+        }
+
+        // Create pending log entry (isolated so logging failures do not block message send)
+        let logEntry = null;
+        try {
+            logEntry = new WhatsAppLog({
+                recipientName,
+                recipientPhone: normalizedPhone,
+                templateName: 'document_attachment',
+                messageType: 'document',
+                status: 'pending',
+                direction: 'outbound',
+                pdfUrl: documentUrl || '',
+                caption: caption || '',
+                relatedEntity,
+                onModel,
+                idempotencyKey
+            });
+            await logEntry.save();
+        } catch (logSaveErr) {
+            console.error(`[WhatsApp] Warning: Failed to save initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
+            logEntry = null;
+        }
+
+        // Construct Meta Document Message Payload
+        const documentPayload = {
+            filename: filename || 'Customer_Estimate.pdf'
+        };
+
+        if (caption) {
+            documentPayload.caption = String(caption);
+        }
+
+        if (documentUrl) {
+            documentPayload.link = documentUrl;
+        }
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedPhone,
+            type: 'document',
+            document: documentPayload
+        };
+
+        const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
+        console.log(`[WhatsApp] Sending document message to Meta Graph API (${GRAPH_API_VERSION}) to ${maskedTo} [Filename: ${filename}]`);
+
+        const response = await customAxios.post(url, payload, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const messageId = response.data.messages?.[0]?.id;
+        const httpStatus = response.status;
+
+        // Update Log entry with sent status and message ID
+        try {
+            if (logEntry) {
+                logEntry.messageId = messageId;
+                logEntry.status = 'sent';
+                await logEntry.save();
+            } else if (idempotencyKey) {
+                await WhatsAppLog.create({
+                    recipientName,
+                    recipientPhone: normalizedPhone,
+                    templateName: 'document_attachment',
+                    messageType: 'document',
+                    status: 'sent',
+                    direction: 'outbound',
+                    messageId,
+                    pdfUrl: documentUrl || '',
+                    caption: caption || '',
+                    relatedEntity,
+                    onModel,
+                    idempotencyKey
+                });
+            }
+        } catch (updateLogErr) {
+            console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
+        }
+
+        console.log(`[WhatsApp] Successfully sent document to ${maskedTo} | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
+        return { success: true, messageId, data: response.data, pdfUrl: documentUrl };
+
+    } catch (error) {
+        const errDetails = getMetaErrorDetails(error);
+
+        if (errDetails.status) {
+            console.error(`[WhatsApp] Meta API Document Error -> To: ${maskedTo} | Version: ${GRAPH_API_VERSION} | ${errDetails.formatted}`);
+        } else {
+            console.error(`[WhatsApp] Internal/Network Document Error -> To: ${maskedTo} | Msg: ${errDetails.message}`);
+        }
+
+        // Mark log as failed
+        if (idempotencyKey) {
+            try {
+                const existing = await WhatsAppLog.findOne({ idempotencyKey });
+                if (existing) {
+                    existing.status = 'failed';
+                    existing.errorMessage = errDetails.formatted;
+                    existing.metaErrorCode = String(errDetails.code || '');
+                    existing.lastAttemptAt = new Date();
+                    await existing.save();
+                } else {
+                    await WhatsAppLog.create({
+                        recipientName,
+                        recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
+                        templateName: 'document_attachment',
+                        messageType: 'document',
+                        status: 'failed',
+                        direction: 'outbound',
+                        pdfUrl: documentUrl || '',
+                        caption: caption || '',
+                        relatedEntity,
+                        onModel,
+                        idempotencyKey,
+                        errorMessage: errDetails.formatted,
+                        metaErrorCode: String(errDetails.code || ''),
+                        lastAttemptAt: new Date()
+                    });
+                }
+            } catch (logErr) {
+                console.error('[WhatsApp] Failed to save document error log:', logErr.message);
+            }
+        }
+
+        const cleanError = new Error(errDetails.formatted);
+        cleanError.metaError = errDetails;
+        throw cleanError;
+    }
+};
+
 module.exports = {
     sendTemplateMessage,
+    sendDocumentMessage,
     normalizePhoneNumber,
     maskPhoneNumber,
     validateCustomerContact,

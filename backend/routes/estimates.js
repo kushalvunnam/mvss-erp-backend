@@ -252,7 +252,7 @@ router.get('/', auth, async (req, res) => {
     }
 
     const estimates = await Estimate.find(query)
-      .select('estimateNo jobCardId totals status date validUntil amountInWords createdAt')
+      .select('estimateNo jobCardId totals status date validUntil amountInWords createdAt pdfUrl whatsappHistory revisionHistory approvalMetadata')
       .populate({
         path: 'jobCardId',
         populate: [{ path: 'customerId' }, { path: 'vehicleId' }]
@@ -714,6 +714,18 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
       return res.send(estimate);
     }
 
+    if (status === 'Sent' && estimate.status !== 'Sent') {
+      const sendResult = await sendCustomerEstimateWhatsApp({
+        estimateId: estimate._id,
+        user: req.user,
+        req
+      });
+      if (sendResult.error) {
+        return res.status(sendResult.status || 400).send({ error: sendResult.error, estimate: sendResult.estimate || estimate });
+      }
+      return res.send(sendResult.data?.estimate || estimate);
+    }
+
     if (status) {
       estimate.status = status;
       await estimate.save();
@@ -795,6 +807,274 @@ router.get('/:id/customer-pdf', auth, async (req, res) => {
     generateCustomerEstimatePDF(estimate, customer, vehicle, res);
   } catch (error) {
     res.status(500).send({ error: 'Failed to generate Customer PDF: ' + error.message });
+  }
+});
+
+// Helper for sending Customer Estimate PDF via WhatsApp
+const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req }) => {
+  const estimate = await Estimate.findById(estimateId);
+  if (!estimate) {
+    return { status: 404, error: 'Estimate not found.' };
+  }
+
+  const JobCardModel = require('../models/JobCard');
+  const CustomerModel = require('../models/Customer');
+  const VehicleModel = require('../models/Vehicle');
+  const WhatsAppLog = require('../models/WhatsAppLog');
+  const { validateCustomerContact, sendDocumentMessage } = require('../services/whatsappService');
+  const { generateCustomerEstimatePDF } = require('../utils/pdfGenerator');
+
+  const jc = estimate.jobCardId ? await JobCardModel.findById(estimate.jobCardId).lean() : null;
+  if (!jc) {
+    return { status: 400, error: 'Job Card linked to this estimate was not found.', estimate };
+  }
+
+  let customerRecord = null;
+  if (jc.customerId) {
+    if (typeof jc.customerId === 'object' && jc.customerId.name) {
+      customerRecord = jc.customerId;
+    } else {
+      customerRecord = await CustomerModel.findById(jc.customerId).lean();
+    }
+  }
+  if (!customerRecord) {
+    return { status: 400, error: 'Customer record linked to this estimate was not found.', estimate };
+  }
+
+  let vehicleRecord = null;
+  if (jc.vehicleId) {
+    if (typeof jc.vehicleId === 'object' && (jc.vehicleId.vehicleNumber || jc.vehicleId.regNo)) {
+      vehicleRecord = jc.vehicleId;
+    } else {
+      vehicleRecord = await VehicleModel.findById(jc.vehicleId).lean();
+    }
+  }
+  if (!vehicleRecord) {
+    vehicleRecord = await VehicleModel.findOne({ customerId: customerRecord._id }).sort({ updatedAt: -1 }).lean();
+  }
+
+  // 1. Retrieve & validate customer's registered WhatsApp number
+  const rawPhone = customerRecord.mobile || customerRecord.phone || customerRecord.contactNumber;
+  const contactCheck = validateCustomerContact(customerRecord, rawPhone);
+
+  if (!contactCheck.valid) {
+    return {
+      status: 400,
+      error: `Customer has no valid WhatsApp number: ${contactCheck.reason}`,
+      estimate
+    };
+  }
+
+  // 2. Prevent duplicate messages when Send is clicked multiple times (Idempotency)
+  const revCount = estimate.revisionHistory?.length || 0;
+  const rawGrandTotal = estimate.totals?.grandTotal || 0;
+  const idempotencyKey = `estimate_customer_pdf_${estimate._id}_rev${revCount}_${Math.round(rawGrandTotal)}`;
+
+  // Check if message was already sent and accepted
+  const alreadySentLog = await WhatsAppLog.findOne({
+    idempotencyKey,
+    status: { $in: ['sent', 'delivered', 'read'] }
+  }).lean();
+
+  if (alreadySentLog) {
+    if (estimate.status === 'Draft') {
+      estimate.status = 'Sent';
+      await estimate.save();
+    }
+    return {
+      status: 200,
+      data: {
+        success: true,
+        message: 'Customer Estimate PDF has already been sent to customer via WhatsApp.',
+        alreadySent: true,
+        estimate,
+        pdfUrl: alreadySentLog.pdfUrl,
+        messageId: alreadySentLog.messageId
+      }
+    };
+  }
+
+  // In-flight concurrency guard (within last 30s)
+  const inFlight = await WhatsAppLog.findOne({
+    idempotencyKey,
+    status: 'pending',
+    createdAt: { $gte: new Date(Date.now() - 30000) }
+  }).lean();
+
+  if (inFlight) {
+    return {
+      status: 409,
+      error: 'A WhatsApp send request for this estimate is already in progress. Please wait a moment.',
+      estimate
+    };
+  }
+
+  // 3. Generate Customer Estimate PDF buffer and persist to uploads/estimates/
+  const fs = require('fs');
+  const path = require('path');
+  const { PassThrough } = require('stream');
+
+  const pdfDir = path.join(__dirname, '../uploads/estimates');
+  if (!fs.existsSync(pdfDir)) {
+    fs.mkdirSync(pdfDir, { recursive: true });
+  }
+
+  const cleanEstNo = String(estimate.estimateNo || 'EST').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const pdfFilename = `Customer_Estimate_${cleanEstNo}.pdf`;
+  const pdfDiskPath = path.join(pdfDir, `customer_estimate_${estimate._id}.pdf`);
+
+  let pdfBuffer;
+  try {
+    pdfBuffer = await new Promise((resolve, reject) => {
+      const pass = new PassThrough();
+      const chunks = [];
+      pass.on('data', chunk => chunks.push(chunk));
+      pass.on('end', () => resolve(Buffer.concat(chunks)));
+      pass.on('error', err => reject(err));
+      generateCustomerEstimatePDF(estimate, customerRecord, vehicleRecord || {}, pass);
+    });
+
+    await fs.promises.writeFile(pdfDiskPath, pdfBuffer);
+  } catch (pdfErr) {
+    console.error(`[WhatsApp Estimate PDF] Failed to generate Customer Estimate PDF:`, pdfErr);
+    return {
+      status: 500,
+      error: 'Failed to generate Customer Estimate PDF: ' + pdfErr.message,
+      estimate
+    };
+  }
+
+  // Determine public PDF URL
+  const host = req ? req.get('host') : null;
+  const protocol = req && (req.protocol === 'https' || req.get('x-forwarded-proto') === 'https') ? 'https' : 'http';
+  const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || (host ? `${protocol}://${host}` : '');
+  const pdfUrl = `${serverBase}/uploads/estimates/customer_estimate_${estimate._id}.pdf`;
+
+  // 4. Construct Exact Sample Message
+  const customerName = String(customerRecord.name || 'Valued Customer').trim();
+  let vehicleNumber = 'your vehicle';
+  const rawVeh = vehicleRecord?.vehicleNumber || vehicleRecord?.regNo;
+  if (rawVeh && typeof rawVeh === 'string' && !/mvss\s*automobiles/i.test(rawVeh)) {
+    vehicleNumber = rawVeh.trim().toUpperCase();
+  }
+  const estimateNumber = String(estimate.estimateNo || 'N/A').trim();
+  const formattedGrandTotal = Math.round(rawGrandTotal).toLocaleString('en-IN');
+
+  const caption = 
+`Dear ${customerName},
+
+Greetings from MVSS Automobiles!
+
+Your vehicle service estimate ${estimateNumber} is ready.
+
+Vehicle: ${vehicleNumber}
+Estimated Amount: ₹${formattedGrandTotal}
+
+Please find your detailed estimate attached.
+
+Kindly review and share your approval.
+
+Thank you for choosing MVSS Automobiles!`;
+
+  // 5. Send WhatsApp Document Message
+  try {
+    const waResult = await sendDocumentMessage({
+      to: contactCheck.phone,
+      documentUrl: pdfUrl,
+      pdfBuffer,
+      filename: pdfFilename,
+      caption,
+      recipientName: customerName,
+      relatedEntity: estimate._id,
+      onModel: 'Estimate',
+      idempotencyKey
+    });
+
+    // 6. WhatsApp API accepted: Update estimate status to Sent and persist audit history
+    estimate.status = 'Sent';
+    estimate.pdfUrl = pdfUrl;
+    if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
+    estimate.whatsappHistory.push({
+      sentAt: new Date(),
+      recipientPhone: contactCheck.phone,
+      pdfUrl,
+      status: 'sent',
+      messageId: waResult.messageId,
+      sentBy: user?._id,
+      sentByName: user?.name || user?.username || 'Authorized User'
+    });
+    await estimate.save();
+
+    await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate PDF ${estimate.estimateNo} to WhatsApp ${contactCheck.masked}`, req);
+
+    console.log(`[WhatsApp Estimate PDF] Estimate ${estimate.estimateNo} successfully sent to ${contactCheck.masked} (wamid: ${waResult.messageId}). Status updated to Sent.`);
+
+    return {
+      status: 200,
+      data: {
+        success: true,
+        message: 'Customer Estimate PDF sent to WhatsApp successfully.',
+        estimate,
+        pdfUrl,
+        messageId: waResult.messageId
+      }
+    };
+
+  } catch (waError) {
+    // 7. WhatsApp sending failed: RETAIN Draft status (do NOT mark as Sent) and log failure
+    console.error(`[WhatsApp Estimate PDF] WhatsApp dispatch failed for estimate ${estimate.estimateNo}:`, waError.message);
+
+    if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
+    estimate.whatsappHistory.push({
+      sentAt: new Date(),
+      recipientPhone: contactCheck.phone,
+      pdfUrl,
+      status: 'failed',
+      error: waError.message,
+      sentBy: user?._id,
+      sentByName: user?.name || user?.username || 'Authorized User'
+    });
+    await estimate.save();
+
+    return {
+      status: 500,
+      error: `WhatsApp sending failed: ${waError.message}`,
+      estimate
+    };
+  }
+};
+
+// Send Customer Estimate PDF via WhatsApp
+router.post('/:id/send', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive', 'Spares'), async (req, res) => {
+  try {
+    const result = await sendCustomerEstimateWhatsApp({
+      estimateId: req.params.id,
+      user: req.user,
+      req
+    });
+    if (result.error) {
+      return res.status(result.status || 400).send({ error: result.error, estimate: result.estimate });
+    }
+    return res.status(result.status || 200).send(result.data);
+  } catch (err) {
+    return res.status(500).send({ error: 'Failed to send estimate via WhatsApp: ' + err.message });
+  }
+});
+
+// Alias for explicit whatsapp send route
+router.post('/:id/send-whatsapp', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive', 'Spares'), async (req, res) => {
+  try {
+    const result = await sendCustomerEstimateWhatsApp({
+      estimateId: req.params.id,
+      user: req.user,
+      req
+    });
+    if (result.error) {
+      return res.status(result.status || 400).send({ error: result.error, estimate: result.estimate });
+    }
+    return res.status(result.status || 200).send(result.data);
+  } catch (err) {
+    return res.status(500).send({ error: 'Failed to send estimate via WhatsApp: ' + err.message });
   }
 });
 

@@ -14,8 +14,20 @@ const whatsappLogSchema = new mongoose.Schema({
   },
   messageType: { 
     type: String, 
-    enum: ['template', 'text', 'interactive'], 
+    enum: ['template', 'text', 'interactive', 'document'], 
     default: 'template' 
+  },
+  pdfUrl: {
+    type: String,
+    default: ''
+  },
+  caption: {
+    type: String,
+    default: ''
+  },
+  metadata: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
   direction: {
     type: String,

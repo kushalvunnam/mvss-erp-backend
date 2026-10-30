@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
-import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText, Trash2 } from 'lucide-react';
+import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText, Trash2, Send, Loader2, MessageSquare, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react';
 import EstimateForm from './EstimateForm';
 
 export default function Estimates({ token, user, setActiveTab }) {
@@ -14,6 +14,18 @@ export default function Estimates({ token, user, setActiveTab }) {
   const [pdfType, setPdfType] = useState('gst');
   const [approvalModalEst, setApprovalModalEst] = useState(null);
   const [isApproving, setIsApproving] = useState(false);
+  const [sendingMap, setSendingMap] = useState({});
+  const [notification, setNotification] = useState(null);
+
+  // Auto-dismiss notifications after 7 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   const canApproveEstimate = ['Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive'].includes(user?.role);
 
@@ -80,12 +92,70 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   };
 
+  const handleSendCustomerEstimate = async (est, e) => {
+    if (e) e.stopPropagation();
+    if (!est || !est._id) return;
+    if (sendingMap[est._id]) return; // Button locked / in-flight protection
+
+    const jc = est.jobCardId || {};
+    const cust = jc.customerId || {};
+    const custName = cust.name || 'Valued Customer';
+    const custPhone = cust.mobile || cust.phone || cust.contactNumber || '';
+
+    setSendingMap(prev => ({ ...prev, [est._id]: true }));
+    setNotification(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/estimates/${est._id}/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setNotification({
+          type: 'success',
+          title: 'Customer Estimate Dispatched Successfully',
+          message: data.message || `Customer Estimate PDF for ${est.estimateNo} was sent via WhatsApp to ${custName} (${custPhone || 'registered number'}).`
+        });
+        await fetchEstimates();
+      } else {
+        setNotification({
+          type: 'error',
+          title: 'WhatsApp Delivery Failed',
+          message: data.error || 'Failed to dispatch Customer Estimate PDF. Status remains Draft.'
+        });
+        await fetchEstimates();
+      }
+    } catch (err) {
+      console.error('Error sending estimate PDF via WhatsApp:', err);
+      setNotification({
+        type: 'error',
+        title: 'Communication Error',
+        message: err.message || 'Network error while attempting to send estimate via WhatsApp.'
+      });
+    } finally {
+      setSendingMap(prev => ({ ...prev, [est._id]: false }));
+    }
+  };
+
   const updateStatus = async (id, newStatus, e) => {
     if (e) e.stopPropagation(); // prevent row click
     if (newStatus === 'Approved') {
       const est = estimates.find(item => item._id === id);
       if (est) {
         openApproveModal(est, e);
+        return;
+      }
+    }
+    if (newStatus === 'Sent') {
+      const est = estimates.find(item => item._id === id);
+      if (est) {
+        handleSendCustomerEstimate(est, e);
         return;
       }
     }
@@ -720,6 +790,33 @@ export default function Estimates({ token, user, setActiveTab }) {
         )}
       </div>
 
+      {/* Notifications Banner */}
+      {notification && (
+        <div className={`p-4 rounded-2xl border flex items-start justify-between gap-3 shadow-sm transition-all ${
+          notification.type === 'success' 
+            ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900 dark:bg-emerald-950/50 dark:border-emerald-800/80 dark:text-emerald-200' 
+            : 'bg-rose-50/90 border-rose-200 text-rose-900 dark:bg-rose-950/50 dark:border-rose-800/80 dark:text-rose-200'
+        }`}>
+          <div className="flex items-start gap-3">
+            {notification.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 mt-0.5 flex-shrink-0" />
+            )}
+            <div>
+              <h4 className="font-extrabold text-xs">{notification.title}</h4>
+              <p className="text-xs mt-0.5 font-medium leading-relaxed">{notification.message}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setNotification(null)}
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-lg transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap gap-3 justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 p-3 rounded-2xl">
         <div className="flex flex-wrap gap-3 items-center flex-1">
@@ -811,11 +908,22 @@ export default function Estimates({ token, user, setActiveTab }) {
                           <div className="flex gap-2 justify-end items-center">
                             {isAdvisorOrAdmin && est.status === 'Draft' && (
                               <button
-                                onClick={(e) => updateStatus(est._id, 'Sent', e)}
-                                className="text-slate-400 hover:text-sky-600 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                                title="Mark as Sent"
+                                onClick={(e) => handleSendCustomerEstimate(est, e)}
+                                disabled={Boolean(sendingMap[est._id])}
+                                className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
+                                title="Send Customer Estimate PDF to WhatsApp"
                               >
-                                Sent
+                                {sendingMap[est._id] ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    <span>Sending...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Send className="w-3 h-3" />
+                                    <span>Send</span>
+                                  </>
+                                )}
                               </button>
                             )}
                             {canApproveEstimate && est.status === 'Sent' && (
@@ -951,6 +1059,91 @@ export default function Estimates({ token, user, setActiveTab }) {
                               ) : (
                                 <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">No historical revisions logged. Revision snapshots are archived automatically when modifying estimates that have left Draft stage.</p>
                               )}
+
+                              {/* WhatsApp Customer Estimate Delivery Audit */}
+                              <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 space-y-2 mt-3">
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center gap-1.5">
+                                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    <h5 className="font-extrabold uppercase text-[10px] text-slate-700 dark:text-slate-300 tracking-wider">
+                                      WhatsApp Estimate Delivery History ({est.whatsappHistory?.length || 0})
+                                    </h5>
+                                  </div>
+                                  {isAdvisorOrAdmin && (
+                                    <button
+                                      onClick={(e) => handleSendCustomerEstimate(est, e)}
+                                      disabled={Boolean(sendingMap[est._id])}
+                                      className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-sm transition-all"
+                                      title="Dispatch Customer Estimate PDF to WhatsApp"
+                                    >
+                                      {sendingMap[est._id] ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                          <span>Sending...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Send className="w-3 h-3" />
+                                          <span>{est.status === 'Draft' ? 'Send Customer PDF via WhatsApp' : 'Resend Customer PDF via WhatsApp'}</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {est.whatsappHistory && est.whatsappHistory.length > 0 ? (
+                                  <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                    {est.whatsappHistory.map((hist, hIdx) => {
+                                      const isSuccess = hist.status === 'sent' || hist.status === 'delivered' || hist.status === 'read';
+                                      return (
+                                        <div key={hIdx} className="py-2 flex flex-wrap justify-between items-center gap-2 text-[10px]">
+                                          <div className="space-y-0.5">
+                                            <div className="flex items-center gap-2">
+                                              <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase ${
+                                                isSuccess 
+                                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800' 
+                                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                                              }`}>
+                                                {hist.status}
+                                              </span>
+                                              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                To: {hist.recipientPhone || 'Customer'}
+                                              </span>
+                                              {hist.sentByName && (
+                                                <span className="text-slate-400">by {hist.sentByName}</span>
+                                              )}
+                                              <span className="text-slate-400">
+                                                • {new Date(hist.sentAt).toLocaleString('en-IN')}
+                                              </span>
+                                            </div>
+                                            {hist.error && (
+                                              <p className="text-rose-600 dark:text-rose-400 font-medium text-[9.5px]">
+                                                Error: {hist.error}
+                                              </p>
+                                            )}
+                                          </div>
+                                          {hist.pdfUrl && (
+                                            <a
+                                              href={hist.pdfUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="text-[9.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
+                                            >
+                                              <ExternalLink className="w-3 h-3" />
+                                              View Sent PDF
+                                            </a>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-slate-400 dark:text-slate-500 italic py-1">
+                                    No WhatsApp delivery attempts recorded yet for this estimate.
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>

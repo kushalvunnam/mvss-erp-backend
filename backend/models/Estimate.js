@@ -192,6 +192,20 @@ const estimateSchema = new mongoose.Schema({
     userName: { type: String, default: '' },
     reason: { type: String, default: '' }
   }],
+  pdfUrl: {
+    type: String,
+    default: ''
+  },
+  whatsappHistory: [{
+    sentAt: { type: Date, default: Date.now },
+    recipientPhone: { type: String, default: '' },
+    pdfUrl: { type: String, default: '' },
+    status: { type: String, default: 'pending' },
+    messageId: { type: String, default: '' },
+    sentBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    sentByName: { type: String, default: '' },
+    error: { type: String, default: '' }
+  }],
   date: {
     type: Date,
     default: Date.now,

@@ -57,3 +57,4 @@ backend-zip.zip
 .vercel
 /release-artifacts/
 twa-pwa-deployment.zip
+dist.zip
