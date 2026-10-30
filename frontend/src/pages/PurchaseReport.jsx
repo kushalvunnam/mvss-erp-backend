@@ -196,9 +196,9 @@ export default function PurchaseReport({ token, user }) {
           return next;
         });
         alert(`Invoice "${file.name}" uploaded and attached successfully!`);
-      } else {
         const errData = await res.json().catch(() => ({}));
-        alert(`Failed to upload invoice: ${errData.error || res.statusText}`);
+        const errorDetail = errData.error || errData.message || (res.status === 404 ? 'Backend upload endpoint not found. Please ensure Render deployment is live.' : res.statusText) || `Server error (${res.status})`;
+        alert(`Failed to upload invoice: ${errorDetail}`);
       }
     } catch (err) {
       console.error('Error uploading invoice attachment:', err);
