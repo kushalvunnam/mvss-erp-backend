@@ -196,16 +196,33 @@ const estimateSchema = new mongoose.Schema({
     userName: { type: String, default: '' },
     reason: { type: String, default: '' }
   }],
+  manualOverride: {
+    type: Boolean,
+    default: false
+  },
+  manualGrandTotal: {
+    type: Number,
+    default: null
+  },
   pdfUrl: {
     type: String,
     default: ''
   },
   whatsappHistory: [{
+    stage: {
+      type: String,
+      default: 'STAGE_1_ESTIMATION_READY'
+    },
+    estimateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Estimate' },
+    jobCardId: { type: mongoose.Schema.Types.ObjectId, ref: 'JobCard' },
     sentAt: { type: Date, default: Date.now },
     recipientPhone: { type: String, default: '' },
     pdfUrl: { type: String, default: '' },
     status: { type: String, default: 'pending' },
     messageId: { type: String, default: '' },
+    finalAmount: { type: Number, default: 0 },
+    templateName: { type: String, default: '' },
+    retryCount: { type: Number, default: 0 },
     sentBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     sentByName: { type: String, default: '' },
     error: { type: String, default: '' }

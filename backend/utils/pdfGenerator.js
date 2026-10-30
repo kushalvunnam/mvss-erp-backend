@@ -1064,7 +1064,11 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
     igstTotalLabour: labourIgstSum,
     gstTotalLabour: labourCgstSum + labourSgstSum + labourIgstSum,
     discount: discountAmount,
-    grandTotal: partsTaxableSum + partsCgstSum + partsSgstSum + partsIgstSum + labourTaxableSum + labourCgstSum + labourSgstSum + labourIgstSum
+    grandTotal: (estimate.manualOverride && estimate.manualGrandTotal !== undefined && estimate.manualGrandTotal !== null)
+      ? Number(estimate.manualGrandTotal)
+      : (estimate.status === 'Approved' && estimate.approvalMetadata?.finalAmount !== undefined && estimate.approvalMetadata?.finalAmount !== null && Number(estimate.approvalMetadata.finalAmount) > 0
+        ? Number(estimate.approvalMetadata.finalAmount)
+        : (estimate.totals?.grandTotal !== undefined ? estimate.totals.grandTotal : (partsTaxableSum + partsCgstSum + partsSgstSum + partsIgstSum + labourTaxableSum + labourCgstSum + labourSgstSum + labourIgstSum)))
   };
   
   const grandTotalWords = numberToWords(summaryTotals.grandTotal);
@@ -1734,7 +1738,11 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
   // Clean gap before summary block
   y += 10;
 
-  const grandTotal = estimate.totals?.grandTotal !== undefined ? estimate.totals.grandTotal : (partsTotalSum + labourTotalSum);
+  const grandTotal = (estimate.manualOverride && estimate.manualGrandTotal !== undefined && estimate.manualGrandTotal !== null)
+    ? Number(estimate.manualGrandTotal)
+    : (estimate.status === 'Approved' && estimate.approvalMetadata?.finalAmount !== undefined && estimate.approvalMetadata?.finalAmount !== null && Number(estimate.approvalMetadata.finalAmount) > 0
+      ? Number(estimate.approvalMetadata.finalAmount)
+      : (estimate.totals?.grandTotal !== undefined ? estimate.totals.grandTotal : (partsTotalSum + labourTotalSum)));
   const summaryTotals = {
     partsTotalSum,
     labourTotalSum,

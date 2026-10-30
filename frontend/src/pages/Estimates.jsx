@@ -70,12 +70,17 @@ export default function Estimates({ token, user, setActiveTab }) {
     if (!approvalModalEst) return;
     setIsApproving(true);
     try {
+      const finalAmount = (approvalModalEst.manualOverride && approvalModalEst.manualGrandTotal)
+        ? Number(approvalModalEst.manualGrandTotal)
+        : (approvalModalEst.totals?.grandTotal || 0);
+
       const res = await fetch(`${API_BASE_URL}/estimates/${approvalModalEst._id}/approve`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({ finalAmount })
       });
       if (res.ok) {
         setApprovalModalEst(null);
@@ -89,6 +94,92 @@ export default function Estimates({ token, user, setActiveTab }) {
       alert('Error approving estimate: ' + err.message);
     } finally {
       setIsApproving(false);
+    }
+  };
+
+  const handleRetryApprovalNotification = async (est, e) => {
+    if (e) e.stopPropagation();
+    if (!est || !est._id) return;
+    if (sendingMap[est._id]) return;
+
+    setSendingMap(prev => ({ ...prev, [est._id]: true }));
+    setNotification(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/estimates/${est._id}/retry-approval-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({
+          type: 'success',
+          title: 'Approval Request Dispatched',
+          message: data.message || `Stage 2 Approval request for ${est.estimateNo} was sent via WhatsApp.`
+        });
+        await fetchEstimates();
+      } else {
+        setNotification({
+          type: 'error',
+          title: 'Retry Failed',
+          message: data.error || 'Failed to dispatch Stage 2 WhatsApp notification.'
+        });
+      }
+    } catch (err) {
+      console.error('Error retrying Stage 2:', err);
+      setNotification({
+        type: 'error',
+        title: 'Communication Error',
+        message: err.message || 'Network error while attempting to retry Stage 2.'
+      });
+    } finally {
+      setSendingMap(prev => ({ ...prev, [est._id]: false }));
+    }
+  };
+
+  const handleRetryApprovedNotification = async (est, e) => {
+    if (e) e.stopPropagation();
+    if (!est || !est._id) return;
+    if (sendingMap[est._id]) return;
+
+    setSendingMap(prev => ({ ...prev, [est._id]: true }));
+    setNotification(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/estimates/${est._id}/retry-approved-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({
+          type: 'success',
+          title: 'Approved Notification Dispatched',
+          message: data.message || `Stage 3 Approved notification for ${est.estimateNo} was dispatched via WhatsApp.`
+        });
+        await fetchEstimates();
+      } else {
+        setNotification({
+          type: 'error',
+          title: 'Retry Failed',
+          message: data.error || 'Failed to dispatch Stage 3 WhatsApp notification.'
+        });
+      }
+    } catch (err) {
+      console.error('Error retrying Stage 3:', err);
+      setNotification({
+        type: 'error',
+        title: 'Communication Error',
+        message: err.message || 'Network error while attempting to retry Stage 3.'
+      });
+    } finally {
+      setSendingMap(prev => ({ ...prev, [est._id]: false }));
     }
   };
 
@@ -900,7 +991,18 @@ export default function Estimates({ token, user, setActiveTab }) {
                         <td className="p-4 font-semibold text-slate-650 dark:text-slate-350">{jc.jobCardNo || 'N/A'}</td>
                         <td className="p-4 font-bold text-slate-550 dark:text-slate-400 font-mono">{veh.vehicleNumber || 'N/A'}</td>
                         <td className="p-4 font-medium text-slate-550 dark:text-slate-400">{cust.name || 'Unknown'}</td>
-                        <td className="p-4 font-bold text-slate-900 dark:text-white">₹{est.totals?.grandTotal?.toLocaleString('en-IN') || 0}</td>
+                        <td className="p-4 font-bold text-slate-900 dark:text-white">
+                          <div>
+                            ₹{((est.manualOverride && est.manualGrandTotal !== undefined && est.manualGrandTotal !== null)
+                              ? Number(est.manualGrandTotal)
+                              : (est.status === 'Approved' && est.approvalMetadata?.finalAmount
+                                ? Number(est.approvalMetadata.finalAmount)
+                                : (est.totals?.grandTotal || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {est.manualOverride && (
+                              <span className="block text-[8px] font-black uppercase text-amber-600 dark:text-amber-400">Manual Override</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-4">
                           <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${statusBg}`}>
                             {est.status}
@@ -926,6 +1028,28 @@ export default function Estimates({ token, user, setActiveTab }) {
                                     <span>{est.status === 'Draft' ? 'Send' : 'Send Revised'}</span>
                                   </>
                                 )}
+                              </button>
+                            )}
+                            {isAdvisorOrAdmin && ['Sent', 'Waiting for Approval'].includes(est.status) && (
+                              <button
+                                onClick={(e) => handleRetryApprovalNotification(est, e)}
+                                disabled={Boolean(sendingMap[est._id])}
+                                className="px-2 py-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-sm transition-all"
+                                title="Retry WhatsApp Approval Request (Stage 2)"
+                              >
+                                {sendingMap[est._id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageSquare className="w-3 h-3" />}
+                                <span>Retry Approval</span>
+                              </button>
+                            )}
+                            {isAdvisorOrAdmin && est.status === 'Approved' && (
+                              <button
+                                onClick={(e) => handleRetryApprovedNotification(est, e)}
+                                disabled={Boolean(sendingMap[est._id])}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-sm transition-all"
+                                title="Resend Stage 3 Approved WhatsApp Notification"
+                              >
+                                {sendingMap[est._id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                <span>Resend WhatsApp</span>
                               </button>
                             )}
                             {canApproveEstimate && ['Sent', 'Waiting for Approval'].includes(est.status) && (
@@ -1097,10 +1221,29 @@ export default function Estimates({ token, user, setActiveTab }) {
                                   <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
                                     {est.whatsappHistory.map((hist, hIdx) => {
                                       const isSuccess = hist.status === 'sent' || hist.status === 'delivered' || hist.status === 'read';
+                                      let stageLabel = 'Stage 1: Ready';
+                                      let stageBadgeBg = 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-300 dark:border-sky-800';
+                                      if (hist.stage === 'STAGE_1_ESTIMATION_READY') {
+                                        stageLabel = 'Stage 1: Ready';
+                                        stageBadgeBg = 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-300 dark:border-sky-800';
+                                      } else if (hist.stage === 'STAGE_2_ESTIMATION_AWAITING_APPROVAL') {
+                                        stageLabel = 'Stage 2: Awaiting Approval';
+                                        stageBadgeBg = 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-300 dark:border-purple-800';
+                                      } else if (hist.stage === 'STAGE_3_ESTIMATION_APPROVED') {
+                                        stageLabel = 'Stage 3: Approved';
+                                        stageBadgeBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
+                                      } else if (hist.stage === 'DOCUMENT_ESTIMATE_PDF') {
+                                        stageLabel = 'Customer PDF Document';
+                                        stageBadgeBg = 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700';
+                                      }
+
                                       return (
-                                        <div key={hIdx} className="py-2 flex flex-wrap justify-between items-center gap-2 text-[10px]">
-                                          <div className="space-y-0.5">
-                                            <div className="flex items-center gap-2">
+                                        <div key={hIdx} className="py-2.5 flex flex-wrap justify-between items-center gap-2 text-[10px]">
+                                          <div className="space-y-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${stageBadgeBg}`}>
+                                                {stageLabel}
+                                              </span>
                                               <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase ${
                                                 isSuccess 
                                                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800' 
@@ -1111,6 +1254,16 @@ export default function Estimates({ token, user, setActiveTab }) {
                                               <span className="font-semibold text-slate-700 dark:text-slate-200">
                                                 To: {hist.recipientPhone || 'Customer'}
                                               </span>
+                                              {hist.templateName && (
+                                                <span className="font-mono text-slate-500 dark:text-slate-400">
+                                                  [{hist.templateName}]
+                                                </span>
+                                              )}
+                                              {hist.finalAmount ? (
+                                                <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                                                  ₹{Number(hist.finalAmount).toLocaleString('en-IN')}
+                                                </span>
+                                              ) : null}
                                               {hist.sentByName && (
                                                 <span className="text-slate-400">by {hist.sentByName}</span>
                                               )}
@@ -1124,18 +1277,38 @@ export default function Estimates({ token, user, setActiveTab }) {
                                               </p>
                                             )}
                                           </div>
-                                          {hist.pdfUrl && (
-                                            <a
-                                              href={hist.pdfUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              onClick={(e) => e.stopPropagation()}
-                                              className="text-[9.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
-                                            >
-                                              <ExternalLink className="w-3 h-3" />
-                                              View Sent PDF
-                                            </a>
-                                          )}
+                                          <div className="flex items-center gap-2">
+                                            {!isSuccess && hist.stage === 'STAGE_2_ESTIMATION_AWAITING_APPROVAL' && isAdvisorOrAdmin && (
+                                              <button
+                                                onClick={(e) => handleRetryApprovalNotification(est, e)}
+                                                disabled={Boolean(sendingMap[est._id])}
+                                                className="px-2 py-0.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded text-[9px] font-bold shadow-sm"
+                                              >
+                                                Retry Stage 2
+                                              </button>
+                                            )}
+                                            {!isSuccess && hist.stage === 'STAGE_3_ESTIMATION_APPROVED' && isAdvisorOrAdmin && (
+                                              <button
+                                                onClick={(e) => handleRetryApprovedNotification(est, e)}
+                                                disabled={Boolean(sendingMap[est._id])}
+                                                className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded text-[9px] font-bold shadow-sm"
+                                              >
+                                                Retry Stage 3
+                                              </button>
+                                            )}
+                                            {hist.pdfUrl && (
+                                              <a
+                                                href={hist.pdfUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="text-[9.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
+                                              >
+                                                <ExternalLink className="w-3 h-3" />
+                                                View Sent PDF
+                                              </a>
+                                            )}
+                                          </div>
                                         </div>
                                       );
                                     })}
@@ -1224,7 +1397,9 @@ export default function Estimates({ token, user, setActiveTab }) {
                 <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-800 pt-2 text-sm font-black text-slate-900 dark:text-white">
                   <span>Final Approved Amount:</span>
                   <span className="text-base text-emerald-600 dark:text-emerald-400 font-mono">
-                    ₹{(approvalModalEst.totals?.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    ₹{((approvalModalEst.manualOverride && approvalModalEst.manualGrandTotal !== undefined && approvalModalEst.manualGrandTotal !== null)
+                      ? Number(approvalModalEst.manualGrandTotal)
+                      : (approvalModalEst.totals?.grandTotal || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>

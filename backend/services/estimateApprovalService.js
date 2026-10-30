@@ -20,6 +20,34 @@ const extractSearchableDigits = (rawPhone) => {
 };
 
 /**
+ * Resolves the canonical saved estimate amount without recalculating:
+ * 1. Approved Final Amount
+ * 2. Manual Grand Total (manualOverride)
+ * 3. Persisted Grand Total from totals
+ */
+const getCanonicalEstimateAmount = (estimate) => {
+  if (!estimate) return 0;
+  if (estimate.status === 'Approved' && estimate.approvalMetadata?.finalAmount !== undefined && estimate.approvalMetadata?.finalAmount !== null && Number(estimate.approvalMetadata.finalAmount) > 0) {
+    return Number(estimate.approvalMetadata.finalAmount);
+  }
+  if (estimate.manualOverride && estimate.manualGrandTotal !== undefined && estimate.manualGrandTotal !== null && Number(estimate.manualGrandTotal) > 0) {
+    return Number(estimate.manualGrandTotal);
+  }
+  return Number(estimate.totals?.grandTotal || estimate.totals?.roundedGrandTotal || 0);
+};
+
+/**
+ * Formats amounts according to Indian Numbering System (e.g. 3,681.60)
+ */
+const formatIndianCurrency = (amount) => {
+  const num = Number(amount) || 0;
+  return num.toLocaleString('en-IN', {
+    minimumFractionDigits: num % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2
+  });
+};
+
+/**
  * Analyzes incoming message text or button payload to detect customer approval or rejection.
  */
 const detectCustomerApprovalIntent = (rawText, payloadId) => {
@@ -150,11 +178,12 @@ const handleInboundEstimateReply = async ({
   // 4. Handle Customer Approval
   if (intent === 'APPROVE') {
     const oldStatus = estimate.status;
+    const approvedFinalAmount = getCanonicalEstimateAmount(estimate);
     estimate.status = 'Approved';
     estimate.approvalMetadata = {
       approvedByName: `${customerName} (via WhatsApp)`,
       approvedAt: new Date(),
-      finalAmount: estimate.totals?.grandTotal || 0,
+      finalAmount: approvedFinalAmount,
       previousStatus: oldStatus
     };
     await estimate.save();
@@ -163,28 +192,35 @@ const handleInboundEstimateReply = async ({
     if (estimate.jobCardId) {
       await JobCard.findByIdAndUpdate(estimate.jobCardId, {
         status: 'Work In Progress',
-        estAmt: estimate.totals?.grandTotal || 0
+        estAmt: approvedFinalAmount
       });
     }
 
     await logAction(null, 'ESTIMATE_APPROVE', `Customer ${customerName} (${maskPhoneNumber(fromPhone)}) approved Estimate ${estimate.estimateNo} via WhatsApp reply. Status updated to Approved.`, null);
     console.log(`[Estimate Inbound Reply] Estimate ${estimate.estimateNo} updated to Approved.`);
 
-    // Trigger WhatsApp estimate approved notification (mvss_estimate_approved)
+    // Trigger STAGE 3: WhatsApp estimate approved notification (mvss_estimate_approved)
     try {
-      const jc = estimate.jobCardId ? await JobCard.findById(estimate.jobCardId).lean() : null;
+      const jc = estimate.jobCardId ? await JobCard.findById(estimate.jobCardId) : null;
       let vehicle = null;
       if (jc?.vehicleId) {
         vehicle = await Vehicle.findById(jc.vehicleId).lean();
       }
-      const vehicleNumber = String(vehicle?.vehicleNumber || vehicle?.regNo || 'your vehicle').trim();
+      let vehicleNumber = 'your vehicle';
+      const rawVeh = vehicle?.vehicleNumber || vehicle?.regNo;
+      if (rawVeh && typeof rawVeh === 'string' && !/mvss\s*automobiles/i.test(rawVeh)) {
+        vehicleNumber = rawVeh.trim().toUpperCase();
+      }
       const estimateNumber = String(estimate.estimateNo || 'N/A').trim();
       const jobCardNumber = String(jc?.jobCardNo || 'N/A').trim();
-      const totalAmount = String(estimate.totals?.roundedGrandTotal || estimate.totals?.grandTotal || '0').trim();
+      const formattedAmount = formatIndianCurrency(approvedFinalAmount);
 
       const contactCheck = validateCustomerContact(customer, fromPhone);
+      const revCount = estimate.revisionHistory?.length || 0;
+      const correlationKey = `estimate_stage3_approved_${estimate._id}_rev${revCount}`;
+
       if (contactCheck.valid) {
-        await sendTemplateMessage({
+        const waResult = await sendTemplateMessage({
           to: contactCheck.phone,
           templateName: 'mvss_estimate_approved',
           components: [
@@ -195,18 +231,47 @@ const handleInboundEstimateReply = async ({
                 { type: 'text', text: vehicleNumber },
                 { type: 'text', text: estimateNumber },
                 { type: 'text', text: jobCardNumber },
-                { type: 'text', text: totalAmount }
+                { type: 'text', text: formattedAmount }
               ]
             }
           ],
           recipientName: customerName,
           relatedEntity: estimate._id,
           onModel: 'Estimate',
-          idempotencyKey: `mvss_estimate_approved_inbound_${estimate._id}`
+          idempotencyKey: correlationKey
         });
+
+        if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
+        estimate.whatsappHistory.push({
+          stage: 'STAGE_3_ESTIMATION_APPROVED',
+          estimateId: estimate._id,
+          jobCardId: estimate.jobCardId,
+          sentAt: new Date(),
+          recipientPhone: contactCheck.phone,
+          status: 'sent',
+          messageId: waResult?.messageId || '',
+          finalAmount: approvedFinalAmount,
+          templateName: 'mvss_estimate_approved',
+          sentByName: `${customerName} (via WhatsApp)`
+        });
+        await estimate.save();
       }
     } catch (waErr) {
       console.warn('[Estimate Inbound Reply] Note: Post-approval WhatsApp dispatch error:', waErr.message || waErr);
+      if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
+      estimate.whatsappHistory.push({
+        stage: 'STAGE_3_ESTIMATION_APPROVED',
+        estimateId: estimate._id,
+        jobCardId: estimate.jobCardId,
+        sentAt: new Date(),
+        recipientPhone: fromPhone,
+        status: 'failed',
+        error: waErr.message || String(waErr),
+        finalAmount: approvedFinalAmount,
+        templateName: 'mvss_estimate_approved',
+        sentByName: `${customerName} (via WhatsApp)`
+      });
+      await estimate.save();
     }
 
     return {

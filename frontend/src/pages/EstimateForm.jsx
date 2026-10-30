@@ -373,6 +373,10 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 total: pricing.finalTotalAmount.toFixed(2)
               };
             }));
+            if (est.manualOverride) {
+              setManualOverride(true);
+              setOverriddenGrandTotal((est.manualGrandTotal || est.totals?.grandTotal || '').toString());
+            }
           }
         }
       } catch (err) {
@@ -884,11 +888,16 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     }
 
     const isRevising = Boolean(existingEstimate && existingEstimate.status !== 'Draft');
+    const isManual = Boolean(manualOverride);
+    const parsedOverride = (isManual && overriddenGrandTotal !== '') ? parseFloat(overriddenGrandTotal) || 0 : null;
 
     const payload = {
       jobCardId: selectedJcId,
       parts: cleanedParts,
       labour: cleanedLabour,
+      manualOverride: isManual,
+      manualGrandTotal: parsedOverride,
+      grandTotal: parsedOverride !== null ? parsedOverride : undefined,
       reason: revisionReason ? revisionReason.trim() : undefined
     };
 
