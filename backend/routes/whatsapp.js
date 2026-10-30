@@ -151,18 +151,25 @@ router.post('/webhook', async (req, res) => {
                                 }
                             }
 
-                            // Store inbound message in WhatsAppLog
-                            const logEntry = new WhatsAppLog({
-                                recipientName,
-                                recipientPhone: fromPhone,
-                                messageType: 'text',
-                                direction: 'inbound',
-                                status: 'delivered',
-                                messageId: messageId,
-                                errorMessage: messageType === 'text' ? message.text.body : `Received non-text message: ${messageType}`,
-                                ...(relatedEntity && onModel ? { relatedEntity, onModel } : {})
-                            });
-                            await logEntry.save();
+                            // Store inbound message in WhatsAppLog using atomic upsert (prevents E11000 duplicate key error)
+                            await WhatsAppLog.findOneAndUpdate(
+                                { messageId },
+                                {
+                                    $setOnInsert: {
+                                        recipientName,
+                                        recipientPhone: fromPhone,
+                                        messageType: 'text',
+                                        direction: 'inbound',
+                                        status: 'delivered',
+                                        messageId: messageId,
+                                        errorMessage: messageType === 'text' ? message.text.body : `Received non-text message: ${messageType}`,
+                                        idempotencyKey: `inbound_${messageId}`,
+                                        ...(relatedEntity && onModel ? { relatedEntity, onModel } : {}),
+                                        createdAt: new Date()
+                                    }
+                                },
+                                { upsert: true, new: true }
+                            );
 
                             // 3. Auto-deliver queued Customer Estimate PDF now that customer has engaged (24h window open)
                             try {

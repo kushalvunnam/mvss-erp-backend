@@ -13,10 +13,12 @@ const fetchStatus = async () => {
     if (res.ok) {
       const data = await res.json();
       console.log('Current status:', data);
-      if (data.success === true) {
-        console.log('✅ Backend deployment is live and healthy.');
+      if (data.version === 'production-v1.4.0-whatsapp-stage1-delivery') {
+        console.log('✅ New version production-v1.4.0-whatsapp-stage1-delivery is LIVE on Render!');
         cleanUp();
         setTimeout(() => process.exit(0), 100);
+      } else {
+        console.log('Waiting for rollout... Currently running:', data.version);
       }
     } else {
       console.error('Fetch failed with status:', res.status);

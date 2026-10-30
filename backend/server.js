@@ -329,8 +329,8 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    version: 'production-v1.3.0-whatsapp-pdf-delivery',
-    description: 'Customer duplicate prevention, submit locking, WhatsApp estimate PDF delivery and 24h window handling'
+    version: 'production-v1.4.0-whatsapp-stage1-delivery',
+    description: 'Stage 1 WhatsApp delivery, customer PDF attachment, strict sequencing, atomic upsert, and E11000 duplicate key elimination'
   });
 });
 

@@ -169,6 +169,7 @@ const TEMPLATE_CONFIG = {
     'estimate_awaiting_customer_approval': { lang: 'en', paramCount: 4 },
     'mvss_estimate_awaiting_customer_approval': { lang: 'en', paramCount: 4 },
     'mvss_estimate_created': { lang: 'en', paramCount: 5 },
+    'mvss_customer_estimate_doc': { lang: 'en', paramCount: 5, headerFormat: 'DOCUMENT' },
     'mvss_estimate_approved': { lang: 'en', paramCount: 5 },
     'mvss_work_started': { lang: 'en', paramCount: 3 },
     'mvss_additional_work': { lang: 'en', paramCount: 5 },
@@ -726,9 +727,9 @@ const sendTemplateMessage = async ({
         if (idempotencyKey) {
             try {
                 const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
-                if (existingLog) {
-                    console.log(`[WhatsApp] Duplicate skipped for key: ${idempotencyKey}`);
-                    return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped' };
+                if (existingLog && ['sent', 'delivered', 'read'].includes(existingLog.status)) {
+                    console.log(`[WhatsApp] Duplicate skipped for key: ${idempotencyKey} (already ${existingLog.status})`);
+                    return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped', alreadySent: true };
                 }
             } catch (dbReadErr) {
                 console.warn(`[WhatsApp] Warning: Failed to query existing WhatsAppLog for idempotencyKey '${idempotencyKey}':`, dbReadErr.message || dbReadErr);
@@ -757,8 +758,11 @@ const sendTemplateMessage = async ({
                         },
                         $set: {
                             lastAttemptAt: new Date(),
-                            status: 'pending'
-                        }
+                            status: 'pending',
+                            errorMessage: null,
+                            metaErrorCode: null
+                        },
+                        $inc: { attempts: 1 }
                     },
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
@@ -941,8 +945,11 @@ const sendDocumentMessage = async ({
                         },
                         $set: {
                             lastAttemptAt: new Date(),
-                            status: 'pending'
-                        }
+                            status: 'pending',
+                            errorMessage: null,
+                            metaErrorCode: null
+                        },
+                        $inc: { attempts: 1 }
                     },
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
@@ -1096,33 +1103,82 @@ const createDocumentTemplate = async (customAxios = axios) => {
         return { success: false, error: 'Meta credentials missing (META_WA_ACCESS_TOKEN or META_WA_BUSINESS_ACCOUNT_ID)' };
     }
 
-    const payload = {
-        name: 'mvss_customer_estimate_doc',
-        category: 'UTILITY',
-        language: 'en',
-        components: [
-            {
-                type: 'HEADER',
-                format: 'DOCUMENT',
-                example: {
-                    header_handle: [
-                        'https://mvss-erp-backend.onrender.com/uploads/estimates/sample_estimate.pdf'
-                    ]
-                }
-            },
-            {
-                type: 'BODY',
-                text: 'Dear {{1}},\n\nThe service estimate for your vehicle {{2}} has been prepared by MVSS Automobiles.\n\nEstimate No: {{3}}\nJob Card No: {{4}}\nEstimated Amount: ₹{{5}}\n\nPlease review the attached estimate PDF.\n\nThank you,\nMVSS Automobiles',
-                example: {
-                    body_text: [
-                        ['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/078', 'JC-1001', '3,681.60']
-                    ]
-                }
-            }
-        ]
-    };
-
     try {
+        const samplePdfContent = '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n190\n%%EOF';
+        const samplePdf = Buffer.from(samplePdfContent, 'utf-8');
+
+        // Determine Meta App ID
+        let appId = process.env.META_WA_APP_ID;
+        if (!appId) {
+            try {
+                const debugRes = await customAxios.get(`${GRAPH_API_BASE_URL}/debug_token?input_token=${token}&access_token=${token}`);
+                appId = debugRes.data?.data?.app_id;
+            } catch (debugErr) {
+                console.warn('[WhatsApp] Could not determine appId from debug_token:', debugErr.message);
+            }
+        }
+        if (!appId) {
+            appId = wabaId;
+        }
+
+        let headerHandle = null;
+        try {
+            // Create upload session via Resumable Upload API
+            console.log(`[WhatsApp] Creating Meta upload session for document header example (App: ${appId})...`);
+            const sessionRes = await customAxios.post(
+                `${GRAPH_API_BASE_URL}/${appId}/uploads?file_length=${samplePdf.length}&file_type=application/pdf&file_name=sample_estimate.pdf`,
+                null,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            const uploadSessionId = sessionRes.data?.id;
+
+            // Upload binary data to upload session to obtain header_handle
+            console.log(`[WhatsApp] Uploading sample PDF binary to session ${uploadSessionId}...`);
+            const uploadBinaryRes = await customAxios.post(
+                `${GRAPH_API_BASE_URL}/${uploadSessionId}`,
+                samplePdf,
+                {
+                    headers: {
+                        'Authorization': `OAuth ${token}`,
+                        'file_offset': 0,
+                        'Content-Type': 'application/octet-stream'
+                    }
+                }
+            );
+            headerHandle = uploadBinaryRes.data?.h;
+            console.log(`[WhatsApp] Obtained Meta header_handle: ${headerHandle}`);
+        } catch (handleErr) {
+            console.warn('[WhatsApp] Resumable upload note:', handleErr.response?.data || handleErr.message);
+        }
+
+        const headerComponent = {
+            type: 'HEADER',
+            format: 'DOCUMENT'
+        };
+        if (headerHandle) {
+            headerComponent.example = {
+                header_handle: [headerHandle]
+            };
+        }
+
+        const payload = {
+            name: 'mvss_customer_estimate_doc',
+            category: 'UTILITY',
+            language: 'en',
+            components: [
+                headerComponent,
+                {
+                    type: 'BODY',
+                    text: 'Dear {{1}},\n\nThe service estimate for your vehicle {{2}} has been prepared by MVSS Automobiles.\n\nEstimate No: {{3}}\nJob Card No: {{4}}\nEstimated Amount: ₹{{5}}\n\nPlease review the attached estimate PDF.\n\nThank you,\nMVSS Automobiles',
+                    example: {
+                        body_text: [
+                            ['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/078', 'JC-1001', '3,681.60']
+                        ]
+                    }
+                }
+            ]
+        };
+
         const response = await customAxios.post(
             `${GRAPH_API_BASE_URL}/${wabaId}/message_templates`,
             payload,
