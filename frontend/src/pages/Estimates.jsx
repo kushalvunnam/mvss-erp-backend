@@ -152,7 +152,7 @@ export default function Estimates({ token, user, setActiveTab }) {
         return;
       }
     }
-    if (newStatus === 'Sent') {
+    if (newStatus === 'Sent' || newStatus === 'Waiting for Approval') {
       const est = estimates.find(item => item._id === id);
       if (est) {
         handleSendCustomerEstimate(est, e);
@@ -908,7 +908,7 @@ export default function Estimates({ token, user, setActiveTab }) {
                         </td>
                         <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-2 justify-end items-center">
-                            {isAdvisorOrAdmin && est.status === 'Draft' && (
+                            {isAdvisorOrAdmin && ['Draft', 'Revised'].includes(est.status) && (
                               <button
                                 onClick={(e) => handleSendCustomerEstimate(est, e)}
                                 disabled={Boolean(sendingMap[est._id])}
@@ -923,7 +923,7 @@ export default function Estimates({ token, user, setActiveTab }) {
                                 ) : (
                                   <>
                                     <Send className="w-3 h-3" />
-                                    <span>Send</span>
+                                    <span>{est.status === 'Draft' ? 'Send' : 'Send Revised'}</span>
                                   </>
                                 )}
                               </button>

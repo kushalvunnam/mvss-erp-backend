@@ -764,35 +764,40 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req }) => {
   // 2. Prevent duplicate messages when Send is clicked multiple times (Idempotency)
   const revCount = estimate.revisionHistory?.length || 0;
   const rawGrandTotal = estimate.totals?.grandTotal || 0;
-  const idempotencyKey = `estimate_customer_pdf_${estimate._id}_rev${revCount}_${Math.round(rawGrandTotal)}`;
+  const isForceResend = Boolean(req?.body?.force || req?.body?.resend);
+  const idempotencyKey = isForceResend
+    ? `estimate_customer_pdf_${estimate._id}_rev${revCount}_${Math.round(rawGrandTotal)}_${Date.now()}`
+    : `estimate_customer_pdf_${estimate._id}_rev${revCount}_${Math.round(rawGrandTotal)}`;
 
-  // Check if message was already sent and accepted
-  const alreadySentLog = await WhatsAppLog.findOne({
-    idempotencyKey,
-    status: { $in: ['sent', 'delivered', 'read'] }
-  }).lean();
+  // Check if message was already sent and accepted (unless explicitly forced to resend)
+  if (!isForceResend) {
+    const alreadySentLog = await WhatsAppLog.findOne({
+      idempotencyKey,
+      status: { $in: ['sent', 'delivered', 'read'] }
+    }).lean();
 
-  if (alreadySentLog) {
-    if (['Draft', 'Sent'].includes(estimate.status)) {
-      estimate.status = 'Waiting for Approval';
-      await estimate.save();
-    }
-    if (estimate.jobCardId) {
-      await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
-        status: 'Waiting for Customer Approval'
-      });
-    }
-    return {
-      status: 200,
-      data: {
-        success: true,
-        message: 'Customer Estimate PDF and Waiting for Approval request have already been sent to customer via WhatsApp.',
-        alreadySent: true,
-        estimate,
-        pdfUrl: alreadySentLog.pdfUrl,
-        messageId: alreadySentLog.messageId
+    if (alreadySentLog) {
+      if (['Draft', 'Sent'].includes(estimate.status)) {
+        estimate.status = 'Waiting for Approval';
+        await estimate.save();
       }
-    };
+      if (estimate.jobCardId) {
+        await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
+          status: 'Waiting for Customer Approval'
+        });
+      }
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: 'Customer Estimate PDF and Waiting for Approval request have already been sent to customer via WhatsApp.',
+          alreadySent: true,
+          estimate,
+          pdfUrl: alreadySentLog.pdfUrl,
+          messageId: alreadySentLog.messageId
+        }
+      };
+    }
   }
 
   // In-flight concurrency guard (within last 30s)
@@ -879,9 +884,13 @@ Kindly review and share your approval:
 
 Thank you for choosing MVSS Automobiles!`;
 
-  // 5. Send WhatsApp Document Message (AUTOMATION 1)
+  // 5. Send WhatsApp Automations (AUTOMATION 1: Customer Estimate PDF & AUTOMATION 2: Waiting for Approval)
+  let docResult = null;
+  let docError = null;
+
+  // AUTOMATION 1: Send Customer Estimate PDF Document Attachment
   try {
-    const waResult = await sendDocumentMessage({
+    docResult = await sendDocumentMessage({
       to: contactCheck.phone,
       documentUrl: pdfUrl,
       pdfBuffer,
@@ -892,94 +901,98 @@ Thank you for choosing MVSS Automobiles!`;
       onModel: 'Estimate',
       idempotencyKey
     });
+  } catch (dErr) {
+    docError = dErr;
+    console.warn(`[WhatsApp Estimate PDF] Automation 1 document dispatch note:`, dErr.message || dErr);
+  }
 
-    // 5b. Send WhatsApp Approval Request Template (AUTOMATION 2)
-    let approvalMsgId = null;
-    const approvalCorrelationKey = `estimate_awaiting_approval_${estimate._id}_rev${revCount}`;
+  // AUTOMATION 2: Send WhatsApp Approval Request Template (Waiting for Approval)
+  let approvalMsgId = null;
+  let approvalTemplateUsed = null;
+  let approvalError = null;
+  const approvalCorrelationKey = isForceResend
+    ? `estimate_awaiting_approval_${estimate._id}_rev${revCount}_${Date.now()}`
+    : `estimate_awaiting_approval_${estimate._id}_rev${revCount}`;
+
+  const { sendTemplateMessage } = require('../services/whatsappService');
+  const jcNo = String(jc.jobCardNo || 'N/A').trim();
+
+  // Multi-template candidates to ensure guaranteed delivery across Meta WABA registrations
+  const candidateTemplates = [
+    {
+      name: 'estimate_awaiting_customer_approval',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: estimateNumber },
+            { type: 'text', text: formattedGrandTotal }
+          ]
+        }
+      ]
+    },
+    {
+      name: 'mvss_estimate_awaiting_customer_approval',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: estimateNumber },
+            { type: 'text', text: formattedGrandTotal }
+          ]
+        }
+      ]
+    },
+    {
+      name: 'mvss_estimate_created',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: estimateNumber },
+            { type: 'text', text: jcNo },
+            { type: 'text', text: formattedGrandTotal }
+          ]
+        }
+      ]
+    }
+  ];
+
+  for (const candidate of candidateTemplates) {
     try {
-      const { sendTemplateMessage } = require('../services/whatsappService');
       const waApprovalResult = await sendTemplateMessage({
         to: contactCheck.phone,
-        templateName: 'estimate_awaiting_customer_approval',
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              { type: 'text', text: customerName },
-              { type: 'text', text: vehicleNumber },
-              { type: 'text', text: estimateNumber },
-              { type: 'text', text: formattedGrandTotal }
-            ]
-          }
-        ],
+        templateName: candidate.name,
+        components: candidate.components,
         recipientName: customerName,
         relatedEntity: estimate._id,
         onModel: 'Estimate',
-        idempotencyKey: approvalCorrelationKey
+        idempotencyKey: `${approvalCorrelationKey}_${candidate.name}`
       });
-      approvalMsgId = waApprovalResult?.messageId;
-      console.log(`[WhatsApp Estimate Approval] Approval request message dispatched: wamid=${approvalMsgId}`);
-    } catch (tplErr) {
-      console.warn(`[WhatsApp Estimate Approval] Note: Template approval message dispatch:`, tplErr.message || tplErr);
-    }
-
-    // 6. WhatsApp API accepted: Update estimate status to Waiting for Approval, sync JobCard, and persist audit history
-    estimate.status = 'Waiting for Approval';
-    estimate.pdfUrl = pdfUrl;
-    if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
-    // Record Customer Estimate PDF document dispatch
-    estimate.whatsappHistory.push({
-      sentAt: new Date(),
-      recipientPhone: contactCheck.phone,
-      pdfUrl,
-      status: 'sent',
-      messageId: waResult.messageId,
-      templateName: 'document_customer_estimate_pdf',
-      sentBy: user?._id,
-      sentByName: user?.name || user?.username || 'Authorized User'
-    });
-
-    // Record approval template dispatch
-    if (approvalMsgId) {
-      estimate.whatsappHistory.push({
-        sentAt: new Date(),
-        recipientPhone: contactCheck.phone,
-        pdfUrl,
-        status: 'sent',
-        messageId: approvalMsgId,
-        templateName: 'estimate_awaiting_customer_approval',
-        sentBy: user?._id,
-        sentByName: user?.name || user?.username || 'Authorized User'
-      });
-    }
-    await estimate.save();
-
-    // Sync linked Job Card to 'Waiting for Customer Approval'
-    if (estimate.jobCardId) {
-      await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
-        status: 'Waiting for Customer Approval',
-        estAmt: rawGrandTotal
-      });
-    }
-
-    await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate PDF & Approval Request ${estimate.estimateNo} to WhatsApp ${contactCheck.masked}. Status: Waiting for Approval`, req);
-
-    console.log(`[WhatsApp Estimate PDF] Estimate ${estimate.estimateNo} successfully sent to ${contactCheck.masked} (wamid: ${waResult.messageId || approvalMsgId}). Status updated to Waiting for Approval.`);
-
-    return {
-      status: 200,
-      data: {
-        success: true,
-        message: 'Customer Estimate PDF and Waiting for Approval request sent to WhatsApp successfully.',
-        estimate,
-        pdfUrl,
-        messageId: waResult.messageId || approvalMsgId
+      if (waApprovalResult?.success || waApprovalResult?.messageId) {
+        approvalMsgId = waApprovalResult.messageId;
+        approvalTemplateUsed = candidate.name;
+        console.log(`[WhatsApp Estimate Approval] Approval request message dispatched via template '${approvalTemplateUsed}': wamid=${approvalMsgId}`);
+        break;
       }
-    };
+    } catch (tplErr) {
+      approvalError = tplErr;
+      console.warn(`[WhatsApp Estimate Approval] Candidate template '${candidate.name}' dispatch note:`, tplErr.message || tplErr);
+    }
+  }
 
-  } catch (waError) {
+  const atLeastOneSuccess = Boolean(docResult?.messageId || approvalMsgId);
+
+  if (!atLeastOneSuccess) {
     // 7. WhatsApp sending failed: RETAIN Draft status (do NOT mark as Sent) and log failure
-    console.error(`[WhatsApp Estimate PDF] WhatsApp dispatch failed for estimate ${estimate.estimateNo}:`, waError.message);
+    const finalErrorMsg = docError?.message || approvalError?.message || 'Meta WhatsApp dispatch failed';
+    console.error(`[WhatsApp Estimate PDF] WhatsApp dispatch failed for estimate ${estimate.estimateNo}:`, finalErrorMsg);
 
     if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
     estimate.whatsappHistory.push({
@@ -987,7 +1000,7 @@ Thank you for choosing MVSS Automobiles!`;
       recipientPhone: contactCheck.phone,
       pdfUrl,
       status: 'failed',
-      error: waError.message,
+      error: finalErrorMsg,
       sentBy: user?._id,
       sentByName: user?.name || user?.username || 'Authorized User'
     });
@@ -995,10 +1008,67 @@ Thank you for choosing MVSS Automobiles!`;
 
     return {
       status: 500,
-      error: `WhatsApp sending failed: ${waError.message}`,
+      error: `WhatsApp sending failed: ${finalErrorMsg}`,
       estimate
     };
   }
+
+  // 6. WhatsApp API accepted: Update estimate status to Waiting for Approval, sync JobCard, and persist audit history
+  estimate.status = 'Waiting for Approval';
+  estimate.pdfUrl = pdfUrl;
+  if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
+
+  // Record Customer Estimate PDF document dispatch
+  if (docResult?.messageId) {
+    estimate.whatsappHistory.push({
+      sentAt: new Date(),
+      recipientPhone: contactCheck.phone,
+      pdfUrl,
+      status: 'sent',
+      messageId: docResult.messageId,
+      templateName: 'document_customer_estimate_pdf',
+      sentBy: user?._id,
+      sentByName: user?.name || user?.username || 'Authorized User'
+    });
+  }
+
+  // Record approval template dispatch
+  if (approvalMsgId) {
+    estimate.whatsappHistory.push({
+      sentAt: new Date(),
+      recipientPhone: contactCheck.phone,
+      pdfUrl,
+      status: 'sent',
+      messageId: approvalMsgId,
+      templateName: approvalTemplateUsed || 'estimate_awaiting_customer_approval',
+      sentBy: user?._id,
+      sentByName: user?.name || user?.username || 'Authorized User'
+    });
+  }
+  await estimate.save();
+
+  // Sync linked Job Card to 'Waiting for Customer Approval'
+  if (estimate.jobCardId) {
+    await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
+      status: 'Waiting for Customer Approval',
+      estAmt: rawGrandTotal
+    });
+  }
+
+  await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate PDF & Approval Request ${estimate.estimateNo} to WhatsApp ${contactCheck.masked}. Status: Waiting for Approval`, req);
+
+  console.log(`[WhatsApp Estimate PDF] Estimate ${estimate.estimateNo} successfully sent to ${contactCheck.masked} (wamid: ${docResult?.messageId || approvalMsgId}). Status updated to Waiting for Approval.`);
+
+  return {
+    status: 200,
+    data: {
+      success: true,
+      message: 'Customer Estimate PDF and Waiting for Approval request sent to WhatsApp successfully.',
+      estimate,
+      pdfUrl,
+      messageId: docResult?.messageId || approvalMsgId
+    }
+  };
 };
 
 // Send Customer Estimate PDF via WhatsApp

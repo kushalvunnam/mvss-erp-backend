@@ -923,6 +923,30 @@ const sendDocumentMessage = async ({
 
         if (documentUrl) {
             documentPayload.link = documentUrl;
+        } else if (pdfBuffer && typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
+            try {
+                const formData = new FormData();
+                const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+                formData.append('file', blob, filename || 'Customer_Estimate.pdf');
+                formData.append('type', 'application/pdf');
+                formData.append('messaging_product', 'whatsapp');
+
+                const mediaRes = await customAxios.post(
+                    `${GRAPH_API_BASE_URL}/${phoneNumberId}/media`,
+                    formData,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    }
+                );
+                if (mediaRes.data?.id) {
+                    documentPayload.id = mediaRes.data.id;
+                    console.log(`[WhatsApp] Uploaded PDF media directly to Meta: mediaId=${documentPayload.id}`);
+                }
+            } catch (mediaErr) {
+                console.warn(`[WhatsApp] Meta Media direct upload note: ${mediaErr.message || mediaErr}.`);
+            }
         }
 
         const payload = {
