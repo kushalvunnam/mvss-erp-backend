@@ -521,7 +521,14 @@ router.post('/', async (req, res) => {
         sgst,
         igst,
         rackLocation: item.rackLocation || '',
-        total: itemTotal
+        total: itemTotal,
+        brand: item.brand || inventoryItem.brand || '',
+        supplierBrand: item.supplierBrand || '',
+        vehicleMake: item.vehicleMake || inventoryItem.vehicleMake || '',
+        vehicleModel: item.vehicleModel || inventoryItem.vehicleModel || '',
+        compatibility: item.compatibility || inventoryItem.compatibility || '',
+        oemBrand: item.oemBrand || inventoryItem.oemBrand || '',
+        warranty: item.warranty || inventoryItem.warranty || ''
       });
     }
 
@@ -912,7 +919,14 @@ router.put('/:id', async (req, res) => {
         cgst,
         sgst,
         igst,
-        total: itemTotal
+        total: itemTotal,
+        brand: item.brand || inventoryItem.brand || '',
+        supplierBrand: item.supplierBrand || '',
+        vehicleMake: item.vehicleMake || inventoryItem.vehicleMake || '',
+        vehicleModel: item.vehicleModel || inventoryItem.vehicleModel || '',
+        compatibility: item.compatibility || inventoryItem.compatibility || '',
+        oemBrand: item.oemBrand || inventoryItem.oemBrand || '',
+        warranty: item.warranty || inventoryItem.warranty || ''
       });
     }
 

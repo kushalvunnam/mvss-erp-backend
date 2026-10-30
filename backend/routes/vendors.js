@@ -34,7 +34,9 @@ router.get('/', auth, async (req, res) => {
         { contactPerson: { $regex: search, $options: 'i' } },
         { mobile: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
-        { gstNumber: { $regex: search, $options: 'i' } }
+        { gstNumber: { $regex: search, $options: 'i' } },
+        { supplierBrand: { $regex: search, $options: 'i' } },
+        { brands: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -42,11 +44,11 @@ router.get('/', auth, async (req, res) => {
 
     if (vendors.length === 0 && !search && !category && !type) {
       const defaultVendors = [
-        { vendorCode: 'VND-0001', name: 'Bosch Automotive Parts', category: 'Spares', type: 'Authorized Distributor', mobile: '9876543210', city: 'Hyderabad', paymentTerms: 'Net 30' },
-        { vendorCode: 'VND-0002', name: 'Castrol Lubricants India', category: 'Lubricants', type: 'Manufacturer', mobile: '9876543211', city: 'Hyderabad', paymentTerms: 'Immediate' },
-        { vendorCode: 'VND-0003', name: 'Gates Auto Belts & Hoses', category: 'Spares', type: 'Wholesaler', mobile: '9876543212', city: 'Hyderabad', paymentTerms: 'Net 15' },
-        { vendorCode: 'VND-0004', name: 'Philips Automotive Lighting', category: 'Spares', type: 'Authorized Distributor', mobile: '9876543213', city: 'Hyderabad', paymentTerms: 'Net 30' },
-        { vendorCode: 'VND-0005', name: 'Exide Batteries Ltd', category: 'Batteries & Tyres', type: 'Wholesaler', mobile: '9876543214', city: 'Hyderabad', paymentTerms: 'Net 30' }
+        { vendorCode: 'VND-0001', name: 'Bosch Automotive Parts', category: 'Spares', type: 'Authorized Distributor', mobile: '9876543210', city: 'Hyderabad', paymentTerms: 'Net 30', supplierBrand: 'Bosch', brands: ['Bosch'] },
+        { vendorCode: 'VND-0002', name: 'Castrol Lubricants India', category: 'Lubricants', type: 'Manufacturer', mobile: '9876543211', city: 'Hyderabad', paymentTerms: 'Immediate', supplierBrand: 'Castrol', brands: ['Castrol'] },
+        { vendorCode: 'VND-0003', name: 'Gates Auto Belts & Hoses', category: 'Spares', type: 'Wholesaler', mobile: '9876543212', city: 'Hyderabad', paymentTerms: 'Net 15', supplierBrand: 'Gates', brands: ['Gates'] },
+        { vendorCode: 'VND-0004', name: 'Philips Automotive Lighting', category: 'Spares', type: 'Authorized Distributor', mobile: '9876543213', city: 'Hyderabad', paymentTerms: 'Net 30', supplierBrand: 'Philips', brands: ['Philips'] },
+        { vendorCode: 'VND-0005', name: 'Exide Batteries Ltd', category: 'Batteries & Tyres', type: 'Wholesaler', mobile: '9876543214', city: 'Hyderabad', paymentTerms: 'Net 30', supplierBrand: 'Exide', brands: ['Exide'] }
       ];
       try {
         await Vendor.insertMany(defaultVendors);

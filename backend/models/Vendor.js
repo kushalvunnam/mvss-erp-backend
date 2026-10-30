@@ -18,6 +18,15 @@ const vendorSchema = new mongoose.Schema({
     enum: ['Spares', 'Lubricants', 'Batteries & Tyres', 'Accessories', 'Tools & Equipment', 'Sublet Service', 'General'],
     default: 'Spares',
   },
+  supplierBrand: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  brands: {
+    type: [String],
+    default: [],
+  },
   type: {
     type: String,
     enum: ['Manufacturer', 'Authorized Distributor', 'Wholesaler', 'Local Dealer', 'Service Provider'],

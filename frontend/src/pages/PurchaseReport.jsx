@@ -31,6 +31,42 @@ import {
   Pencil
 } from 'lucide-react';
 
+// Helpers to extract brand information and multi-brand lists from Vendor records
+export const getVendorBrandsList = (vendor) => {
+  if (!vendor) return [];
+  const list = [];
+  if (Array.isArray(vendor.brands) && vendor.brands.length > 0) {
+    vendor.brands.forEach(b => {
+      const trimmed = (b || '').trim();
+      if (trimmed && !list.includes(trimmed)) list.push(trimmed);
+    });
+  }
+  if (vendor.supplierBrand && vendor.supplierBrand.trim()) {
+    const trimmed = vendor.supplierBrand.trim();
+    if (!list.includes(trimmed)) list.unshift(trimmed);
+  }
+  // Heuristic fallback for established vendors if not explicitly set
+  if (list.length === 0 && vendor.name) {
+    const lower = vendor.name.toLowerCase();
+    if (lower.includes('bosch')) list.push('Bosch');
+    else if (lower.includes('castrol')) list.push('Castrol');
+    else if (lower.includes('gates')) list.push('Gates');
+    else if (lower.includes('philips')) list.push('Philips');
+    else if (lower.includes('exide')) list.push('Exide');
+    else if (lower.includes('minda')) list.push('Minda');
+    else if (lower.includes('lumax')) list.push('Lumax');
+  }
+  return list;
+};
+
+export const getVendorSupplierBrand = (vendor) => {
+  if (!vendor) return '';
+  if (vendor.supplierBrand && vendor.supplierBrand.trim()) return vendor.supplierBrand.trim();
+  const brands = getVendorBrandsList(vendor);
+  if (brands.length > 0) return brands[0];
+  return '';
+};
+
 export default function PurchaseReport({ token, user }) {
   // Active Module Sub-Tab: 'entry' | 'history' | 'reports'
   const [activeTab, setActiveTab] = useState('entry');
@@ -202,7 +238,7 @@ export default function PurchaseReport({ token, user }) {
   // ==========================================
   // PURCHASE ENTRY FORM STATE (Multi-Part)
   // ==========================================
-  const createEmptyRow = () => ({
+  const createEmptyRow = (defaultBrand = '') => ({
     id: `row_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
     selectedPartId: '',
     partName: '',
@@ -221,13 +257,14 @@ export default function PurchaseReport({ token, user }) {
     warehouse: 'Main Store',
     rackLocation: '',
     // New fields for Parts Master integration
-    brand: '',
-    supplierBrand: '',
+    brand: defaultBrand || '',
+    supplierBrand: defaultBrand || '',
     vehicleMake: '',
     vehicleModel: '',
     compatibility: '',
     oemBrand: '',
-    warranty: ''
+    warranty: '',
+    isManualBrand: false
   });
 
   const [purchaseHeader, setPurchaseHeader] = useState({
@@ -521,13 +558,17 @@ export default function PurchaseReport({ token, user }) {
   // MULTI-PART ROW LOGIC & DUAL DISCOUNT SYNC
   // ==========================================
   const handleAddRow = () => {
-    setPurchaseItems(prev => [...prev, createEmptyRow()]);
+    const selectedV = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+    const defaultBrand = getVendorSupplierBrand(selectedV);
+    setPurchaseItems(prev => [...prev, createEmptyRow(defaultBrand)]);
   };
 
   const handleRemoveRow = (id) => {
+    const selectedV = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+    const defaultBrand = getVendorSupplierBrand(selectedV);
     if (purchaseItems.length === 1) {
       // Clear values instead of removing single row
-      setPurchaseItems([createEmptyRow()]);
+      setPurchaseItems([createEmptyRow(defaultBrand)]);
       return;
     }
     setPurchaseItems(prev => prev.filter(row => row.id !== id));
@@ -535,6 +576,8 @@ export default function PurchaseReport({ token, user }) {
 
   const handleSelectSKU = (rowId, partId) => {
     const selected = inventoryList.find(p => p._id === partId);
+    const selectedV = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+    const vendorBrand = getVendorSupplierBrand(selectedV);
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
       if (!selected) {
@@ -552,9 +595,9 @@ export default function PurchaseReport({ token, user }) {
         gstPercent: selected.gstPercent !== undefined ? selected.gstPercent : 18,
         warehouse: selected.warehouse || 'Main Store',
         currentStock: selected.stockQuantity || 0,
-        // Populate new fields from Inventory
-        brand: selected.brand || '',
-        supplierBrand: selected.supplier || '',
+        // Populate new fields from Inventory or preserve vendor autofill
+        brand: row.brand || selected.brand || vendorBrand || '',
+        supplierBrand: row.supplierBrand || vendorBrand || selected.supplier || '',
         compatibility: selected.vehicleCompatibility || '',
         oemBrand: selected.oemBrand || '',
         warranty: selected.warranty || '',
@@ -664,7 +707,11 @@ export default function PurchaseReport({ token, user }) {
   const handleRowChange = (rowId, field, value) => {
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
-      return recalculateRowDiscounts(row, field, value);
+      const updated = recalculateRowDiscounts(row, field, value);
+      if (field === 'supplierBrand') {
+        updated.isManualBrand = true;
+      }
+      return updated;
     }));
   };
 
@@ -924,7 +971,8 @@ export default function PurchaseReport({ token, user }) {
         vehicleModel: item.vehicleModel || '',
         compatibility: item.compatibility || '',
         oemBrand: item.oemBrand || '',
-        warranty: item.warranty || ''
+        warranty: item.warranty || '',
+        isManualBrand: Boolean(item.supplierBrand)
       };
     });
 
@@ -1560,12 +1608,30 @@ export default function PurchaseReport({ token, user }) {
                     const isInter = selectedV && selectedV.gstNumber 
                       ? !selectedV.gstNumber.trim().startsWith('36') 
                       : false;
+                    const newBrand = getVendorSupplierBrand(selectedV);
+                    const oldVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+                    const oldBrand = getVendorSupplierBrand(oldVendor);
+
                     setPurchaseHeader({
                       ...purchaseHeader,
                       vendorId: vId,
                       vendorName: selectedV ? selectedV.name : '',
-                      billingType: isInter ? 'Inter-State' : 'Intra-State'
+                      billingType: isInter ? 'Inter-State' : 'Intra-State',
+                      supplierBrand: newBrand
                     });
+
+                    // Automatically populate Supplier Brand in all existing spare-part rows
+                    setPurchaseItems(prev => prev.map(row => {
+                      if (!row.isManualBrand || !row.supplierBrand || (oldBrand && row.supplierBrand === oldBrand)) {
+                        return {
+                          ...row,
+                          supplierBrand: newBrand,
+                          brand: (!row.brand || (oldBrand && row.brand === oldBrand)) ? newBrand : row.brand,
+                          isManualBrand: false
+                        };
+                      }
+                      return row;
+                    }));
                   }}
                   placeholder="Search supplier name, code, contact..."
                   emptyOptionLabel="-- Select Vendor --"
@@ -1575,11 +1641,19 @@ export default function PurchaseReport({ token, user }) {
                 {purchaseHeader.vendorId && (() => {
                   const vendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
                   if (!vendor) return null;
+                  const vendorBrand = getVendorSupplierBrand(vendor);
+                  const brandsList = getVendorBrandsList(vendor);
                   return (
                     <div className="mt-2.5 p-3 bg-indigo-50/50 dark:bg-indigo-955/20 border border-indigo-100 dark:border-indigo-900/40 rounded-xl text-[11px] space-y-1 text-slate-655 dark:text-slate-350">
                       <p className="font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest text-[9px] mb-1">Selected Vendor Details</p>
                       <p><strong>Name:</strong> {vendor.name}</p>
                       {vendor.vendorCode && <p><strong>Code:</strong> {vendor.vendorCode}</p>}
+                      {vendorBrand && (
+                        <p><strong>Supplier Brand:</strong> <span className="font-bold text-indigo-600 dark:text-indigo-400">{vendorBrand}</span></p>
+                      )}
+                      {brandsList.length > 1 && (
+                        <p><strong>Configured Brands:</strong> <span className="font-semibold text-slate-700 dark:text-slate-300">{brandsList.join(', ')}</span></p>
+                      )}
                       {vendor.mobile && <p><strong>Phone:</strong> {vendor.mobile}</p>}
                       {vendor.email && <p><strong>Email:</strong> {vendor.email}</p>}
                       {vendor.gstNumber && <p><strong>GSTIN:</strong> {vendor.gstNumber}</p>}
@@ -2040,14 +2114,27 @@ export default function PurchaseReport({ token, user }) {
                         </td>
 
                         {/* Supplier Brand */}
-                        <td className="py-2.5 px-3" style={{ width: '120px', minWidth: '120px', verticalAlign: 'middle', textAlign: 'left' }}>
+                        <td className="py-2.5 px-3" style={{ width: '130px', minWidth: '130px', verticalAlign: 'middle', textAlign: 'left' }}>
                           <input
                             type="text"
-                            placeholder="Supplier Brand"
+                            list={`vendor-brands-${row.id}`}
+                            placeholder={getVendorSupplierBrand(vendorsList.find(v => v._id === purchaseHeader.vendorId)) || "Supplier Brand"}
                             value={row.supplierBrand || ''}
                             onChange={(e) => handleRowChange(row.id, 'supplierBrand', e.target.value)}
                             className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-3 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           />
+                          {(() => {
+                            const selectedVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+                            const brandsList = getVendorBrandsList(selectedVendor);
+                            if (brandsList.length === 0) return null;
+                            return (
+                              <datalist id={`vendor-brands-${row.id}`}>
+                                {brandsList.map((b, bIdx) => (
+                                  <option key={`${b}-${bIdx}`} value={b} />
+                                ))}
+                              </datalist>
+                            );
+                          })()}
                         </td>
 
                         {/* Vehicle Make */}

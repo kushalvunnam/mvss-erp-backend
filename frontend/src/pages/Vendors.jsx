@@ -36,6 +36,9 @@ export default function Vendors({ token, user }) {
     name: '',
     category: 'Spares',
     type: 'Wholesaler',
+    supplierBrand: '',
+    brands: [],
+    brandsInput: '',
     gstNumber: '',
     contactPerson: '',
     mobile: '',
@@ -117,6 +120,9 @@ export default function Vendors({ token, user }) {
       name: '',
       category: 'Spares',
       type: 'Wholesaler',
+      supplierBrand: '',
+      brands: [],
+      brandsInput: '',
       gstNumber: '',
       contactPerson: '',
       mobile: '',
@@ -134,11 +140,15 @@ export default function Vendors({ token, user }) {
 
   const handleOpenEdit = (v) => {
     setEditingVendor(v);
+    const brandsArr = Array.isArray(v.brands) ? v.brands : (v.supplierBrand ? [v.supplierBrand] : []);
     setFormData({
       vendorCode: v.vendorCode || '',
       name: v.name || '',
       category: v.category || 'Spares',
       type: v.type || 'Wholesaler',
+      supplierBrand: v.supplierBrand || '',
+      brands: brandsArr,
+      brandsInput: brandsArr.join(', '),
       gstNumber: v.gstNumber || '',
       contactPerson: v.contactPerson || '',
       mobile: v.mobile || '',
@@ -172,13 +182,28 @@ export default function Vendors({ token, user }) {
         : `${API_BASE_URL}/vendors`;
       const method = editingVendor ? 'PUT' : 'POST';
 
+      const brandsArray = formData.brandsInput 
+        ? formData.brandsInput.split(',').map(s => s.trim()).filter(Boolean)
+        : (formData.supplierBrand ? [formData.supplierBrand.trim()] : []);
+      const primaryBrand = formData.supplierBrand ? formData.supplierBrand.trim() : (brandsArray[0] || '');
+      if (primaryBrand && !brandsArray.includes(primaryBrand)) {
+        brandsArray.unshift(primaryBrand);
+      }
+
+      const payload = {
+        ...formData,
+        supplierBrand: primaryBrand,
+        brands: brandsArray
+      };
+      delete payload.brandsInput;
+
       const res = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       const data = await parseJsonResponse(res);
@@ -405,6 +430,11 @@ export default function Vendors({ token, user }) {
                     <td className="p-4">
                       <div className="font-bold text-slate-900 dark:text-white">{v.name}</div>
                       <div className="text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">{v.vendorCode}</div>
+                      {v.supplierBrand && (
+                        <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                          Brand: {v.supplierBrand}
+                        </div>
+                      )}
                     </td>
 
                     <td className="p-4">
@@ -565,6 +595,28 @@ export default function Vendors({ token, user }) {
                     <option value="Local Dealer">Local Dealer</option>
                     <option value="Service Provider">Service Provider</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Primary Supplier Brand</label>
+                  <input
+                    type="text"
+                    value={formData.supplierBrand}
+                    onChange={(e) => setFormData({ ...formData, supplierBrand: e.target.value })}
+                    placeholder="e.g. Bosch, Castrol, Gates"
+                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">All Handled Brands (Comma-separated)</label>
+                  <input
+                    type="text"
+                    value={formData.brandsInput}
+                    onChange={(e) => setFormData({ ...formData, brandsInput: e.target.value })}
+                    placeholder="e.g. Bosch, Mann, Mahle, Denso"
+                    className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                  />
                 </div>
 
                 <div>
