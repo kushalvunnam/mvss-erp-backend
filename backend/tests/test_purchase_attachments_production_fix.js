@@ -216,12 +216,17 @@ async function runTestSuite() {
 
     // Clean up test file from targetPurchase
     const { deleteFile } = require('../utils/gridfs');
-    await deleteFile(newFileKey);
-    targetPurchase.attachments = [];
-    targetPurchase.attachmentUrl = '';
-    targetPurchase.attachmentName = '';
-    targetPurchase.attachmentType = '';
-    await targetPurchase.save();
+    try {
+      await deleteFile(newFileKey);
+    } catch (e) {}
+    await Purchase.findByIdAndUpdate(targetPurchase._id, {
+      $set: {
+        attachments: [],
+        attachmentUrl: '',
+        attachmentName: '',
+        attachmentType: ''
+      }
+    });
     console.log('✔ Test file cleaned up and purchase record restored to original state.');
 
     console.log('\n========================================================================');

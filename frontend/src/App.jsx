@@ -1533,6 +1533,44 @@ export default function App() {
           }
         }
 
+        if (urlStr.includes('/api/purchases/') && urlStr.includes('/reupload-attachment')) {
+          if (method === 'POST') {
+            const purchaseId = urlStr.split('/purchases/')[1].split('/reupload-attachment')[0];
+            const file = body && typeof body.get === 'function' ? body.get('attachment') : null;
+            let fileUrl = 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?q=80&w=600';
+            let fileName = 'mock_invoice.pdf';
+            let fileType = 'application/pdf';
+            if (file && file instanceof File) {
+              fileUrl = await readFileAsDataURL(file);
+              fileName = file.name;
+              fileType = file.type;
+            }
+            const db = JSON.parse(sessionStorage.getItem('mock_purchases') || '[]');
+            const idx = db.findIndex(p => p._id === purchaseId);
+            const updated = idx !== -1 ? {
+              ...db[idx],
+              attachmentUrl: fileUrl,
+              attachmentName: fileName,
+              attachmentType: fileType,
+              attachments: [{ key: 'mock_key', url: fileUrl, filename: fileName, originalName: fileName, mimeType: fileType, size: file?.size || 1024, uploadedAt: new Date() }]
+            } : null;
+            if (idx !== -1) {
+              db[idx] = updated;
+              sessionStorage.setItem('mock_purchases', JSON.stringify(db));
+            }
+            return responseJson({
+              success: true,
+              message: 'Invoice uploaded successfully',
+              attachment: {
+                url: fileUrl,
+                filename: fileName,
+                mimeType: fileType
+              },
+              purchase: updated
+            });
+          }
+        }
+
         if (urlStr.includes('/api/purchases/check-duplicate')) {
           return responseJson({ available: true });
         }

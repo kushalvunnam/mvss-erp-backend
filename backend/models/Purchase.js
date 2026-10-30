@@ -201,6 +201,8 @@ const purchaseSchema = new mongoose.Schema({
   attachments: {
     type: [{
       key: { type: String, required: true },
+      url: { type: String, default: '' },
+      filename: { type: String, default: '' },
       originalName: { type: String, default: '' },
       mimeType: { type: String, default: '' },
       size: { type: Number, default: 0 },

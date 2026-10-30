@@ -185,17 +185,25 @@ export default function PurchaseReport({ token, user }) {
 
       if (res.ok) {
         const data = await res.json();
-        setPurchaseHistory(prev => prev.map(p => p._id === purchaseId ? data.purchase : p));
+        const updatedPurchase = data.purchase || {
+          ...targetPurchaseForUpload,
+          attachmentUrl: data.attachment?.url || `/api/purchases/attachment/${data.attachment?.key}`,
+          attachmentName: data.attachment?.filename || data.attachment?.originalName || file.name,
+          attachmentType: data.attachment?.mimeType || file.type,
+          attachments: data.attachment ? [data.attachment] : targetPurchaseForUpload.attachments
+        };
+        setPurchaseHistory(prev => prev.map(p => p._id === purchaseId ? updatedPurchase : p));
         if (selectedVoucher && selectedVoucher._id === purchaseId) {
-          setSelectedVoucher(data.purchase);
+          setSelectedVoucher(updatedPurchase);
         }
         setBrokenAttachments(prev => {
           const next = { ...prev };
           delete next[purchaseId];
-          if (data.purchase.attachmentUrl) delete next[data.purchase.attachmentUrl];
+          if (updatedPurchase.attachmentUrl) delete next[updatedPurchase.attachmentUrl];
           return next;
         });
         alert(`Invoice "${file.name}" uploaded and attached successfully!`);
+      } else {
         const errData = await res.json().catch(() => ({}));
         const errorDetail = errData.error || errData.message || (res.status === 404 ? 'Backend upload endpoint not found. Please ensure Render deployment is live.' : res.statusText) || `Server error (${res.status})`;
         alert(`Failed to upload invoice: ${errorDetail}`);
@@ -206,6 +214,9 @@ export default function PurchaseReport({ token, user }) {
     } finally {
       setUploadingPurchaseId(null);
       setTargetPurchaseForUpload(null);
+      if (directFileInputRef.current) {
+        directFileInputRef.current.value = '';
+      }
     }
   };
 

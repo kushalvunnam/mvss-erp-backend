@@ -11,7 +11,7 @@ const fs = require('fs');
 
 const router = express.Router();
 
-const { uploadFile, downloadFileStream, fileExists } = require('../utils/gridfs');
+const { uploadFile, downloadFileStream, deleteFile, fileExists } = require('../utils/gridfs');
 
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -20,6 +20,19 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024 // limit files to 10MB
   }
 });
+
+// Middleware helper to handle multer errors gracefully
+const handleUpload = (req, res, next) => {
+  upload.single('attachment')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ success: false, error: 'File size exceeds maximum limit of 10MB.' });
+      }
+      return res.status(400).json({ success: false, error: err.message || 'File upload error.' });
+    }
+    next();
+  });
+};
 
 router.use((req, res, next) => {
   console.log(`[PURCHASES] Route request received: ${req.method} ${req.baseUrl}${req.path}`);
@@ -35,7 +48,7 @@ const generatePurchaseNo = async () => {
 router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'));
 
 // Upload attachment
-router.post('/upload-attachment', upload.single('attachment'), async (req, res) => {
+router.post('/upload-attachment', handleUpload, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).send({ error: 'No file uploaded.' });
@@ -52,11 +65,14 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
     const fileKey = fileId.toString();
 
     res.status(200).send({
+      success: true,
+      message: 'File uploaded successfully',
       key: fileKey,
       url: `/api/purchases/attachment/${fileKey}`,
       attachmentUrl: `/api/purchases/attachment/${fileKey}`,
       originalName: req.file.originalname,
       name: req.file.originalname,
+      filename: req.file.originalname,
       attachmentName: req.file.originalname,
       mimeType: req.file.mimetype,
       type: req.file.mimetype,
@@ -64,7 +80,7 @@ router.post('/upload-attachment', upload.single('attachment'), async (req, res) 
       size: req.file.size
     });
   } catch (error) {
-    res.status(500).send({ error: 'Upload failed: ' + error.message });
+    res.status(500).send({ success: false, error: 'Upload failed: ' + error.message });
   }
 });
 
@@ -225,41 +241,58 @@ router.get('/:id/attachment', async (req, res) => {
 });
 
 // Re-upload or attach invoice file to an existing purchase record
-router.post('/:id/reupload-attachment', upload.single('attachment'), async (req, res) => {
+router.post('/:id/reupload-attachment', handleUpload, async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ error: 'Invalid purchase ID format.' });
+      return res.status(400).json({ success: false, error: 'Invalid purchase ID format.' });
     }
 
     const purchase = await Purchase.findById(id);
     if (!purchase) {
-      return res.status(404).json({ error: 'Purchase entry not found.' });
+      return res.status(404).json({ success: false, error: 'Purchase entry not found.' });
     }
 
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded.' });
+      return res.status(400).json({ success: false, error: 'No file uploaded.' });
     }
 
     const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
     if (!allowedMimeTypes.includes(req.file.mimetype)) {
-      return res.status(400).json({ error: 'Invalid file type. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.' });
+      return res.status(400).json({ success: false, error: 'Invalid file type. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.' });
+    }
+
+    // Safely delete previous GridFS attachment if replacing to prevent orphaned storage
+    if (purchase.attachments && Array.isArray(purchase.attachments) && purchase.attachments.length > 0) {
+      for (const oldAtt of purchase.attachments) {
+        if (oldAtt && oldAtt.key && mongoose.isValidObjectId(oldAtt.key)) {
+          try {
+            await deleteFile(oldAtt.key);
+          } catch (delErr) {
+            console.warn(`[Attachment Cleanup] Could not delete old file ${oldAtt.key}:`, delErr.message);
+          }
+        }
+      }
     }
 
     // Upload buffer to persistent GridFS
     const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     const fileKey = fileId.toString();
+    const persistentUrl = `/api/purchases/attachment/${fileKey}`;
 
     const attachmentObj = {
       key: fileKey,
+      url: persistentUrl,
+      filename: req.file.originalname,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
       size: req.file.size,
       uploadedAt: new Date()
     };
 
+    // Replace attachment reference without duplicating purchase entries or attachments
     purchase.attachments = [attachmentObj];
-    purchase.attachmentUrl = `/api/purchases/attachment/${fileKey}`;
+    purchase.attachmentUrl = persistentUrl;
     purchase.attachmentName = req.file.originalname;
     purchase.attachmentType = req.file.mimetype;
     await purchase.save();
@@ -272,13 +305,22 @@ router.post('/:id/reupload-attachment', upload.single('attachment'), async (req,
     );
 
     res.status(200).json({
-      message: 'Invoice attached successfully.',
-      purchase,
-      attachment: attachmentObj
+      success: true,
+      message: 'Invoice uploaded successfully',
+      attachment: {
+        url: persistentUrl,
+        filename: req.file.originalname,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        key: fileKey,
+        uploadedAt: attachmentObj.uploadedAt
+      },
+      purchase
     });
   } catch (error) {
     console.error('Error uploading purchase attachment:', error);
-    res.status(500).json({ error: 'Failed to upload invoice attachment: ' + error.message });
+    res.status(500).json({ success: false, error: 'Failed to upload invoice attachment: ' + error.message });
   }
 });
 
