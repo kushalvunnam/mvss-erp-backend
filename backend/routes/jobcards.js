@@ -737,9 +737,36 @@ router.get('/:id', auth, async (req, res) => {
       .populate('serviceAdvisorId', 'name');
 
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
-    res.send(jobCard);
+
+    const jcObj = jobCard.toObject();
+
+    // Look up associated estimate to retrieve spare parts and labour recorded against this Job Card
+    const Estimate = require('../models/Estimate');
+    const estimates = await Estimate.find({ jobCardId: jobCard._id }).sort({ createdAt: -1 }).lean();
+
+    // Prioritize Approved estimate, then Waiting for Approval/Sent, then Draft, then latest
+    const approvedEst = estimates.find(e => e.status === 'Approved')
+      || estimates.find(e => ['Waiting for Approval', 'Sent'].includes(e.status))
+      || estimates.find(e => e.status === 'Draft')
+      || estimates[0];
+
+    // Priority: JobCard's own parts if populated, otherwise linked Estimate's parts
+    const parts = (Array.isArray(jcObj.parts) && jcObj.parts.length > 0)
+      ? jcObj.parts
+      : (approvedEst && Array.isArray(approvedEst.parts) ? approvedEst.parts : []);
+
+    const labour = (Array.isArray(jcObj.labour) && jcObj.labour.length > 0)
+      ? jcObj.labour
+      : (approvedEst && Array.isArray(approvedEst.labour) ? approvedEst.labour : []);
+
+    jcObj.parts = parts;
+    jcObj.labour = labour;
+    jcObj.estimateId = approvedEst?._id || null;
+    jcObj.estimate = approvedEst || null;
+
+    res.send(jcObj);
   } catch (error) {
-    res.status(500).send({ error: 'Failed to fetch job card details.' });
+    res.status(500).send({ error: 'Failed to fetch job card details: ' + error.message });
   }
 });
 

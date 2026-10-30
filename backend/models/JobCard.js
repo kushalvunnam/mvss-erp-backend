@@ -300,6 +300,47 @@ const JobCardSchema = new mongoose.Schema({
     profitPercentage: { type: Number, default: 0 }
   },
 
+  // Spare Parts and Labour recorded against Job Card
+  parts: [{
+    partId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
+    name: { type: String, default: '' },
+    partNo: { type: String, default: '' },
+    hsnCode: { type: String, default: '' },
+    description: { type: String, default: '' },
+    unit: { type: String, default: 'Pcs' },
+    qty: { type: Number, default: 1 },
+    rate: { type: Number, default: 0 },
+    mrp: { type: Number, default: 0 },
+    discount: { type: Number, default: 0 },
+    discountPercent: { type: Number, default: 0 },
+    discountAmount: { type: Number, default: 0 },
+    discountType: { type: String, default: 'Fixed' },
+    taxableValue: { type: Number, default: 0 },
+    gstPercent: { type: Number, default: 18 },
+    cgstAmount: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    igstAmount: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
+    total: { type: Number, default: 0 }
+  }],
+  labour: [{
+    description: { type: String, default: '' },
+    qty: { type: Number, default: 1 },
+    rate: { type: Number, default: 0 },
+    mrp: { type: Number, default: 0 },
+    discount: { type: Number, default: 0 },
+    discountPercent: { type: Number, default: 0 },
+    discountAmount: { type: Number, default: 0 },
+    discountType: { type: String, default: 'Fixed' },
+    taxableValue: { type: Number, default: 0 },
+    gstPercent: { type: Number, default: 18 },
+    cgstAmount: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    igstAmount: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
+    total: { type: Number, default: 0 }
+  }],
+
   // Signatures
   signatures: {
     customer: { type: String }, // Base64 or Cloudinary URL

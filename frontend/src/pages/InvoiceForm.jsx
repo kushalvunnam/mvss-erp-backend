@@ -342,6 +342,9 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               customerPayableAmount: est.totals.grandTotal
             });
           }
+        } else if (defaultJcId) {
+          localStorage.removeItem('create_invoice_jc_id');
+          await handleJcChange(defaultJcId);
         }
 
         if (editId) {
@@ -625,12 +628,17 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
 
   const handleJcChange = async (jcId) => {
     setSelectedJcId(jcId);
+
+    // Refresh invoice items immediately so previous Job Card's items are never retained
+    setPartsList([]);
+    setLabourList([{ description: '', qty: '1', rate: '', gstPercent: '18', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
+    setSelectedEstimateId('');
+
     if (!jcId) {
-      setPartsList([]);
-      setLabourList([{ description: '', rate: '', gstPercent: '' }]);
       setSelectedCustomer(null);
       setBillingNameOption('CompanyName');
       setGstDetails({ customerGSTIN: '', isInterstate: false });
+      setAdvanceReceived(0);
       setInsuranceDetails({
         claimNo: '',
         insuranceCompany: '',
@@ -645,101 +653,173 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const jcRes = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, { headers });
-      if (jcRes.ok) {
-        const jc = await jcRes.json();
-        const cust = jc.customerId || {};
-        const veh = jc.vehicleId || {};
-        setSelectedCustomer(cust && cust._id ? cust : null);
-        setBillingNameOption('CompanyName');
+      if (!jcRes.ok) {
+        console.error('Failed to fetch Job Card details');
+        return;
+      }
 
-        setGstDetails({
-          customerGSTIN: cust.gstNumber || '',
-          isInterstate: cust.gstNumber 
-            ? !cust.gstNumber.startsWith('36') 
-            : checkAddressIsInterstate(cust.address)
-        });
+      const jc = await jcRes.json();
+      const cust = jc.customerId || {};
+      const veh = jc.vehicleId || {};
+      setSelectedCustomer(cust && cust._id ? cust : null);
+      setBillingNameOption('CompanyName');
 
-        const totalAdvance = jc.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + p.amount, 0) : 0;
-        setAdvanceReceived(totalAdvance);
+      const isInter = cust.gstNumber 
+        ? !cust.gstNumber.startsWith('36') 
+        : checkAddressIsInterstate(cust.address);
 
-        setInsuranceDetails(prev => ({
-          ...prev,
-          claimNo: jc.claimNo || '',
-          insuranceCompany: jc.insuranceName || veh.insuranceCompany || '',
-          customerPayableAmount: totals.grandTotal
-        }));
+      setGstDetails({
+        customerGSTIN: cust.gstNumber || '',
+        isInterstate: isInter
+      });
 
-        // Fetch approved estimate for this jobcard
+      const totalAdvance = jc.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + p.amount, 0) : 0;
+      setAdvanceReceived(totalAdvance);
+
+      setInsuranceDetails(prev => ({
+        ...prev,
+        claimNo: jc.claimNo || '',
+        insuranceCompany: jc.insuranceName || veh.insuranceCompany || '',
+        customerPayableAmount: totals.grandTotal
+      }));
+
+      // Candidate parts and labour: First check jc.parts and jc.labour directly
+      let rawParts = Array.isArray(jc.parts) && jc.parts.length > 0 ? jc.parts : null;
+      let rawLabour = Array.isArray(jc.labour) && jc.labour.length > 0 ? jc.labour : null;
+      let estId = jc.estimateId || null;
+
+      // Also query linked estimates to ensure complete fallback coverage
+      try {
         const estRes = await fetch(`${API_BASE_URL}/estimates?jobCardId=${jcId}`, { headers });
         if (estRes.ok) {
           const estimatesList = await estRes.json();
-          const approvedEst = estimatesList.find(e => e.status === 'Approved') || estimatesList[0];
-          if (approvedEst) {
-            setSelectedEstimateId(approvedEst._id);
-             setPartsList(approvedEst.parts.map(p => {
-              const qty = p.qty || 1;
-              const rate = p.rate || 0;
-              const gst = p.gstPercent || 0;
-              const mrp = p.mrp || (rate * (1 + gst / 100));
-              const discAmt = p.discount || 0;
-              const pricing = calculatePricing({
-                sellingPrice: rate,
-                quantity: qty,
-                discountAmount: discAmt,
-                discountType: 'Fixed',
-                gstPercent: gst,
-                mrp: mrp,
-                changedField: 'discountAmount'
-              });
-              return {
-                partId: p.partId?._id || p.partId || '',
-                name: p.name,
-                partNo: p.partNo,
-                hsnCode: p.hsnCode,
-                qty: qty.toString(),
-                mrp: pricing.mrp.toFixed(2),
-                rate: pricing.unitBasic.toFixed(2),
-                discountPercent: pricing.discountPercent.toFixed(2),
-                discountAmount: pricing.discountAmount.toFixed(2),
-                discountType: 'Fixed',
-                gstPercent: gst.toString(),
-                taxableAmount: pricing.taxableAmount.toFixed(2)
-              };
-            }));
-            setLabourList(approvedEst.labour.map(l => {
-              const qty = l.qty || 1;
-              const rate = l.rate || 0;
-              const gst = l.gstPercent || 0;
-              const discAmt = l.discount || 0;
-              const pricing = calculatePricing({
-                sellingPrice: rate,
-                quantity: qty,
-                discountAmount: discAmt,
-                discountType: 'Fixed',
-                gstPercent: gst,
-                changedField: 'discountAmount'
-              });
-              return {
-                description: l.description,
-                qty: qty.toString(),
-                mrp: pricing.mrp.toFixed(2),
-                rate: pricing.unitBasic.toFixed(2),
-                discountPercent: pricing.discountPercent.toFixed(2),
-                discountAmount: pricing.discountAmount.toFixed(2),
-                discountType: 'Fixed',
-                gstPercent: gst.toString(),
-                taxableAmount: pricing.taxableAmount.toFixed(2)
-              };
-            }));
-          } else {
-            setSelectedEstimateId('');
-            setPartsList([]);
-            setLabourList([{ description: '', qty: '1', rate: '', gstPercent: '', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
+          if (Array.isArray(estimatesList) && estimatesList.length > 0) {
+            const approvedEst = estimatesList.find(e => e.status === 'Approved')
+              || estimatesList.find(e => ['Waiting for Approval', 'Sent'].includes(e.status))
+              || estimatesList.find(e => e.status === 'Draft')
+              || estimatesList[0];
+
+            if (approvedEst) {
+              estId = estId || approvedEst._id;
+              if (!rawParts || rawParts.length === 0) {
+                rawParts = Array.isArray(approvedEst.parts) ? approvedEst.parts : [];
+              }
+              if (!rawLabour || rawLabour.length === 0) {
+                rawLabour = Array.isArray(approvedEst.labour) ? approvedEst.labour : [];
+              }
+            }
           }
         }
+      } catch (estFetchErr) {
+        console.warn('Note: Estimate fallback lookup note:', estFetchErr);
+      }
+
+      setSelectedEstimateId(estId || '');
+
+      // 1. Automatically populate Spare Parts List using the spare parts recorded against the Job Card
+      if (rawParts && rawParts.length > 0) {
+        const seenPartKeys = new Set();
+        const mappedParts = [];
+
+        rawParts.forEach(p => {
+          const partKey = `${p.partNo || ''}_${p.name || ''}_${p.partId || ''}`;
+          if (seenPartKeys.has(partKey)) return;
+          seenPartKeys.add(partKey);
+
+          const qty = Math.max(1, parseFloat(p.qty) || 1);
+          const rate = Math.max(0, parseFloat(p.rate) || 0);
+          const gst = p.gstPercent !== undefined && p.gstPercent !== null && p.gstPercent !== '' ? parseFloat(p.gstPercent) : 18;
+          const mrp = parseFloat(p.mrp) || Math.round(rate * (1 + gst / 100) * 100) / 100;
+          const discAmt = parseFloat(p.discount || p.discountAmount) || 0;
+          const discPct = parseFloat(p.discountPercent) || 0;
+          const discType = p.discountType || (discPct > 0 ? 'Percent' : 'Fixed');
+
+          const pricing = calculatePricing({
+            sellingPrice: rate,
+            quantity: qty,
+            discountAmount: discAmt,
+            discountPercent: discPct,
+            discountType: discType,
+            gstPercent: gst,
+            mrp: mrp,
+            changedField: 'rate'
+          });
+
+          mappedParts.push({
+            partId: p.partId?._id || p.partId || '',
+            name: p.name || p.partName || '',
+            partNo: p.partNo || p.partNumber || p.sku || '',
+            hsnCode: p.hsnCode || '',
+            description: p.description || p.hsnCode || p.name || '',
+            qty: qty.toString(),
+            mrp: (pricing.mrp || mrp).toFixed(2),
+            rate: (pricing.unitBasic || rate).toFixed(2),
+            discountPercent: (pricing.discountPercent || 0).toFixed(2),
+            discountAmount: (pricing.discountAmount || discAmt).toFixed(2),
+            discountType: discType,
+            gstPercent: gst.toString(),
+            taxableAmount: (pricing.taxableAmount !== undefined ? pricing.taxableAmount : (rate * qty - discAmt)).toFixed(2)
+          });
+        });
+
+        setPartsList(mappedParts);
+      } else {
+        setPartsList([]);
+      }
+
+      // 2. Automatically populate Labour and Service Charges from the Job Card
+      if (rawLabour && rawLabour.length > 0) {
+        const seenLabour = new Set();
+        const mappedLabour = [];
+
+        rawLabour.forEach(l => {
+          const desc = String(l.description || l.name || '').trim();
+          if (!desc) return;
+          if (seenLabour.has(desc)) return;
+          seenLabour.add(desc);
+
+          const qty = Math.max(1, parseFloat(l.qty) || 1);
+          const rate = Math.max(0, parseFloat(l.rate) || 0);
+          const gst = l.gstPercent !== undefined && l.gstPercent !== null && l.gstPercent !== '' ? parseFloat(l.gstPercent) : 18;
+          const mrp = parseFloat(l.mrp) || Math.round(rate * (1 + gst / 100) * 100) / 100;
+          const discAmt = parseFloat(l.discount || l.discountAmount) || 0;
+          const discPct = parseFloat(l.discountPercent) || 0;
+          const discType = l.discountType || (discPct > 0 ? 'Percent' : 'Fixed');
+
+          const pricing = calculatePricing({
+            sellingPrice: rate,
+            quantity: qty,
+            discountAmount: discAmt,
+            discountPercent: discPct,
+            discountType: discType,
+            gstPercent: gst,
+            mrp: mrp,
+            changedField: 'rate'
+          });
+
+          mappedLabour.push({
+            description: desc,
+            qty: qty.toString(),
+            mrp: (pricing.mrp || mrp).toFixed(2),
+            rate: (pricing.unitBasic || rate).toFixed(2),
+            discountPercent: (pricing.discountPercent || 0).toFixed(2),
+            discountAmount: (pricing.discountAmount || discAmt).toFixed(2),
+            discountType: discType,
+            gstPercent: gst.toString(),
+            taxableAmount: (pricing.taxableAmount !== undefined ? pricing.taxableAmount : (rate * qty - discAmt)).toFixed(2)
+          });
+        });
+
+        if (mappedLabour.length > 0) {
+          setLabourList(mappedLabour);
+        } else {
+          setLabourList([{ description: '', qty: '1', rate: '', gstPercent: '18', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
+        }
+      } else {
+        setLabourList([{ description: '', qty: '1', rate: '', gstPercent: '18', discountPercent: '0', discountAmount: '0', discountType: 'Percent' }]);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching Job Card details and spare parts:', err);
     }
   };
 
@@ -1254,9 +1334,22 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
               + Add Spare Part
             </button>
           </div>
-          <div className="overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
-            <div className="min-w-[1950px] space-y-2 pr-2">
-              {partsList.map((part, idx) => (
+          {partsList.length === 0 ? (
+            <div className="py-8 px-4 text-center bg-slate-50 dark:bg-slate-900/30 border border-dashed border-slate-205 dark:border-slate-800 rounded-2xl my-2">
+              <ShoppingCart className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                {selectedJcId ? "No spare parts recorded against this Job Card." : "No Job Card selected."}
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 max-w-md mx-auto">
+                {selectedJcId 
+                  ? "This Job Card has no spare parts items attached. You can add spare parts manually using the '+ Add Spare Part' button above." 
+                  : "Select a Job Card above to automatically load its spare parts, or click '+ Add Spare Part' to add items manually."}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+              <div className="min-w-[1950px] space-y-2 pr-2">
+                {partsList.map((part, idx) => (
                 <div key={idx} className="flex gap-3 items-end bg-slate-50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
                   <div className="w-56 shrink-0">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Select Part Catalog</label>
@@ -1470,13 +1563,10 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                   </div>
                 </div>
               ))}
-
-              {partsList.length === 0 && (
-                <p className="text-xs text-slate-400 dark:text-slate-500 italic py-2">No spare parts added to estimate.</p>
-              )}
             </div>
           </div>
-        </div>
+        )}
+      </div>
 
         {/* Labour section */}
         <div className="space-y-3">
