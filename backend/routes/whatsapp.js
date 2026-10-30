@@ -5,6 +5,7 @@ const Customer = require('../models/Customer');
 const { auth, restrictTo } = require('../middleware/auth');
 const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber } = require('../services/whatsappService');
 const { handleInboundFeedbackReply } = require('../services/feedbackReminderService');
+const { handleInboundEstimateReply } = require('../services/estimateApprovalService');
 
 // Automatically run startup Meta audit & template synchronization
 if (process.env.META_WA_ACCESS_TOKEN && (process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_BUSINESS_ACCOUNT_ID)) {
@@ -84,8 +85,29 @@ router.post('/webhook', async (req, res) => {
                             let relatedEntity = null;
                             let onModel = undefined;
 
-                            // Process customer feedback reply if message is text
-                            if (messageType === 'text' && message.text?.body) {
+                            // 1. Process customer estimate approval / rejection reply
+                            try {
+                                const estReplyResult = await handleInboundEstimateReply({
+                                    fromPhone,
+                                    messageType,
+                                    messageText: message.text?.body,
+                                    interactiveData: message.interactive,
+                                    buttonData: message.button,
+                                    messageId
+                                });
+
+                                if (estReplyResult && estReplyResult.processed && estReplyResult.estimate) {
+                                    relatedEntity = estReplyResult.estimate._id;
+                                    onModel = 'Estimate';
+                                    recipientName = estReplyResult.customerName || recipientName;
+                                    console.log(`[WhatsApp Webhook] Successfully processed estimate ${estReplyResult.action} reply for Estimate ${estReplyResult.estimateNo}`);
+                                }
+                            } catch (estReplyErr) {
+                                console.warn('[WhatsApp Webhook] Inbound estimate reply error:', estReplyErr.message || estReplyErr);
+                            }
+
+                            // 2. Process customer feedback reply if message is text and not already handled
+                            if (!relatedEntity && messageType === 'text' && message.text?.body) {
                                 try {
                                     const feedbackResult = await handleInboundFeedbackReply({
                                         fromPhone,

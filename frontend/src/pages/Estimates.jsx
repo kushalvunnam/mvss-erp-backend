@@ -837,6 +837,7 @@ export default function Estimates({ token, user, setActiveTab }) {
           >
             <option value="">All Estimate Statuses</option>
             <option value="Draft">Draft</option>
+            <option value="Waiting for Approval">Waiting for Approval</option>
             <option value="Sent">Sent</option>
             <option value="Approved">Approved</option>
             <option value="Rejected">Rejected</option>
@@ -876,6 +877,7 @@ export default function Estimates({ token, user, setActiveTab }) {
               {estimates.length > 0 ? (
                 estimates.map(est => {
                   let statusBg = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+                  if (est.status === 'Waiting for Approval') statusBg = 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-300 dark:border-purple-800';
                   if (est.status === 'Sent') statusBg = 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400 border border-sky-300 dark:border-sky-800';
                   if (est.status === 'Approved') statusBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800';
                   if (est.status === 'Rejected') statusBg = 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800';
@@ -926,7 +928,7 @@ export default function Estimates({ token, user, setActiveTab }) {
                                 )}
                               </button>
                             )}
-                            {canApproveEstimate && est.status === 'Sent' && (
+                            {canApproveEstimate && ['Sent', 'Waiting for Approval'].includes(est.status) && (
                               <>
                                 <button
                                   onClick={(e) => openApproveModal(est, e)}

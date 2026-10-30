@@ -165,8 +165,12 @@ const estimateSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Sent', 'Approved', 'Rejected', 'Revised'],
+    enum: ['Draft', 'Sent', 'Waiting for Approval', 'Approved', 'Rejected', 'Revised'],
     default: 'Draft',
+  },
+  rejectionReason: {
+    type: String,
+    default: '',
   },
   amountInWords: {
     type: String,

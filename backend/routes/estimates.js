@@ -209,7 +209,13 @@ router.get('/', auth, async (req, res) => {
   try {
     const { status, jobCardId, search } = req.query;
     let query = {};
-    if (status) query.status = status;
+    if (status) {
+      if (status === 'Waiting for Approval' || status === 'Sent') {
+        query.status = { $in: ['Waiting for Approval', 'Sent'] };
+      } else {
+        query.status = status;
+      }
+    }
     if (jobCardId) query.jobCardId = jobCardId;
 
     if (search && search.trim() !== '') {
@@ -331,117 +337,8 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     // [Stage 2] Estimate saved
     console.log(`[Estimate] [Stage 2] Estimate saved successfully: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, JobCard=${jobCard.jobCardNo}`);
 
-    // WhatsApp Integration: Estimate Awaiting Customer Approval
-    try {
-      const awaitingApprovalStatuses = ['Draft', 'Sent', 'Pending', 'Pending Approval'];
-      if (!awaitingApprovalStatuses.includes(estimate.status)) {
-        console.log(`[Estimate Automation] Skipping WhatsApp notification: Estimate status is '${estimate.status}', not awaiting customer approval.`);
-      } else {
-        const Customer = require('../models/Customer');
-        const VehicleModel = require('../models/Vehicle');
-        const WhatsAppLog = require('../models/WhatsAppLog');
-        const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
-
-        const customerRecord = jobCard.customerId && jobCard.customerId.name
-          ? jobCard.customerId
-          : await Customer.findById(jobCard.customerId).lean();
-
-        let vehicle = null;
-        if (jobCard.vehicleId) {
-          if (typeof jobCard.vehicleId === 'object' && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo)) {
-            vehicle = jobCard.vehicleId;
-          } else {
-            vehicle = await VehicleModel.findById(jobCard.vehicleId).lean();
-          }
-        }
-        if (!vehicle && customerRecord?._id) {
-          vehicle = await VehicleModel.findOne({ customerId: customerRecord._id })
-            .sort({ updatedAt: -1, createdAt: -1 })
-            .lean();
-        }
-
-        const rawPhone = customerRecord ? (customerRecord.mobile || customerRecord.phone || customerRecord.contactNumber) : null;
-        const customerName = String(customerRecord?.name || 'Valued Customer').trim();
-
-        // Ensure real vehicle registration number is used; never the workshop name "MVSS Automobiles"
-        let vehicleNumber = 'Not provided';
-        const rawVeh = vehicle?.vehicleNumber || vehicle?.regNo;
-        if (rawVeh && typeof rawVeh === 'string') {
-          const cleanVeh = rawVeh.trim();
-          if (!/mvss\s*automobiles/i.test(cleanVeh) && cleanVeh !== '') {
-            vehicleNumber = cleanVeh.toUpperCase();
-          }
-        }
-
-        const estimateNumber = String(estimate.estimateNo || 'N/A').trim();
-
-        // Quoted amount formatted in INR (e.g. 14,500 or rounded integer)
-        const rawGrandTotal = calculations.totals?.grandTotal ?? estimate.totals?.grandTotal ?? 0;
-        const numTotal = typeof rawGrandTotal === 'number' ? rawGrandTotal : Number(rawGrandTotal);
-        const formattedAmount = isNaN(numTotal)
-          ? String(rawGrandTotal).trim()
-          : Math.round(numTotal).toLocaleString('en-IN');
-
-        const contactCheck = validateCustomerContact(customerRecord, rawPhone);
-        const templateName = 'estimate_awaiting_customer_approval';
-        const correlationKey = `estimate_awaiting_approval_${estimate._id}`;
-        const legacyCorrelationKey = `estimate_created_${estimate._id}`;
-
-        // Idempotency check: prevent duplicate dispatches
-        const alreadyDispatched = await WhatsAppLog.findOne({
-          idempotencyKey: { $in: [correlationKey, legacyCorrelationKey] },
-          status: { $in: ['sent', 'delivered', 'read', 'pending'] }
-        }).lean();
-
-        if (alreadyDispatched) {
-          console.log(`[Estimate Automation] Duplicate skipped: message already sent for estimate ID=${estimate._id} (key=${alreadyDispatched.idempotencyKey})`);
-        } else {
-          // [Stage 3] Automation event triggered
-          console.log(`[Estimate Automation] [Stage 3] Automation event triggered: EstimateId=${estimate._id}, EstimateNo=${estimateNumber}, JobCardNo=${jobCard.jobCardNo}`);
-
-          // [Stage 4] Customer contact/template validation result
-          console.log(`[Estimate Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
-
-          if (contactCheck.valid) {
-            // [Stage 5] WhatsApp send attempted
-            console.log(`[Estimate Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
-
-            try {
-              const waResult = await sendTemplateMessage({
-                to: contactCheck.phone,
-                templateName,
-                components: [
-                  {
-                    type: 'body',
-                    parameters: [
-                      { type: 'text', text: customerName },
-                      { type: 'text', text: vehicleNumber },
-                      { type: 'text', text: estimateNumber },
-                      { type: 'text', text: formattedAmount }
-                    ]
-                  }
-                ],
-                recipientName: customerName,
-                relatedEntity: estimate._id,
-                onModel: 'Estimate',
-                idempotencyKey: correlationKey
-              });
-
-              // [Stage 6] Meta response accepted
-              console.log(`[Estimate Automation] [Stage 6] Meta response accepted: Estimate=${estimateNumber}, wamid=${waResult.messageId || 'duplicate_skipped'}, Status=${waResult.status || 'accepted'}`);
-            } catch (waSendErr) {
-              // [Stage 6] Meta response failed (isolated, does not fail estimate creation)
-              console.error(`[Estimate Automation] [Stage 6] Meta response failed: Estimate=${estimateNumber}, Error=${waSendErr.message || waSendErr}`);
-            }
-          } else {
-            console.warn(`[Estimate Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
-          }
-        }
-      }
-    } catch (waError) {
-      console.error('[Estimate Automation] Unexpected error in WhatsApp automation hook:', waError.message || waError);
-    }
-
+    // Note: Estimate is created in Draft mode. WhatsApp Customer Estimate PDF and Waiting for Approval notification
+    // are dispatched when admin clicks Send on the Estimates page, preventing premature dispatches.
     res.status(201).send(estimate);
   } catch (error) {
     res.status(400).send({ error: 'Failed to create estimate: ' + error.message });
@@ -714,7 +611,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
       return res.send(estimate);
     }
 
-    if (status === 'Sent' && estimate.status !== 'Sent') {
+    if ((status === 'Sent' || status === 'Waiting for Approval') && !['Sent', 'Waiting for Approval'].includes(estimate.status)) {
       const sendResult = await sendCustomerEstimateWhatsApp({
         estimateId: estimate._id,
         user: req.user,
@@ -877,15 +774,20 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req }) => {
   }).lean();
 
   if (alreadySentLog) {
-    if (estimate.status === 'Draft') {
-      estimate.status = 'Sent';
+    if (['Draft', 'Sent'].includes(estimate.status)) {
+      estimate.status = 'Waiting for Approval';
       await estimate.save();
+    }
+    if (estimate.jobCardId) {
+      await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
+        status: 'Waiting for Customer Approval'
+      });
     }
     return {
       status: 200,
       data: {
         success: true,
-        message: 'Customer Estimate PDF has already been sent to customer via WhatsApp.',
+        message: 'Customer Estimate PDF and Waiting for Approval request have already been sent to customer via WhatsApp.',
         alreadySent: true,
         estimate,
         pdfUrl: alreadySentLog.pdfUrl,
@@ -972,11 +874,13 @@ Estimated Amount: ₹${formattedGrandTotal}
 
 Please find your detailed estimate attached.
 
-Kindly review and share your approval.
+Kindly review and share your approval:
+👉 Reply APPROVE to approve
+👉 Reply REJECT to request changes
 
 Thank you for choosing MVSS Automobiles!`;
 
-  // 5. Send WhatsApp Document Message
+  // 5. Send WhatsApp Document Message (AUTOMATION 1)
   try {
     const waResult = await sendDocumentMessage({
       to: contactCheck.phone,
@@ -990,33 +894,87 @@ Thank you for choosing MVSS Automobiles!`;
       idempotencyKey
     });
 
-    // 6. WhatsApp API accepted: Update estimate status to Sent and persist audit history
-    estimate.status = 'Sent';
+    // 5b. Send WhatsApp Approval Request Template (AUTOMATION 2)
+    let approvalMsgId = null;
+    const approvalCorrelationKey = `estimate_awaiting_approval_${estimate._id}_rev${revCount}`;
+    try {
+      const { sendTemplateMessage } = require('../services/whatsappService');
+      const waApprovalResult = await sendTemplateMessage({
+        to: contactCheck.phone,
+        templateName: 'estimate_awaiting_customer_approval',
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: customerName },
+              { type: 'text', text: vehicleNumber },
+              { type: 'text', text: estimateNumber },
+              { type: 'text', text: formattedGrandTotal }
+            ]
+          }
+        ],
+        recipientName: customerName,
+        relatedEntity: estimate._id,
+        onModel: 'Estimate',
+        idempotencyKey: approvalCorrelationKey
+      });
+      approvalMsgId = waApprovalResult?.messageId;
+      console.log(`[WhatsApp Estimate Approval] Approval request message dispatched: wamid=${approvalMsgId}`);
+    } catch (tplErr) {
+      console.warn(`[WhatsApp Estimate Approval] Note: Template approval message dispatch:`, tplErr.message || tplErr);
+    }
+
+    // 6. WhatsApp API accepted: Update estimate status to Waiting for Approval, sync JobCard, and persist audit history
+    estimate.status = 'Waiting for Approval';
     estimate.pdfUrl = pdfUrl;
     if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
+    // Record Customer Estimate PDF document dispatch
     estimate.whatsappHistory.push({
       sentAt: new Date(),
       recipientPhone: contactCheck.phone,
       pdfUrl,
       status: 'sent',
       messageId: waResult.messageId,
+      templateName: 'document_customer_estimate_pdf',
       sentBy: user?._id,
       sentByName: user?.name || user?.username || 'Authorized User'
     });
+
+    // Record approval template dispatch
+    if (approvalMsgId) {
+      estimate.whatsappHistory.push({
+        sentAt: new Date(),
+        recipientPhone: contactCheck.phone,
+        pdfUrl,
+        status: 'sent',
+        messageId: approvalMsgId,
+        templateName: 'estimate_awaiting_customer_approval',
+        sentBy: user?._id,
+        sentByName: user?.name || user?.username || 'Authorized User'
+      });
+    }
     await estimate.save();
 
-    await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate PDF ${estimate.estimateNo} to WhatsApp ${contactCheck.masked}`, req);
+    // Sync linked Job Card to 'Waiting for Customer Approval'
+    if (estimate.jobCardId) {
+      await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
+        status: 'Waiting for Customer Approval',
+        estAmt: rawGrandTotal
+      });
+    }
 
-    console.log(`[WhatsApp Estimate PDF] Estimate ${estimate.estimateNo} successfully sent to ${contactCheck.masked} (wamid: ${waResult.messageId}). Status updated to Sent.`);
+    await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate PDF & Approval Request ${estimate.estimateNo} to WhatsApp ${contactCheck.masked}. Status: Waiting for Approval`, req);
+
+    console.log(`[WhatsApp Estimate PDF] Estimate ${estimate.estimateNo} successfully sent to ${contactCheck.masked} (wamid: ${waResult.messageId || approvalMsgId}). Status updated to Waiting for Approval.`);
 
     return {
       status: 200,
       data: {
         success: true,
-        message: 'Customer Estimate PDF sent to WhatsApp successfully.',
+        message: 'Customer Estimate PDF and Waiting for Approval request sent to WhatsApp successfully.',
         estimate,
         pdfUrl,
-        messageId: waResult.messageId
+        messageId: waResult.messageId || approvalMsgId
       }
     };
 
