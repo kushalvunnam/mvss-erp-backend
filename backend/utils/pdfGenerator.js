@@ -1417,67 +1417,17 @@ function generateGatePassPDF(docData, customer, vehicle, stream) {
   doc.end();
 }
 
+const CUSTOMER_TABLE_COLS = [30, 55, 255, 290, 350, 410, 480, 565];
+
 function drawCustomerVerticalLines(doc, yStart, yEnd) {
-  const xCoords = [30, 60, 390, 420, 480, 565];
-  doc.strokeColor('#000000').lineWidth(1.5);
-  xCoords.forEach(x => {
+  doc.strokeColor('#000000').lineWidth(1.2);
+  CUSTOMER_TABLE_COLS.forEach(x => {
     doc.moveTo(x, yStart).lineTo(x, yEnd).stroke();
   });
 }
 
-function drawCustomerSectionHeader(doc, y, title) {
-  const rowHeight = 20;
-  doc.fillColor('#f1f5f9').rect(30, y, 535, rowHeight).fill();
-  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.5);
-  doc.text(title, 65, y + 6);
-
-  doc.strokeColor('#000000').lineWidth(1.5)
-     .moveTo(30, y).lineTo(565, y).stroke()
-     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
-  
-  // Left and right outer borders
-  doc.moveTo(30, y).lineTo(30, y + rowHeight).stroke();
-  doc.moveTo(565, y).lineTo(565, y + rowHeight).stroke();
-  return y + rowHeight;
-}
-
-function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, total) {
-  const rowHeight = 18;
-  doc.fillColor('#000000').font('Helvetica').fontSize(8);
-  
-  doc.text(index, 30, y + 5, { width: 30, align: 'center' });
-  doc.text(desc, 65, y + 5, { width: 320, height: 11, ellipsis: true });
-  doc.text(qty, 390, y + 5, { width: 30, align: 'center' });
-  doc.text(unitPrice, 420, y + 5, { width: 55, align: 'right' });
-  doc.text(total, 480, y + 5, { width: 80, align: 'right' });
-  
-  doc.strokeColor('#000000').lineWidth(1.5)
-     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
-  
-  drawCustomerVerticalLines(doc, y, y + rowHeight);
-  return y + rowHeight;
-}
-
-function drawCustomerSubtotalRow(doc, y, label, totalAmount) {
-  const rowHeight = 18;
-  doc.fillColor('#f8fafc').rect(30, y, 535, rowHeight).fill();
-  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
-  
-  doc.text(label, 65, y + 5, { width: 320 });
-  doc.text(totalAmount.toFixed(2), 480, y + 5, { width: 80, align: 'right' });
-  
-  doc.strokeColor('#000000').lineWidth(1.5)
-     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
-     
-  const subtotalXCoords = [30, 60, 480, 565];
-  subtotalXCoords.forEach(x => {
-    doc.moveTo(x, y).lineTo(x, y + rowHeight).stroke();
-  });
-  return y + rowHeight;
-}
-
 function checkCustomerPageOverflow(doc, currentY) {
-  if (currentY > 710) {
+  if (currentY > 700) {
     doc.addPage();
     doc.strokeColor('#000000').lineWidth(1.5)
        .rect(30, 30, 535, 782).stroke();
@@ -1486,273 +1436,525 @@ function checkCustomerPageOverflow(doc, currentY) {
     doc.strokeColor('#000000').lineWidth(1)
        .moveTo(30, 50).lineTo(565, 50).stroke();
     
-    drawCustomerTableHeader(doc, 55);
-    return 80;
+    return drawCustomerTableHeader(doc, 55);
   }
   return currentY;
 }
 
-function drawCustomerTableHeader(doc, y) {
-  doc.fillColor('#f8fafc').rect(30, y, 535, 25).fill();
-  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
-  
-  doc.text('S.No', 30, y + 9, { width: 30, align: 'center' });
-  doc.text('Description', 65, y + 9, { width: 320, align: 'left' });
-  doc.text('Qty', 390, y + 9, { width: 30, align: 'center' });
-  doc.text('Unit Price (Rs.)', 420, y + 9, { width: 55, align: 'right' });
-  doc.text('Line Total (Rs.)', 480, y + 9, { width: 80, align: 'right' });
-  
-  doc.strokeColor('#000000').lineWidth(2.0)
-     .moveTo(30, y).lineTo(565, y).stroke()
-     .moveTo(30, y + 25).lineTo(565, y + 25).stroke();
-       
-  drawCustomerVerticalLines(doc, y, y + 25);
-}
-
 function drawCustomerCompanyHeader(doc, title) {
-  doc.fillColor('#000000')
+  const logoPath = path.join(__dirname, '../uploads/logo.png');
+  try {
+    if (fs.existsSync(logoPath)) {
+      doc.image(logoPath, 36, 34, { fit: [55, 34], align: 'left' });
+    }
+  } catch (e) {}
+
+  const textStartX = 30;
+  const textWidth = 535;
+
+  doc.fillColor('#0f172a')
      .font('Helvetica-Bold')
-     .fontSize(11)
-     .text('MVSS Automobiles Private Limited', 30, 36, { width: 535, align: 'center' });
-     
+     .fontSize(11.5)
+     .text('MVSS Automobiles Private Limited', textStartX, 34, { width: textWidth, align: 'center' });
+
+  doc.fillColor('#475569')
+     .font('Helvetica-Bold')
+     .fontSize(7.5)
+     .text('Workshop Management System • Multi-Brand Car Service & Care', textStartX, 47, { width: textWidth, align: 'center' });
+
   doc.font('Helvetica')
      .fontSize(7)
-     .text('Sy. No. 25/1, Opp. Cine Planet, Beside PSR Convention, Kompally, Hyderabad - 500014.', 30, 50, { width: 535, align: 'center' })
-     .text('PH. No. 9949479765 | Email: accounts@auto4m.in', 30, 60, { width: 535, align: 'center' });
+     .fillColor('#334155')
+     .text('Sy. No. 25/1, Opp. Cine Planet, Beside PSR Convention, Kompally, Hyderabad - 500014.', textStartX, 57, { width: textWidth, align: 'center' })
+     .text('Phone: +91 9949479765 | Email: accounts@auto4m.in', textStartX, 66, { width: textWidth, align: 'center' });
 
-  // Draw title box below company info
-  doc.fillColor('#f1f5f9').rect(30, 72, 535, 20).fill();
-  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9)
-     .text(title, 30, 78, { width: 535, align: 'center' });
-     
-  doc.strokeColor('#000000').lineWidth(1)
-     .moveTo(30, 72).lineTo(565, 72).stroke()
-     .moveTo(30, 92).lineTo(565, 92).stroke();
+  // Banner
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, 77).lineTo(565, 77).stroke();
+
+  doc.fillColor('#1e293b')
+     .rect(30, 77, 535, 18)
+     .fill();
+
+  doc.fillColor('#ffffff')
+     .font('Helvetica-Bold')
+     .fontSize(9.5)
+     .text(title.toUpperCase(), 30, 81.5, { width: 535, align: 'center' });
+
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, 95).lineTo(565, 95).stroke();
 }
 
-function drawCustomerMetadataGrid(doc, y, customer, vehicle, docNo, docDate, estimate) {
-  doc.fillColor('#000000').font('Helvetica').fontSize(8);
-  
-  // Left Column Customer Details
-  let leftY = y + 5;
-  doc.font('Helvetica-Bold').text('Name:', 35, leftY);
-  doc.font('Helvetica').text(customer.name || 'N/A', 95, leftY, { width: 195 });
-  leftY += 14;
-  
-  doc.font('Helvetica-Bold').text('Address:', 35, leftY);
-  doc.font('Helvetica').text(customer.address || 'N/A', 95, leftY, { width: 195, height: 28, ellipsis: true });
-  leftY += 30;
-  
-  doc.font('Helvetica-Bold').text('Phone:', 35, leftY);
-  let phoneStr = customer.mobile || 'N/A';
-  if (customer.alternateNumber) phoneStr += `, ${customer.alternateNumber}`;
-  doc.font('Helvetica').text(phoneStr, 95, leftY);
-  
-  leftY += 14;
-  doc.font('Helvetica-Bold').text('Advisor:', 35, leftY);
-  doc.font('Helvetica').text(estimate.serviceAdvisorName || 'N/A', 95, leftY);
+function drawCustomerMetadataGrid(doc, y, customer, vehicle, docNo, docDate, estimate, jobCard) {
+  doc.fillColor('#000000').font('Helvetica').fontSize(7.5);
 
-  // Right Column Vehicle Details
-  let rightY = y + 5;
+  const jc = jobCard || estimate?.jobCardId || {};
+  const jobCardNo = jc.jobCardNo || (typeof estimate?.jobCardId === 'object' ? estimate.jobCardId?.jobCardNo : '') || 'N/A';
+  const custName = customer?.name || customer?.companyName || 'Valued Customer';
+  let phoneStr = customer?.mobile || customer?.phone || customer?.contactNumber || 'N/A';
+  if (customer?.alternateNumber) phoneStr += `, ${customer.alternateNumber}`;
+  const addressStr = customer?.address || 'N/A';
+  const advisorStr = estimate?.serviceAdvisorName || jc.serviceAdvisor || 'Service Team';
+  const regNo = vehicle?.vehicleNumber || vehicle?.regNo || 'N/A';
+  const makeModel = `${vehicle?.make || ''} ${vehicle?.model || ''}`.trim() || 'N/A';
+  const odo = jc.odometerReading || vehicle?.odometerReading || 0;
+
+  // Left Column Customer Details
+  let leftY = y + 4;
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('#1e293b').text('CUSTOMER DETAILS', 35, leftY);
+  leftY += 13;
+
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000000').text('Customer Name:', 35, leftY);
+  doc.font('Helvetica').text(custName, 105, leftY, { width: 185 });
+  leftY += 12;
+
+  doc.font('Helvetica-Bold').text('Mobile No:', 35, leftY);
+  doc.font('Helvetica').text(phoneStr, 105, leftY, { width: 185 });
+  leftY += 12;
+
+  doc.font('Helvetica-Bold').text('Address:', 35, leftY);
+  doc.font('Helvetica').text(addressStr, 105, leftY, { width: 185, height: 22, ellipsis: true });
+  leftY += 24;
+
+  doc.font('Helvetica-Bold').text('Service Advisor:', 35, leftY);
+  doc.font('Helvetica').text(advisorStr, 105, leftY, { width: 185 });
+
+  // Right Column Estimate & Vehicle Details
+  let rightY = y + 4;
   const rightXLabel = 302.5;
-  const rightXValue = 380;
-  
-  doc.font('Helvetica-Bold').text('Estimate No:', rightXLabel, rightY);
+  const rightXValue = 385;
+
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('#1e293b').text('ESTIMATE & VEHICLE DETAILS', rightXLabel, rightY);
+  rightY += 13;
+
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000000').text('Estimate No:', rightXLabel, rightY);
   doc.font('Helvetica').text(docNo, rightXValue, rightY);
-  rightY += 14;
-  
-  doc.font('Helvetica-Bold').text('Date:', rightXLabel, rightY);
+  rightY += 12;
+
+  doc.font('Helvetica-Bold').text('Job Card No:', rightXLabel, rightY);
+  doc.font('Helvetica-Bold').text(jobCardNo, rightXValue, rightY);
+  rightY += 12;
+
+  doc.font('Helvetica-Bold').text('Estimate Date:', rightXLabel, rightY);
   doc.font('Helvetica').text(new Date(docDate).toLocaleDateString('en-IN'), rightXValue, rightY);
-  rightY += 14;
-  
-  doc.font('Helvetica-Bold').text('Reg No:', rightXLabel, rightY);
-  doc.font('Helvetica').text(vehicle.vehicleNumber || 'N/A', rightXValue, rightY);
-  rightY += 14;
-  
-  doc.font('Helvetica-Bold').text('Model & Make:', rightXLabel, rightY);
-  doc.font('Helvetica').text(`${vehicle.make || ''} ${vehicle.model || ''}`, rightXValue, rightY, { width: 180 });
-  rightY += 14;
-  
-  doc.font('Helvetica-Bold').text('Chassis No:', rightXLabel, rightY);
-  doc.font('Helvetica').text(vehicle.chassisNumber || 'N/A', rightXValue, rightY);
-  rightY += 14;
-  
-  doc.font('Helvetica-Bold').text('Engine No:', rightXLabel, rightY);
-  doc.font('Helvetica').text(vehicle.engineNumber || 'N/A', rightXValue, rightY);
-  rightY += 14;
-  
+  rightY += 12;
+
+  doc.font('Helvetica-Bold').text('Vehicle Reg No:', rightXLabel, rightY);
+  doc.font('Helvetica-Bold').text(regNo, rightXValue, rightY);
+  rightY += 12;
+
+  doc.font('Helvetica-Bold').text('Make / Model:', rightXLabel, rightY);
+  doc.font('Helvetica').text(makeModel, rightXValue, rightY, { width: 175 });
+  rightY += 12;
+
   doc.font('Helvetica-Bold').text('Odometer:', rightXLabel, rightY);
-  const odo = vehicle.odometerReading || 0;
   doc.font('Helvetica').text(`${odo} km`, rightXValue, rightY);
 
   // Vertical Separator Line between metadata columns
-  doc.strokeColor('#000000').lineWidth(1)
-     .moveTo(297.5, y).lineTo(297.5, y + 115).stroke();
+  doc.strokeColor('#000000').lineWidth(1.2)
+     .moveTo(297.5, y).lineTo(297.5, y + 105).stroke();
+
+  // Bottom border of metadata block
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, y + 105).lineTo(565, y + 105).stroke();
+
+  return y + 105;
 }
 
-function drawCustomerSummaryBlock(doc, y, totals, grandTotalWords) {
-  if (y > 580) {
+function drawCustomerTableHeader(doc, y) {
+  doc.fillColor('#f8fafc').rect(30, y, 535, 22).fill();
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7);
+
+  doc.text('S.No', 30, y + 7, { width: 25, align: 'center' });
+  doc.text('Item Description', 58, y + 7, { width: 195, align: 'left' });
+  doc.text('Qty', 255, y + 7, { width: 35, align: 'center' });
+  doc.text('Rate (Rs.)', 290, y + 7, { width: 55, align: 'right' });
+  doc.text('Discount', 350, y + 7, { width: 55, align: 'right' });
+  doc.text('GST', 410, y + 7, { width: 65, align: 'right' });
+  doc.text('Total (Rs.)', 480, y + 7, { width: 80, align: 'right' });
+
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, y).lineTo(565, y).stroke()
+     .moveTo(30, y + 22).lineTo(565, y + 22).stroke();
+
+  drawCustomerVerticalLines(doc, y, y + 22);
+  return y + 22;
+}
+
+function drawCustomerSectionHeader(doc, y, title) {
+  const rowHeight = 17;
+  doc.fillColor('#f1f5f9').rect(30, y, 535, rowHeight).fill();
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.5);
+  doc.text(title, 40, y + 5);
+
+  doc.strokeColor('#000000').lineWidth(1.2)
+     .moveTo(30, y).lineTo(565, y).stroke()
+     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
+
+  // Left and right outer borders
+  doc.moveTo(30, y).lineTo(30, y + rowHeight).stroke();
+  doc.moveTo(565, y).lineTo(565, y + rowHeight).stroke();
+  return y + rowHeight;
+}
+
+function drawCustomerTableRow(doc, y, index, desc, qty, unitPrice, discount, gst, total) {
+  const rowHeight = 16;
+  doc.fillColor('#000000').font('Helvetica').fontSize(7.5);
+
+  doc.text(index, 30, y + 4, { width: 25, align: 'center' });
+  doc.text(desc, 58, y + 4, { width: 195, height: 10, ellipsis: true });
+  doc.text(qty, 255, y + 4, { width: 35, align: 'center' });
+  doc.text(unitPrice, 290, y + 4, { width: 55, align: 'right' });
+  doc.text(discount, 350, y + 4, { width: 55, align: 'right' });
+  doc.text(gst, 410, y + 4, { width: 65, align: 'right' });
+  doc.text(total, 480, y + 4, { width: 80, align: 'right' });
+
+  doc.strokeColor('#000000').lineWidth(0.8)
+     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
+
+  drawCustomerVerticalLines(doc, y, y + rowHeight);
+  return y + rowHeight;
+}
+
+function drawCustomerSubtotalRow(doc, y, label, subtotalDiscount, subtotalGst, subtotalLineTotal) {
+  const rowHeight = 16;
+  doc.fillColor('#f8fafc').rect(30, y, 535, rowHeight).fill();
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.5);
+
+  doc.text(label, 58, y + 4, { width: 195 });
+  doc.text(subtotalDiscount > 0 ? subtotalDiscount.toFixed(2) : '-', 350, y + 4, { width: 55, align: 'right' });
+  doc.text(subtotalGst > 0 ? subtotalGst.toFixed(2) : '-', 410, y + 4, { width: 65, align: 'right' });
+  doc.text(subtotalLineTotal.toFixed(2), 480, y + 4, { width: 80, align: 'right' });
+
+  doc.strokeColor('#000000').lineWidth(1.2)
+     .moveTo(30, y + rowHeight).lineTo(565, y + rowHeight).stroke();
+
+  drawCustomerVerticalLines(doc, y, y + rowHeight);
+  return y + rowHeight;
+}
+
+function drawCustomerSummaryBlock(doc, y, summary, grandTotalWords, isInterstate) {
+  if (y > 540) {
     doc.addPage();
     doc.strokeColor('#000000').lineWidth(1.5)
        .rect(30, 30, 535, 782).stroke();
-    y = 40;
+    y = 45;
   }
-  
-  // Outer border of the summary block (ends at y + 60)
-  doc.strokeColor('#000000').lineWidth(1.5)
-     .rect(30, y, 535, 60).stroke();
-     
-  // Vertical separator line
-  doc.moveTo(297.5, y).lineTo(297.5, y + 60).stroke();
-  
-  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8.5);
-  
-  // Left Side Summary
-  doc.text('PARTS TOTAL (INCL. TAXES):', 35, y + 15);
-  doc.font('Helvetica-Bold').fontSize(10);
-  doc.text(`Rs. ${totals.partsTotalSum.toFixed(2)}`, 35, y + 32);
-  
-  // Right Side Summary
-  doc.font('Helvetica-Bold').fontSize(8.5);
-  doc.text('LABOUR TOTAL (INCL. TAXES):', 302.5, y + 15);
-  doc.font('Helvetica-Bold').fontSize(10);
-  doc.text(`Rs. ${totals.labourTotalSum.toFixed(2)}`, 302.5, y + 32);
-  
-  y += 60;
-  
-  // Total Grand Box
-  doc.strokeColor('#000000').lineWidth(1.5)
-     .rect(30, y, 535, 30).stroke();
-     
-  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9.5);
-  doc.text('CUSTOMER GRAND TOTAL:', 35, y + 10);
-  
-  const roundedGrandTotal = Math.round(totals.grandTotal);
-  doc.text(`Rs. ${roundedGrandTotal.toFixed(2)}`, 200, y + 10);
-  doc.fontSize(7.5).text(`(${grandTotalWords})`, 290, y + 11, { width: 270, height: 16, ellipsis: true });
-  
-  return y + 30;
+
+  const boxHeight = 75;
+  doc.strokeColor('#000000').lineWidth(1.2)
+     .rect(30, y, 535, boxHeight).stroke();
+
+  // Vertical divider
+  doc.moveTo(297.5, y).lineTo(297.5, y + boxHeight).stroke();
+
+  // Left Column: Subtotals & Taxable
+  let leftY = y + 8;
+  doc.fillColor('#1e293b').font('Helvetica-Bold').fontSize(7.5);
+  doc.text('Spare Parts Subtotal (Taxable):', 38, leftY);
+  doc.font('Helvetica').text(`Rs. ${summary.partsTaxableSum.toFixed(2)}`, 190, leftY, { width: 100, align: 'right' });
+  leftY += 14;
+
+  doc.font('Helvetica-Bold').text('Labour / Service Subtotal (Taxable):', 38, leftY);
+  doc.font('Helvetica').text(`Rs. ${summary.labourTaxableSum.toFixed(2)}`, 190, leftY, { width: 100, align: 'right' });
+  leftY += 14;
+
+  if (summary.totalDiscount > 0) {
+    doc.fillColor('#dc2626').font('Helvetica-Bold').text('Total Discount:', 38, leftY);
+    doc.font('Helvetica').text(`- Rs. ${summary.totalDiscount.toFixed(2)}`, 190, leftY, { width: 100, align: 'right' });
+    leftY += 14;
+  }
+
+  doc.fillColor('#000000').font('Helvetica-Bold').text('Total Taxable Amount:', 38, leftY);
+  doc.text(`Rs. ${summary.totalTaxable.toFixed(2)}`, 190, leftY, { width: 100, align: 'right' });
+
+  // Right Column: GST breakdown & Itemized
+  let rightY = y + 8;
+  const rightXLabel = 305;
+  const rightXValue = 460;
+
+  if (isInterstate) {
+    doc.fillColor('#1e293b').font('Helvetica-Bold').text('Estimated IGST:', rightXLabel, rightY);
+    doc.font('Helvetica').text(`Rs. ${summary.totalGst.toFixed(2)}`, rightXValue, rightY, { width: 100, align: 'right' });
+    rightY += 14;
+  } else {
+    doc.fillColor('#1e293b').font('Helvetica-Bold').text('Estimated CGST:', rightXLabel, rightY);
+    doc.font('Helvetica').text(`Rs. ${summary.cgst.toFixed(2)}`, rightXValue, rightY, { width: 100, align: 'right' });
+    rightY += 14;
+
+    doc.font('Helvetica-Bold').text('Estimated SGST:', rightXLabel, rightY);
+    doc.font('Helvetica').text(`Rs. ${summary.sgst.toFixed(2)}`, rightXValue, rightY, { width: 100, align: 'right' });
+    rightY += 14;
+  }
+
+  doc.fillColor('#1e293b').font('Helvetica-Bold').text('Total GST Amount:', rightXLabel, rightY);
+  doc.font('Helvetica').text(`Rs. ${summary.totalGst.toFixed(2)}`, rightXValue, rightY, { width: 100, align: 'right' });
+  rightY += 14;
+
+  doc.fillColor('#000000').font('Helvetica-Bold').text('Itemized Total (Tax Incl.):', rightXLabel, rightY);
+  doc.text(`Rs. ${summary.calculatedGrandTotal.toFixed(2)}`, rightXValue, rightY, { width: 100, align: 'right' });
+
+  y += boxHeight;
+
+  // Grand Total Highlight Banner
+  const grandTotalHeight = 32;
+  doc.fillColor('#f8fafc').rect(30, y, 535, grandTotalHeight).fill();
+  doc.strokeColor('#000000').lineWidth(1.5).rect(30, y, 535, grandTotalHeight).stroke();
+
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(9);
+  const titleLabel = summary.hasOverride ? 'FINAL ESTIMATED AMOUNT (OVERRIDE):' : 'FINAL ESTIMATED AMOUNT:';
+  doc.text(titleLabel, 38, y + 10);
+
+  const roundedGrandTotal = Math.round(summary.finalGrandTotal);
+  doc.fontSize(10.5).text(`Rs. ${roundedGrandTotal.toFixed(2)}`, 235, y + 9);
+
+  doc.fontSize(7.5).font('Helvetica').fillColor('#334155')
+     .text(`(${grandTotalWords})`, 335, y + 10, { width: 225, height: 16, ellipsis: true });
+
+  return y + grandTotalHeight;
 }
 
-function generateCustomerEstimatePDF(estimate, customer, vehicle, stream) {
+function drawCustomerFooter(doc, y) {
+  // Generous gap before Footer section
+  y += 12;
+
+  if (y > 660) {
+    doc.addPage();
+    doc.strokeColor('#000000').lineWidth(1.5)
+       .rect(30, 30, 535, 782).stroke();
+    y = 45;
+  }
+
+  doc.strokeColor('#000000').lineWidth(1.5)
+     .moveTo(30, y).lineTo(565, y).stroke();
+
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.5);
+  doc.text('TERMS AND CONDITIONS:', 35, y + 8);
+
+  doc.font('Helvetica').fontSize(6.5).fillColor('#475569')
+     .text('1. All estimates are valid for 15 days from the date of issuance.', 35, y + 20)
+     .text('2. Estimation is based on visual examination. Additional repairs or parts required after dismantling will be communicated for approval.', 35, y + 30)
+     .text('3. Demurrage charges applicable if the vehicle is not collected within 3 days after completion intimation.', 35, y + 40);
+
+  // Signatures
+  doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7.5)
+     .text('For MVSS Automobiles Private Limited', 360, y + 8);
+
+  // Draw admin signature if available
+  try {
+    const signaturePath = path.join(__dirname, '../uploads/admin_signature.png');
+    if (fs.existsSync(signaturePath)) {
+      doc.image(signaturePath, 390, y + 22, { fit: [90, 32], align: 'center' });
+    }
+  } catch (sigErr) {
+    console.error('Error drawing admin signature on Customer PDF:', sigErr);
+  }
+
+  const sigY = y + 68;
+
+  // Customer signature dashed line
+  doc.strokeColor('#000000').lineWidth(1).dash(3, {space: 3})
+     .moveTo(40, sigY).lineTo(180, sigY).stroke();
+
+  // Authorized signatory dashed line
+  doc.moveTo(370, sigY).lineTo(510, sigY).stroke().undash();
+
+  doc.fillColor('#000000').font('Helvetica').fontSize(7)
+     .text('Customer Approval & Signature', 45, sigY + 5)
+     .text('Authorized Signatory', 405, sigY + 5);
+
+  // Workshop Contact Line at bottom
+  const contactY = sigY + 22;
+  doc.strokeColor('#cbd5e1').lineWidth(0.8)
+     .moveTo(30, contactY).lineTo(565, contactY).stroke();
+
+  doc.fillColor('#64748b').font('Helvetica').fontSize(6.5)
+     .text('MVSS Automobiles Private Limited • Sy. No. 25/1, Opp. Cine Planet, Kompally, Hyderabad - 500014 • Helpline: +91 9949479765 • accounts@auto4m.in', 30, contactY + 4, { width: 535, align: 'center' });
+
+  return contactY + 16;
+}
+
+function generateCustomerEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
   const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
   doc.pipe(stream);
 
-  // draw outer border
+  // draw outer border on Page 1
   doc.strokeColor('#000000').lineWidth(1.5)
      .rect(30, 30, 535, 782).stroke();
 
   // Company and title header
-  drawCustomerCompanyHeader(doc, 'CUSTOMER ESTIMATION');
+  drawCustomerCompanyHeader(doc, 'CUSTOMER ESTIMATE');
 
   // Customer & Vehicle metadata
   const docDate = estimate.date || new Date();
-  drawCustomerMetadataGrid(doc, 105, customer, vehicle, estimate.estimateNo, docDate, estimate);
+  let y = drawCustomerMetadataGrid(doc, 95, customer, vehicle, estimate.estimateNo || 'EST', docDate, estimate, jobCard);
 
   // Table header
-  let y = 220;
-  drawCustomerTableHeader(doc, y);
-  y += 25;
+  y = drawCustomerTableHeader(doc, y);
 
-  let sNo = 1;
-  let partsTotalSum = 0;
-
-  // Parts List
-  if (estimate.parts && estimate.parts.length > 0) {
-    y = checkCustomerPageOverflow(doc, y);
-    y = drawCustomerSectionHeader(doc, y, 'PARTS');
-    
-    estimate.parts.forEach(part => {
-      y = checkCustomerPageOverflow(doc, y);
-      
-      const qty = part.qty || 1;
-      const rate = part.rate || 0;
-      const amount = part.taxableValue !== undefined ? part.taxableValue : (part.amount !== undefined ? part.amount : (qty * rate));
-      const gstAmount = part.gstAmount || (amount * (part.gstPercent / 100));
-      const total = part.total || (amount + gstAmount);
-      
-      partsTotalSum += total;
-
-      // Inclusive Net Unit Price: Total line amount / quantity
-      const inclusiveUnitPrice = total / qty;
-
-      y = drawCustomerTableRow(
-        doc,
-        y,
-        sNo.toString(),
-        part.name,
-        qty.toString(),
-        inclusiveUnitPrice.toFixed(2),
-        total.toFixed(2)
-      );
-      sNo++;
-    });
-
-    // Parts Subtotal Row
-    y = checkCustomerPageOverflow(doc, y);
-    y = drawCustomerSubtotalRow(doc, y, 'PARTS TOTAL', partsTotalSum);
+  // Normalize parts and labour
+  let partsList = [];
+  if (Array.isArray(estimate.parts) && estimate.parts.length > 0) {
+    partsList = estimate.parts;
+  } else if (Array.isArray(estimate.items) && estimate.items.length > 0) {
+    partsList = estimate.items.filter(i => (i.type || '').toLowerCase() === 'part');
   }
 
-  let labourTotalSum = 0;
+  let labourList = [];
+  if (Array.isArray(estimate.labour) && estimate.labour.length > 0) {
+    labourList = estimate.labour;
+  } else if (Array.isArray(estimate.items) && estimate.items.length > 0) {
+    labourList = estimate.items.filter(i => (i.type || '').toLowerCase() === 'labour');
+  }
 
-  // Labour List
-  if (estimate.labour && estimate.labour.length > 0) {
+  let sNo = 1;
+  let partsTaxableSum = 0;
+  let partsGstSum = 0;
+  let partsDiscountSum = 0;
+  let partsTotalSum = 0;
+
+  // Spare Parts Section
+  if (partsList.length > 0) {
     y = checkCustomerPageOverflow(doc, y);
-    y = drawCustomerSectionHeader(doc, y, 'LABOUR CHARGES');
+    y = drawCustomerSectionHeader(doc, y, 'A. SPARE PARTS ESTIMATE');
 
-    estimate.labour.forEach(item => {
+    partsList.forEach(part => {
       y = checkCustomerPageOverflow(doc, y);
-      
-      const qty = item.qty || 1;
-      const rate = item.rate || 0;
-      const amount = item.taxableValue !== undefined ? item.taxableValue : (item.amount !== undefined ? item.amount : (qty * rate));
-      const gstAmount = item.gstAmount || (amount * (item.gstPercent / 100));
-      const total = item.total || (amount + gstAmount);
 
-      labourTotalSum += total;
+      const name = part.name || part.description || 'Spare Part';
+      const qty = Number(part.qty || 1);
+      const rate = Number(part.rate || 0);
+      const discount = Number(part.discount || 0);
+      const taxable = part.taxableValue !== undefined ? Number(part.taxableValue) : Math.max(0, (qty * rate) - discount);
+      const gstPercent = (part.gstPercent !== undefined && part.gstPercent !== null && part.gstPercent !== '') ? Number(part.gstPercent) : 18;
+      const gstAmount = part.gstAmount !== undefined ? Number(part.gstAmount) : (taxable * (gstPercent / 100));
+      const lineTotal = part.total !== undefined ? Number(part.total) : (taxable + gstAmount);
 
-      // Inclusive Net Unit Price: Total line amount / quantity
-      const inclusiveUnitPrice = total / qty;
+      partsTaxableSum += taxable;
+      partsGstSum += gstAmount;
+      partsDiscountSum += discount;
+      partsTotalSum += lineTotal;
+
+      const discountStr = discount > 0 ? discount.toFixed(2) : '-';
+      const gstStr = `${gstPercent}%`;
 
       y = drawCustomerTableRow(
         doc,
         y,
         sNo.toString(),
-        item.description,
+        name,
         qty.toString(),
-        inclusiveUnitPrice.toFixed(2),
-        total.toFixed(2)
+        rate.toFixed(2),
+        discountStr,
+        gstStr,
+        lineTotal.toFixed(2)
       );
       sNo++;
     });
 
-    // Labour Subtotal Row
     y = checkCustomerPageOverflow(doc, y);
-    y = drawCustomerSubtotalRow(doc, y, 'LABOUR TOTAL', labourTotalSum);
+    y = drawCustomerSubtotalRow(doc, y, 'PARTS SUBTOTAL', partsDiscountSum, partsGstSum, partsTotalSum);
+  }
+
+  let labourTaxableSum = 0;
+  let labourGstSum = 0;
+  let labourDiscountSum = 0;
+  let labourTotalSum = 0;
+
+  // Labour Section
+  if (labourList.length > 0) {
+    y = checkCustomerPageOverflow(doc, y);
+    y = drawCustomerSectionHeader(doc, y, 'B. LABOUR & SERVICES ESTIMATE');
+
+    labourList.forEach(item => {
+      y = checkCustomerPageOverflow(doc, y);
+
+      const desc = item.description || item.name || 'Labour Charge';
+      const qty = Number(item.qty || 1);
+      const rate = Number(item.rate || 0);
+      const discount = Number(item.discount || 0);
+      const taxable = item.taxableValue !== undefined ? Number(item.taxableValue) : Math.max(0, (qty * rate) - discount);
+      const gstPercent = (item.gstPercent !== undefined && item.gstPercent !== null && item.gstPercent !== '') ? Number(item.gstPercent) : 18;
+      const gstAmount = item.gstAmount !== undefined ? Number(item.gstAmount) : (taxable * (gstPercent / 100));
+      const lineTotal = item.total !== undefined ? Number(item.total) : (taxable + gstAmount);
+
+      labourTaxableSum += taxable;
+      labourGstSum += gstAmount;
+      labourDiscountSum += discount;
+      labourTotalSum += lineTotal;
+
+      const discountStr = discount > 0 ? discount.toFixed(2) : '-';
+      const gstStr = `${gstPercent}%`;
+
+      y = drawCustomerTableRow(
+        doc,
+        y,
+        sNo.toString(),
+        desc,
+        qty.toString(),
+        rate.toFixed(2),
+        discountStr,
+        gstStr,
+        lineTotal.toFixed(2)
+      );
+      sNo++;
+    });
+
+    y = checkCustomerPageOverflow(doc, y);
+    y = drawCustomerSubtotalRow(doc, y, 'LABOUR SUBTOTAL', labourDiscountSum, labourGstSum, labourTotalSum);
   }
 
   // Draw bottom border to close the table cells
   doc.strokeColor('#000000').lineWidth(1.5)
      .moveTo(30, y).lineTo(565, y).stroke();
 
-  // Clean gap before summary block
-  y += 10;
+  y += 8;
 
-  const grandTotal = (estimate.manualOverride && estimate.manualGrandTotal !== undefined && estimate.manualGrandTotal !== null)
+  // Totals & Overrides
+  const totalDiscount = partsDiscountSum + labourDiscountSum;
+  const totalTaxable = partsTaxableSum + labourTaxableSum;
+  const totalGst = partsGstSum + labourGstSum;
+  const calculatedGrandTotal = partsTotalSum + labourTotalSum;
+
+  const isInterstate = checkIsInterstate(customer);
+  const igst = isInterstate ? totalGst : 0;
+  const cgst = isInterstate ? 0 : (totalGst / 2);
+  const sgst = isInterstate ? 0 : (totalGst / 2);
+
+  const hasOverride = Boolean(
+    estimate.manualOverride &&
+    estimate.manualGrandTotal !== undefined &&
+    estimate.manualGrandTotal !== null &&
+    !isNaN(Number(estimate.manualGrandTotal))
+  );
+
+  const finalGrandTotal = hasOverride
     ? Number(estimate.manualGrandTotal)
     : (estimate.status === 'Approved' && estimate.approvalMetadata?.finalAmount !== undefined && estimate.approvalMetadata?.finalAmount !== null && Number(estimate.approvalMetadata.finalAmount) > 0
       ? Number(estimate.approvalMetadata.finalAmount)
-      : (estimate.totals?.grandTotal !== undefined ? estimate.totals.grandTotal : (partsTotalSum + labourTotalSum)));
-  const summaryTotals = {
-    partsTotalSum,
-    labourTotalSum,
-    grandTotal
-  };
-  
-  const grandTotalWords = numberToWords(grandTotal);
+      : (estimate.totals?.grandTotal !== undefined && estimate.totals.grandTotal !== null ? Number(estimate.totals.grandTotal) : calculatedGrandTotal));
 
-  y = drawCustomerSummaryBlock(doc, y, summaryTotals, grandTotalWords);
-  drawInvoiceFooter(doc, y, false);
+  const summary = {
+    partsTaxableSum,
+    partsTotalSum,
+    labourTaxableSum,
+    labourTotalSum,
+    totalDiscount,
+    totalTaxable,
+    totalGst,
+    calculatedGrandTotal,
+    isInterstate,
+    cgst,
+    sgst,
+    igst,
+    hasOverride,
+    finalGrandTotal
+  };
+
+  const grandTotalWords = numberToWords(Math.round(finalGrandTotal));
+
+  y = drawCustomerSummaryBlock(doc, y, summary, grandTotalWords, isInterstate);
+  drawCustomerFooter(doc, y);
 
   addPageNumbers(doc);
   doc.end();

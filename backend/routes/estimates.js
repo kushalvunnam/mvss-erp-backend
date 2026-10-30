@@ -761,7 +761,7 @@ router.get('/:id/customer-pdf', auth, async (req, res) => {
 
     await logAction(req.user, 'REPORT_EXPORTED', `Exported Customer PDF for Estimate ${estimate.estimateNo}`, req);
 
-    generateCustomerEstimatePDF(estimate, customer, vehicle, res);
+    generateCustomerEstimatePDF(estimate, customer, vehicle, res, jobCard);
   } catch (error) {
     res.status(500).send({ error: 'Failed to generate Customer PDF: ' + error.message });
   }
@@ -776,11 +776,15 @@ router.get('/public/customer-pdf/:id', async (req, res) => {
     if (/^[a-f0-9]{24}$/i.test(rawId)) {
       estimate = await Estimate.findById(rawId);
     } else {
+      const normalizedNo = rawId
+        .replace(/^customer_estimate_/i, '')
+        .replace(/^Customer_Estimate_/i, '');
       const estNoVariations = [
         rawId,
-        rawId.replace(/_/g, '/'),
-        rawId.replace(/_/g, '-'),
-        rawId.replace(/-/g, '/')
+        normalizedNo,
+        normalizedNo.replace(/_/g, '/'),
+        normalizedNo.replace(/_/g, '-'),
+        normalizedNo.replace(/-/g, '/')
       ];
       estimate = await Estimate.findOne({
         $or: estNoVariations.map(no => ({ estimateNo: new RegExp(`^${no.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }))
@@ -814,7 +818,7 @@ router.get('/public/customer-pdf/:id', async (req, res) => {
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=86400');
 
-    generateCustomerEstimatePDF(estimate, customer, vehicle, res);
+    generateCustomerEstimatePDF(estimate, customer, vehicle, res, jobCard);
   } catch (error) {
     console.error('[Public Customer PDF] Error streaming PDF:', error);
     res.status(500).send({ error: 'Failed to generate Customer PDF: ' + error.message });
@@ -955,6 +959,7 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   const cleanEstNo = String(estimate.estimateNo || 'EST').replace(/[^a-zA-Z0-9_-]/g, '_');
   const pdfFilename = `Customer_Estimate_${cleanEstNo}.pdf`;
   const pdfDiskPath = path.join(pdfDir, `customer_estimate_${estimate._id}.pdf`);
+  const namedPdfDiskPath = path.join(pdfDir, pdfFilename);
 
   let pdfBuffer;
   try {
@@ -964,10 +969,11 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
       pass.on('data', chunk => chunks.push(chunk));
       pass.on('end', () => resolve(Buffer.concat(chunks)));
       pass.on('error', err => reject(err));
-      generateCustomerEstimatePDF(estimate, customerRecord, vehicleRecord || {}, pass);
+      generateCustomerEstimatePDF(estimate, customerRecord, vehicleRecord || {}, pass, jc);
     });
 
     await fs.promises.writeFile(pdfDiskPath, pdfBuffer);
+    await fs.promises.writeFile(namedPdfDiskPath, pdfBuffer);
   } catch (pdfErr) {
     console.error(`[WhatsApp Estimate PDF] Failed to generate Customer Estimate PDF:`, pdfErr);
     return {

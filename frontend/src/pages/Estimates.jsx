@@ -11,7 +11,7 @@ export default function Estimates({ token, user, setActiveTab }) {
   const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit'
   const [selectedEstId, setSelectedEstId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
-  const [pdfType, setPdfType] = useState('gst');
+  const [pdfType, setPdfType] = useState('customer');
   const [approvalModalEst, setApprovalModalEst] = useState(null);
   const [isApproving, setIsApproving] = useState(false);
   const [sendingMap, setSendingMap] = useState({});
@@ -941,10 +941,10 @@ export default function Estimates({ token, user, setActiveTab }) {
           <select
             value={pdfType}
             onChange={(e) => setPdfType(e.target.value)}
-            className="px-4 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-350 text-xs font-bold focus:outline-none"
+            className="px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-bold focus:outline-none"
           >
-            <option value="gst">GST Estimate</option>
             <option value="customer">Customer Estimate</option>
+            <option value="gst">GST Estimate</option>
           </select>
         </div>
       </div>
@@ -1143,16 +1143,18 @@ export default function Estimates({ token, user, setActiveTab }) {
                                 </h5>
                                 <div className="flex gap-2">
                                   <button
-                                    onClick={(e) => {
-                                      if (pdfType === 'customer') {
-                                        handleDownloadCustomerPDF(est, e);
-                                      } else {
-                                        handleDownload(est, e);
-                                      }
-                                    }}
-                                    className="text-[9px] font-black uppercase text-indigo-650 dark:text-indigo-400 flex items-center gap-1 border border-indigo-200/40 bg-indigo-50/20 px-2 py-0.5 rounded"
+                                    onClick={(e) => handleDownloadCustomerPDF(est, e)}
+                                    className="text-[9px] font-black uppercase text-sky-700 dark:text-sky-300 flex items-center gap-1 border border-sky-300/60 bg-sky-50 dark:bg-sky-950/40 px-2.5 py-1 rounded hover:bg-sky-100 dark:hover:bg-sky-900/60 transition-all shadow-sm"
+                                    title="Download Customer Estimate PDF"
                                   >
-                                    <Download className="w-3 h-3" /> Get {pdfType === 'customer' ? 'Customer' : 'GST'} PDF
+                                    <Download className="w-3 h-3 text-sky-600 dark:text-sky-400" /> Customer PDF
+                                  </button>
+                                  <button
+                                    onClick={(e) => handleDownload(est, e)}
+                                    className="text-[9px] font-black uppercase text-indigo-700 dark:text-indigo-300 flex items-center gap-1 border border-indigo-300/60 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all shadow-sm"
+                                    title="Download GST Estimate PDF"
+                                  >
+                                    <Download className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> GST PDF
                                   </button>
                                 </div>
                               </div>
@@ -1296,13 +1298,14 @@ export default function Estimates({ token, user, setActiveTab }) {
                                                 Retry Stage 3
                                               </button>
                                             )}
-                                            {hist.pdfUrl && (
+                                            {(hist.pdfUrl || hist.stage === 'DOCUMENT_ESTIMATE_PDF' || hist.stage === 'STAGE_1_ESTIMATION_READY') && (
                                               <a
-                                                href={hist.pdfUrl}
+                                                href={hist.pdfUrl || `${API_BASE_URL}/estimates/public/customer-pdf/${est._id}.pdf`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 onClick={(e) => e.stopPropagation()}
-                                                className="text-[9.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
+                                                className="text-[9.5px] text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 font-semibold"
+                                                title="View Customer Estimate PDF"
                                               >
                                                 <ExternalLink className="w-3 h-3" />
                                                 View Sent PDF

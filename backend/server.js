@@ -197,7 +197,7 @@ app.get(['/uploads/estimates/:filename', '/api/uploads/estimates/:filename'], as
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     } catch (_) {}
 
-    generateCustomerEstimatePDF(estimate, customer, vehicle, res);
+    generateCustomerEstimatePDF(estimate, customer, vehicle, res, jobCard);
   } catch (err) {
     console.error('[Dynamic Estimate PDF] Error regenerating PDF on the fly:', err);
     next();
