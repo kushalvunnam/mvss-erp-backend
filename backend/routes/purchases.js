@@ -32,7 +32,7 @@ const { getNextSequence } = require('../utils/documentNumbering');
 const generatePurchaseNo = async () => {
   return await getNextSequence('PUR', 'Purchase');
 };
-router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'));
+router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'));
 
 // Upload attachment
 router.post('/upload-attachment', upload.single('attachment'), async (req, res) => {
@@ -626,6 +626,11 @@ router.post('/', async (req, res) => {
 // Update Vendor Payment for Purchase Entry
 router.put('/:id/payment', async (req, res) => {
   try {
+    const paymentAuthorized = ['Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Accounts Manager'].includes(req.user?.role);
+    if (!paymentAuthorized) {
+      return res.status(403).send({ error: 'You are not authorized to update purchase payment records.' });
+    }
+
     let { amountPaid, paymentStatus } = req.body;
     const purchase = await Purchase.findById(req.params.id);
     if (!purchase) return res.status(404).send({ error: 'Purchase entry not found.' });
@@ -707,7 +712,7 @@ router.get('/:id/check-in-use', async (req, res) => {
 // Edit Purchase Entry
 router.put('/:id', async (req, res) => {
   try {
-    const editAuthorized = ['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Spares', 'Accounts', 'Purchase Executive', 'Accounts Executive'].includes(req.user?.role);
+    const editAuthorized = ['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Spares', 'Store', 'Store User', 'Store Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'].includes(req.user?.role);
     if (!editAuthorized) {
       return res.status(403).send({ error: 'You are not authorized to edit purchases.' });
     }
@@ -762,12 +767,16 @@ router.put('/:id', async (req, res) => {
 
     // 1. Revert inventory quantities of the old items
     for (const oldItem of purchase.items) {
+      let invItem = null;
       if (oldItem.partId) {
-        const invItem = await Inventory.findById(oldItem.partId);
-        if (invItem) {
-          invItem.stockQuantity = Math.max(0, invItem.stockQuantity - oldItem.qty);
-          await invItem.save();
-        }
+        invItem = await Inventory.findById(oldItem.partId);
+      }
+      if (!invItem && oldItem.partNumber) {
+        invItem = await Inventory.findOne({ partNumber: oldItem.partNumber.trim() });
+      }
+      if (invItem) {
+        invItem.stockQuantity = Math.max(0, invItem.stockQuantity - oldItem.qty);
+        await invItem.save();
       }
     }
 

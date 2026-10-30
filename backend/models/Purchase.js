@@ -182,6 +182,10 @@ const purchaseSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  updatedBy: {
+    type: String,
+    default: '',
+  },
   attachmentUrl: {
     type: String,
     default: ''

@@ -1997,7 +1997,7 @@ export default function PurchaseReport({ token, user }) {
                                   handleRowChange(row.id, 'gstPercent', Number(val));
                                 }
                               }}
-                              disabled={!['Admin', 'Accounts', 'Spares', 'Accounts Executive'].includes(user?.role)}
+                              disabled={!['Admin', 'Accounts', 'Spares', 'Store', 'Store User', 'Store Manager', 'Accounts Executive'].includes(user?.role)}
                               className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-2 py-2.5 font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none flex-1"
                             >
                               <option value={0}>0%</option>
@@ -2017,7 +2017,7 @@ export default function PurchaseReport({ token, user }) {
                                 placeholder="0.00"
                                 value={row.gstPercent === 'custom' ? '' : row.gstPercent}
                                 onChange={(e) => handleRowChange(row.id, 'gstPercent', e.target.value)}
-                                disabled={!['Admin', 'Accounts', 'Spares', 'Accounts Executive'].includes(user?.role)}
+                                disabled={!['Admin', 'Accounts', 'Spares', 'Store', 'Store User', 'Store Manager', 'Accounts Executive'].includes(user?.role)}
                                 className="w-16 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg h-11 px-2 py-2.5 font-mono font-semibold text-slate-800 dark:text-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                               />
                             )}
@@ -2557,7 +2557,7 @@ export default function PurchaseReport({ token, user }) {
                                   <Eye className="w-4 h-4" />
                                 </button>
 
-                                {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
+                                {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Accounts Executive', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Executive'].includes(user?.role) && (
                                   <button
                                     type="button"
                                     onClick={() => handleStartEdit(p)}
@@ -2568,18 +2568,20 @@ export default function PurchaseReport({ token, user }) {
                                   </button>
                                 )}
 
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPaymentModalPurchase(p);
-                                    setPaymentModalAmount(p.amountPaid ? p.amountPaid.toString() : '');
-                                    setPaymentModalStatus(displayStatus);
-                                  }}
-                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
-                                  title="Update Payment Status"
-                                >
-                                  <CreditCard className="w-4 h-4" />
-                                </button>
+                                {['Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Accounts Manager'].includes(user?.role) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPaymentModalPurchase(p);
+                                      setPaymentModalAmount(p.amountPaid ? p.amountPaid.toString() : '');
+                                      setPaymentModalStatus(displayStatus);
+                                    }}
+                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
+                                    title="Update Payment Status"
+                                  >
+                                    <CreditCard className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>

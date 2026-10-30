@@ -83,7 +83,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Create new spare part / labour master
-router.post('/', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
+router.post('/', auth, restrictTo('Admin', 'Spares', 'Store', 'Store User', 'Store Manager'), async (req, res) => {
   try {
     const { partNumber, barcode, partCode } = req.body;
     if (partNumber) {
@@ -117,7 +117,7 @@ router.post('/', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
 });
 
 // Restock purchase entry (add quantity to existing stock & record purchase transaction)
-router.post('/purchase', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
+router.post('/purchase', auth, restrictTo('Admin', 'Spares', 'Store', 'Store User', 'Store Manager'), async (req, res) => {
   try {
     const { partNumber, quantityToAdd, purchasePrice, sellingPrice, mrp, invoiceNo, vendorName, vendorId, notes } = req.body;
     const item = await Inventory.findOne({ partNumber: partNumber.trim() });
@@ -190,7 +190,7 @@ router.post('/purchase', auth, restrictTo('Admin', 'Spares'), async (req, res) =
 });
 
 // Edit details of a part
-router.put('/:id', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
+router.put('/:id', auth, restrictTo('Admin', 'Spares', 'Store', 'Store User', 'Store Manager'), async (req, res) => {
   try {
     const item = await Inventory.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!item) return res.status(404).send({ error: 'Part not found.' });
@@ -202,7 +202,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
 });
 
 // Delete part / master entry
-router.delete('/:id', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
+router.delete('/:id', auth, restrictTo('Admin', 'Spares', 'Store', 'Store User', 'Store Manager'), async (req, res) => {
   try {
     const item = await Inventory.findById(req.params.id);
     if (!item) return res.status(404).send({ error: 'Part not found.' });
@@ -263,7 +263,7 @@ router.delete('/:id', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
 });
 
 // Reduce stock manually
-router.post('/reduce', auth, restrictTo('Admin', 'Spares'), async (req, res) => {
+router.post('/reduce', auth, restrictTo('Admin', 'Spares', 'Store', 'Store User', 'Store Manager'), async (req, res) => {
   try {
     const { partNumber, quantityToReduce, reason } = req.body;
     const item = await Inventory.findOne({ partNumber: partNumber.trim() });
