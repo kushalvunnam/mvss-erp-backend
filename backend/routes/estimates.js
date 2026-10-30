@@ -767,6 +767,60 @@ router.get('/:id/customer-pdf', auth, async (req, res) => {
   }
 });
 
+// Public Download / Stream Customer Estimate PDF (Unauthenticated for Meta Graph API & WhatsApp)
+router.get('/public/customer-pdf/:id', async (req, res) => {
+  try {
+    const rawId = String(req.params.id || '').replace(/\.pdf$/i, '');
+    let estimate = null;
+
+    if (/^[a-f0-9]{24}$/i.test(rawId)) {
+      estimate = await Estimate.findById(rawId);
+    } else {
+      const estNoVariations = [
+        rawId,
+        rawId.replace(/_/g, '/'),
+        rawId.replace(/_/g, '-'),
+        rawId.replace(/-/g, '/')
+      ];
+      estimate = await Estimate.findOne({
+        $or: estNoVariations.map(no => ({ estimateNo: new RegExp(`^${no.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }))
+      });
+    }
+
+    if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });
+
+    const jobCard = (estimate.jobCardId ? await JobCard.findById(estimate.jobCardId) : null) || {};
+    let customer = null;
+    if (jobCard.customerId) {
+      customer = typeof jobCard.customerId === 'object' && jobCard.customerId.name
+        ? jobCard.customerId
+        : await Customer.findById(jobCard.customerId).lean();
+    }
+    if (!customer) customer = { name: 'Valued Customer', mobile: 'N/A' };
+
+    let vehicle = null;
+    if (jobCard.vehicleId) {
+      vehicle = typeof jobCard.vehicleId === 'object' && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo)
+        ? jobCard.vehicleId
+        : await Vehicle.findById(jobCard.vehicleId).lean();
+    }
+    if (!vehicle) vehicle = { vehicleNumber: 'your vehicle', make: '', model: '' };
+
+    const cleanEstNo = String(estimate.estimateNo || 'EST').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Customer_Estimate_${cleanEstNo}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    generateCustomerEstimatePDF(estimate, customer, vehicle, res);
+  } catch (error) {
+    console.error('[Public Customer PDF] Error streaming PDF:', error);
+    res.status(500).send({ error: 'Failed to generate Customer PDF: ' + error.message });
+  }
+});
+
 // Helper for sending Customer Estimate via WhatsApp (Stage 1 and Stage 2 sequential dispatch)
 const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 = false, skipStage2 = false, forceResend = false }) => {
   const estimate = await Estimate.findById(estimateId);
@@ -778,7 +832,7 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   const CustomerModel = require('../models/Customer');
   const VehicleModel = require('../models/Vehicle');
   const WhatsAppLog = require('../models/WhatsAppLog');
-  const { validateCustomerContact, sendTemplateMessage, sendDocumentMessage } = require('../services/whatsappService');
+  const { validateCustomerContact, sendTemplateMessage, sendDocumentMessage, isCustomerSessionActive } = require('../services/whatsappService');
   const { generateCustomerEstimatePDF } = require('../utils/pdfGenerator');
 
   const jc = estimate.jobCardId ? await JobCardModel.findById(estimate.jobCardId) : null;
@@ -927,8 +981,8 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   const host = typeof req?.get === 'function' ? req.get('host') : (req?.headers?.host || null);
   const forwardedProto = typeof req?.get === 'function' ? req.get('x-forwarded-proto') : req?.headers?.['x-forwarded-proto'];
   const protocol = req && (req.protocol === 'https' || forwardedProto === 'https') ? 'https' : 'http';
-  const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || (host ? `${protocol}://${host}` : '');
-  const pdfUrl = `${serverBase}/uploads/estimates/customer_estimate_${estimate._id}.pdf`;
+  const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || (host ? `${protocol}://${host}` : 'https://mvss-erp-backend.onrender.com');
+  const pdfUrl = `${serverBase}/api/estimates/public/customer-pdf/${estimate._id}.pdf`;
   estimate.pdfUrl = pdfUrl;
 
   const customerName = String(customerRecord.name || 'Valued Customer').trim();
@@ -960,22 +1014,47 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   if (!skipStage1 && (isForceResend || !stage1PriorSuccess)) {
     console.log(`[Estimate Automation] [STAGE 1] Triggering Estimation Ready for Estimate ${estimateNumber}...`);
 
-    // 1a. Send Customer Estimate PDF Attachment
-    try {
-      docResult = await sendDocumentMessage({
-        to: contactCheck.phone,
-        documentUrl: pdfUrl,
-        pdfBuffer,
-        filename: pdfFilename,
-        caption: `Customer Estimate - ${estimateNumber}`,
-        recipientName: customerName,
-        relatedEntity: estimate._id,
-        onModel: 'Estimate',
-        idempotencyKey: stage1DocKey
-      });
-      console.log(`[Estimate Automation] [STAGE 1] Customer Estimate PDF attached: wamid=${docResult?.messageId}`);
-    } catch (docErr) {
-      console.warn(`[Estimate Automation] [STAGE 1] PDF document dispatch note:`, docErr.message || docErr);
+    // 1a. Customer Estimate PDF Attachment handling
+    const sessionActive = await isCustomerSessionActive(contactCheck.phone);
+    console.log(`[Estimate Automation] [STAGE 1] Customer 24h window active for ${contactCheck.phone}: ${sessionActive}`);
+
+    if (sessionActive) {
+      // 24-hour customer window is active: Meta delivers free-form document messages
+      try {
+        docResult = await sendDocumentMessage({
+          to: contactCheck.phone,
+          documentUrl: pdfUrl,
+          pdfBuffer,
+          filename: pdfFilename,
+          caption: `Customer Estimate - ${estimateNumber}`,
+          recipientName: customerName,
+          relatedEntity: estimate._id,
+          onModel: 'Estimate',
+          idempotencyKey: stage1DocKey
+        });
+        console.log(`[Estimate Automation] [STAGE 1] Customer Estimate PDF attached: wamid=${docResult?.messageId}`);
+      } catch (docErr) {
+        console.warn(`[Estimate Automation] [STAGE 1] PDF document dispatch note:`, docErr.message || docErr);
+      }
+    } else {
+      console.log(`[Estimate Automation] [STAGE 1] Customer 24h window inactive. Queuing document attachment for auto-delivery on customer reply (avoids Meta 131047 Re-engagement error).`);
+      const existingPending = estimate.whatsappHistory?.some(
+        h => h.stage === 'DOCUMENT_ESTIMATE_PDF' && h.status === 'pending_session'
+      );
+      if (!existingPending) {
+        estimate.whatsappHistory.push({
+          stage: 'DOCUMENT_ESTIMATE_PDF',
+          estimateId: estimate._id,
+          jobCardId: estimate.jobCardId,
+          sentAt: new Date(),
+          recipientPhone: contactCheck.phone,
+          pdfUrl,
+          status: 'pending_session',
+          templateName: 'document_attachment',
+          sentBy: user?._id,
+          sentByName: user?.name || user?.username || 'Authorized User'
+        });
+      }
     }
 
     // 1b. Send Stage 1 Template Message: mvss_estimate_created (5 parameters)

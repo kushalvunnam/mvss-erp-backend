@@ -3,7 +3,7 @@ const router = express.Router();
 const WhatsAppLog = require('../models/WhatsAppLog');
 const Customer = require('../models/Customer');
 const { auth, restrictTo } = require('../middleware/auth');
-const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber } = require('../services/whatsappService');
+const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber, createDocumentTemplate } = require('../services/whatsappService');
 const { handleInboundFeedbackReply } = require('../services/feedbackReminderService');
 const { handleInboundEstimateReply } = require('../services/estimateApprovalService');
 
@@ -163,6 +163,65 @@ router.post('/webhook', async (req, res) => {
                                 ...(relatedEntity && onModel ? { relatedEntity, onModel } : {})
                             });
                             await logEntry.save();
+
+                            // 3. Auto-deliver queued Customer Estimate PDF now that customer has engaged (24h window open)
+                            try {
+                                const Estimate = require('../models/Estimate');
+                                const { sendDocumentMessage } = require('../services/whatsappService');
+                                const digits = String(fromPhone).replace(/\D/g, '');
+                                const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+
+                                const pendingEstimates = await Estimate.find({
+                                    'whatsappHistory': {
+                                        $elemMatch: {
+                                            stage: 'DOCUMENT_ESTIMATE_PDF',
+                                            status: 'pending_session'
+                                        }
+                                    }
+                                }).sort({ updatedAt: -1 });
+
+                                for (const est of pendingEstimates) {
+                                    const matchingHist = est.whatsappHistory.find(h =>
+                                        h.stage === 'DOCUMENT_ESTIMATE_PDF' &&
+                                        h.status === 'pending_session' &&
+                                        h.recipientPhone &&
+                                        String(h.recipientPhone).replace(/\D/g, '').endsWith(last10)
+                                    );
+
+                                    if (matchingHist) {
+                                        console.log(`[WhatsApp Webhook] Auto-delivering queued PDF for Estimate ${est.estimateNo} to ${fromPhone} (24h window active)`);
+                                        const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || 'https://mvss-erp-backend.onrender.com';
+                                        const pdfUrl = est.pdfUrl || `${serverBase}/api/estimates/public/customer-pdf/${est._id}.pdf`;
+                                        const cleanEstNo = String(est.estimateNo || 'EST').replace(/[^a-zA-Z0-9_-]/g, '_');
+                                        const docFilename = `Customer_Estimate_${cleanEstNo}.pdf`;
+
+                                        try {
+                                            const docRes = await sendDocumentMessage({
+                                                to: fromPhone,
+                                                documentUrl: pdfUrl,
+                                                filename: docFilename,
+                                                caption: `Customer Estimate - ${est.estimateNo}`,
+                                                recipientName: recipientName || 'Valued Customer',
+                                                relatedEntity: est._id,
+                                                onModel: 'Estimate',
+                                                idempotencyKey: `auto_doc_${est._id}_${Date.now()}`
+                                            });
+
+                                            if (docRes?.messageId) {
+                                                matchingHist.status = 'sent';
+                                                matchingHist.messageId = docRes.messageId;
+                                                matchingHist.sentAt = new Date();
+                                                await est.save();
+                                                console.log(`[WhatsApp Webhook] Queued Customer Estimate PDF delivered successfully: wamid=${docRes.messageId}`);
+                                            }
+                                        } catch (pdfSendErr) {
+                                            console.warn(`[WhatsApp Webhook] Failed to deliver queued PDF for Estimate ${est.estimateNo}:`, pdfSendErr.message || pdfSendErr);
+                                        }
+                                    }
+                                }
+                            } catch (queuedDocErr) {
+                                console.warn('[WhatsApp Webhook] Error checking queued estimate documents:', queuedDocErr.message || queuedDocErr);
+                            }
                         }
                     }
                 }
@@ -419,6 +478,23 @@ router.post('/logs/:id/retry', auth, restrictTo('Admin', 'Super Admin'), async (
     } catch (error) {
         console.error('[WhatsApp] retry error:', error);
         return res.status(500).json({ error: error.message || 'Internal server error while retrying' });
+    }
+});
+
+// Register / Setup Customer Estimate Document Template with Meta Graph API
+router.post('/setup-document-template', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    try {
+        const result = await createDocumentTemplate();
+        // Refresh Meta templates cache
+        await syncMetaTemplates();
+        if (result.success) {
+            return res.json({ success: true, message: 'Document template submitted to Meta for approval.', result: result.data });
+        } else {
+            return res.status(400).json({ success: false, error: result.error, details: result.details });
+        }
+    } catch (err) {
+        console.error('[WhatsApp] setup-document-template error:', err);
+        return res.status(500).json({ error: err.message || 'Failed to setup document template' });
     }
 });
 

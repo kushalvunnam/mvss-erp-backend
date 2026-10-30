@@ -129,6 +129,81 @@ app.use((req, res, next) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), { maxAge: '1d' }));
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads'), { maxAge: '1d' }));
 
+// Dynamic fallback for Customer Estimate PDFs if missing from ephemeral disk
+app.get(['/uploads/estimates/:filename', '/api/uploads/estimates/:filename'], async (req, res, next) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, 'uploads/estimates', filename);
+
+  if (fs.existsSync(filePath)) {
+    res.setHeader('Content-Type', 'application/pdf');
+    return res.sendFile(filePath);
+  }
+
+  try {
+    const Estimate = require('./models/Estimate');
+    const JobCard = require('./models/JobCard');
+    const Customer = require('./models/Customer');
+    const Vehicle = require('./models/Vehicle');
+    const { generateCustomerEstimatePDF } = require('./utils/pdfGenerator');
+
+    let estimate = null;
+    const matchId = filename.match(/customer_estimate_([a-f0-9]{24})\.pdf$/i);
+
+    if (matchId) {
+      estimate = await Estimate.findById(matchId[1]);
+    } else {
+      // Try resolving by Estimate Number from filename
+      const rawNumber = filename.replace(/^customer_estimate_/i, '').replace(/\.pdf$/i, '');
+      const estNoVariations = [
+        rawNumber,
+        rawNumber.replace(/_/g, '/'),
+        rawNumber.replace(/_/g, '-'),
+        rawNumber.replace(/-/g, '/')
+      ];
+      estimate = await Estimate.findOne({
+        $or: estNoVariations.map(no => ({ estimateNo: new RegExp(`^${no.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }))
+      });
+    }
+
+    if (!estimate) return next();
+
+    const jobCard = (estimate.jobCardId ? await JobCard.findById(estimate.jobCardId) : null) || {};
+    let customer = null;
+    if (jobCard.customerId) {
+      customer = typeof jobCard.customerId === 'object' && jobCard.customerId.name
+        ? jobCard.customerId
+        : await Customer.findById(jobCard.customerId).lean();
+    }
+    if (!customer) customer = { name: 'Valued Customer', mobile: 'N/A' };
+
+    let vehicle = null;
+    if (jobCard.vehicleId) {
+      vehicle = typeof jobCard.vehicleId === 'object' && (jobCard.vehicleId.vehicleNumber || jobCard.vehicleId.regNo)
+        ? jobCard.vehicleId
+        : await Vehicle.findById(jobCard.vehicleId).lean();
+    }
+    if (!vehicle) vehicle = { vehicleNumber: 'your vehicle', make: '', model: '' };
+
+    const cleanEstNo = String(estimate.estimateNo || 'EST').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const displayFilename = `Customer_Estimate_${cleanEstNo}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${displayFilename}"`);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    try {
+      const dir = path.join(__dirname, 'uploads/estimates');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    } catch (_) {}
+
+    generateCustomerEstimatePDF(estimate, customer, vehicle, res);
+  } catch (err) {
+    console.error('[Dynamic Estimate PDF] Error regenerating PDF on the fly:', err);
+    next();
+  }
+});
+
 // Friendly 404 error page if uploaded file is no longer available on disk
 app.get(['/uploads/*', '/api/uploads/*'], (req, res) => {
   res.status(404).send('<html><head><title>Unavailable</title></head><body style="font-family:sans-serif; text-align:center; padding:50px; background:#f8fafc; color:#475569;"><div style="max-width:400px; margin:0 auto; background:white; padding:30px; border-radius:16px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;"><h1 style="color:#ef4444; margin-top:0;">Attachment Unavailable</h1><p style="font-size:14px; font-weight:600;">Attachment is no longer available.</p><p style="font-size:12px; color:#94a3b8;">The uploaded file was not found on the server.</p></div></body></html>');

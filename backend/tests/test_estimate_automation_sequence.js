@@ -184,6 +184,17 @@ async function runTestSuite() {
     console.log('\n--- TEST 2 & 3: Sequential Dispatch of Stage 1 & Stage 2 with Indian Currency Formatting ---');
     capturedDispatches = [];
 
+    // Simulate active 24h customer service window for test customer
+    await WhatsAppLog.create({
+      recipientName: 'Ramesh Sharma',
+      recipientPhone: testCustomer.mobile,
+      direction: 'inbound',
+      status: 'delivered',
+      messageType: 'text',
+      messageId: `wamid.INBOUND_INIT_${Date.now()}`,
+      createdAt: new Date()
+    });
+
     const sendRes = await axios.post(`${baseUrl}/api/estimates/${createdEstimate._id}/send`, {}, { headers: authHeaders });
     assert.strictEqual(sendRes.status, 200, 'Send estimate must return 200');
 

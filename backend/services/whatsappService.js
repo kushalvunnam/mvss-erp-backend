@@ -137,6 +137,29 @@ const validateCustomerContact = (customer, rawPhoneInput = null) => {
     };
 };
 
+/**
+ * Checks whether the 24-hour customer service window is active for a recipient.
+ * An active session exists if an inbound message from this customer was received in the last 24 hours.
+ */
+const isCustomerSessionActive = async (phone) => {
+    if (!phone) return false;
+    const normalized = normalizePhoneNumber(phone);
+    if (!normalized) return false;
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const last10 = normalized.slice(-10);
+    try {
+        const lastInbound = await WhatsAppLog.findOne({
+            recipientPhone: { $in: [normalized, `+${normalized}`, last10, `+91${last10}`, `91${last10}`] },
+            direction: 'inbound',
+            createdAt: { $gte: cutoff }
+        }).lean();
+        return Boolean(lastInbound);
+    } catch (err) {
+        console.warn('[WhatsApp] Could not verify customer session active status:', err.message);
+        return false;
+    }
+};
+
 // Static fallback baseline configuration matching Meta WABA 1070579342641923
 const TEMPLATE_CONFIG = {
     'mvss_welcome_customer': { lang: 'en', paramCount: 2 },
@@ -712,26 +735,37 @@ const sendTemplateMessage = async ({
             }
         }
 
-        // Create pending log entry (isolated so logging failures do not block message send)
+        // Create or update pending log entry using atomic upsert (prevents E11000 duplicate key error)
         let logEntry = null;
-        try {
-            logEntry = new WhatsAppLog({
-                recipientName,
-                recipientPhone: normalizedPhone,
-                templateName: finalTemplateName,
-                messageType: 'template',
-                status: 'pending',
-                direction: 'outbound',
-                language: initialLanguage,
-                components: components || [],
-                relatedEntity,
-                onModel,
-                idempotencyKey
-            });
-            await logEntry.save();
-        } catch (logSaveErr) {
-            console.error(`[WhatsApp] Warning: Failed to save initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
-            logEntry = null;
+        if (idempotencyKey) {
+            try {
+                logEntry = await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $setOnInsert: {
+                            recipientName,
+                            recipientPhone: normalizedPhone,
+                            templateName: finalTemplateName,
+                            messageType: 'template',
+                            direction: 'outbound',
+                            language: initialLanguage,
+                            components: components || [],
+                            relatedEntity,
+                            onModel,
+                            idempotencyKey,
+                            createdAt: new Date()
+                        },
+                        $set: {
+                            lastAttemptAt: new Date(),
+                            status: 'pending'
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+            } catch (logSaveErr) {
+                console.error(`[WhatsApp] Warning: Failed to upsert initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
+                logEntry = null;
+            }
         }
 
         // Construct Meta API Payload with configured template and language
@@ -762,28 +796,23 @@ const sendTemplateMessage = async ({
         const messageId = response.data.messages?.[0]?.id;
         const httpStatus = response.status;
         
-        // Update Log entry with sent status and message ID
-        try {
-            if (logEntry) {
-                logEntry.messageId = messageId;
-                logEntry.status = 'sent';
-                await logEntry.save();
-            } else if (idempotencyKey) {
-                await WhatsAppLog.create({
-                    recipientName,
-                    recipientPhone: normalizedPhone,
-                    templateName: finalTemplateName,
-                    messageType: 'template',
-                    status: 'sent',
-                    direction: 'outbound',
-                    messageId,
-                    relatedEntity,
-                    onModel,
-                    idempotencyKey
-                });
+        // Update Log entry with sent status and message ID atomically
+        if (idempotencyKey) {
+            try {
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $set: {
+                            status: 'sent',
+                            messageId,
+                            lastAttemptAt: new Date()
+                        }
+                    },
+                    { new: true }
+                );
+            } catch (updateLogErr) {
+                console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
             }
-        } catch (updateLogErr) {
-            console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
         }
 
         console.log(`[WhatsApp] Successfully sent template '${finalTemplateName}' to ${maskedTo} [lang: ${initialLanguage}] | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
@@ -798,36 +827,36 @@ const sendTemplateMessage = async ({
             console.error(`[WhatsApp] Internal/Network Error -> To: ${maskedTo} | Msg: ${errDetails.message}`);
         }
         
-        // Mark log as failed
+        // Mark log as failed atomically
         if (idempotencyKey) {
             try {
-                const existing = await WhatsAppLog.findOne({ idempotencyKey });
-                if (existing) {
-                    existing.status = 'failed';
-                    existing.errorMessage = errDetails.formatted;
-                    existing.metaErrorCode = String(errDetails.code || '');
-                    existing.lastAttemptAt = new Date();
-                    await existing.save();
-                } else {
-                    await WhatsAppLog.create({
-                        recipientName,
-                        recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
-                        templateName: finalTemplateName,
-                        messageType: 'template',
-                        status: 'failed',
-                        direction: 'outbound',
-                        language: initialLanguage,
-                        components: components || [],
-                        relatedEntity,
-                        onModel,
-                        idempotencyKey,
-                        errorMessage: errDetails.formatted,
-                        metaErrorCode: String(errDetails.code || ''),
-                        lastAttemptAt: new Date()
-                    });
-                }
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $set: {
+                            status: 'failed',
+                            errorMessage: errDetails.formatted,
+                            metaErrorCode: String(errDetails.code || ''),
+                            lastAttemptAt: new Date()
+                        },
+                        $setOnInsert: {
+                            recipientName,
+                            recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
+                            templateName: finalTemplateName,
+                            messageType: 'template',
+                            direction: 'outbound',
+                            language: initialLanguage,
+                            components: components || [],
+                            relatedEntity,
+                            onModel,
+                            idempotencyKey,
+                            createdAt: new Date()
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
             } catch (logErr) {
-                console.error('[WhatsApp] Failed to save error log:', logErr.message);
+                console.error('[WhatsApp] Failed to save error log via atomic upsert:', logErr.message);
             }
         }
         
@@ -890,26 +919,37 @@ const sendDocumentMessage = async ({
             }
         }
 
-        // Create pending log entry (isolated so logging failures do not block message send)
+        // Create or update pending log entry using atomic upsert (prevents E11000 duplicate key error)
         let logEntry = null;
-        try {
-            logEntry = new WhatsAppLog({
-                recipientName,
-                recipientPhone: normalizedPhone,
-                templateName: 'document_attachment',
-                messageType: 'document',
-                status: 'pending',
-                direction: 'outbound',
-                pdfUrl: documentUrl || '',
-                caption: caption || '',
-                relatedEntity,
-                onModel,
-                idempotencyKey
-            });
-            await logEntry.save();
-        } catch (logSaveErr) {
-            console.error(`[WhatsApp] Warning: Failed to save initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
-            logEntry = null;
+        if (idempotencyKey) {
+            try {
+                logEntry = await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $setOnInsert: {
+                            recipientName,
+                            recipientPhone: normalizedPhone,
+                            templateName: 'document_attachment',
+                            messageType: 'document',
+                            direction: 'outbound',
+                            pdfUrl: documentUrl || '',
+                            caption: caption || '',
+                            relatedEntity,
+                            onModel,
+                            idempotencyKey,
+                            createdAt: new Date()
+                        },
+                        $set: {
+                            lastAttemptAt: new Date(),
+                            status: 'pending'
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+            } catch (logSaveErr) {
+                console.error(`[WhatsApp] Warning: Failed to upsert initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
+                logEntry = null;
+            }
         }
 
         // Construct Meta Document Message Payload
@@ -921,9 +961,8 @@ const sendDocumentMessage = async ({
             documentPayload.caption = String(caption);
         }
 
-        if (documentUrl) {
-            documentPayload.link = documentUrl;
-        } else if (pdfBuffer && typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
+        // Try direct Meta media upload if buffer is available
+        if (pdfBuffer && typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
             try {
                 const formData = new FormData();
                 const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
@@ -949,6 +988,11 @@ const sendDocumentMessage = async ({
             }
         }
 
+        // If media ID wasn't set, use publicly accessible link
+        if (!documentPayload.id && documentUrl) {
+            documentPayload.link = documentUrl;
+        }
+
         const payload = {
             messaging_product: 'whatsapp',
             recipient_type: 'individual',
@@ -970,30 +1014,25 @@ const sendDocumentMessage = async ({
         const messageId = response.data.messages?.[0]?.id;
         const httpStatus = response.status;
 
-        // Update Log entry with sent status and message ID
-        try {
-            if (logEntry) {
-                logEntry.messageId = messageId;
-                logEntry.status = 'sent';
-                await logEntry.save();
-            } else if (idempotencyKey) {
-                await WhatsAppLog.create({
-                    recipientName,
-                    recipientPhone: normalizedPhone,
-                    templateName: 'document_attachment',
-                    messageType: 'document',
-                    status: 'sent',
-                    direction: 'outbound',
-                    messageId,
-                    pdfUrl: documentUrl || '',
-                    caption: caption || '',
-                    relatedEntity,
-                    onModel,
-                    idempotencyKey
-                });
+        // Update Log entry with sent status and message ID atomically
+        if (idempotencyKey) {
+            try {
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $set: {
+                            status: 'sent',
+                            messageId,
+                            pdfUrl: documentUrl || '',
+                            caption: caption || '',
+                            lastAttemptAt: new Date()
+                        }
+                    },
+                    { new: true }
+                );
+            } catch (updateLogErr) {
+                console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
             }
-        } catch (updateLogErr) {
-            console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
         }
 
         console.log(`[WhatsApp] Successfully sent document to ${maskedTo} | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
@@ -1008,42 +1047,98 @@ const sendDocumentMessage = async ({
             console.error(`[WhatsApp] Internal/Network Document Error -> To: ${maskedTo} | Msg: ${errDetails.message}`);
         }
 
-        // Mark log as failed
+        // Mark log as failed atomically
         if (idempotencyKey) {
             try {
-                const existing = await WhatsAppLog.findOne({ idempotencyKey });
-                if (existing) {
-                    existing.status = 'failed';
-                    existing.errorMessage = errDetails.formatted;
-                    existing.metaErrorCode = String(errDetails.code || '');
-                    existing.lastAttemptAt = new Date();
-                    await existing.save();
-                } else {
-                    await WhatsAppLog.create({
-                        recipientName,
-                        recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
-                        templateName: 'document_attachment',
-                        messageType: 'document',
-                        status: 'failed',
-                        direction: 'outbound',
-                        pdfUrl: documentUrl || '',
-                        caption: caption || '',
-                        relatedEntity,
-                        onModel,
-                        idempotencyKey,
-                        errorMessage: errDetails.formatted,
-                        metaErrorCode: String(errDetails.code || ''),
-                        lastAttemptAt: new Date()
-                    });
-                }
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $set: {
+                            status: 'failed',
+                            errorMessage: errDetails.formatted,
+                            metaErrorCode: String(errDetails.code || ''),
+                            lastAttemptAt: new Date()
+                        },
+                        $setOnInsert: {
+                            recipientName,
+                            recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
+                            templateName: 'document_attachment',
+                            messageType: 'document',
+                            direction: 'outbound',
+                            pdfUrl: documentUrl || '',
+                            caption: caption || '',
+                            relatedEntity,
+                            onModel,
+                            idempotencyKey,
+                            createdAt: new Date()
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
             } catch (logErr) {
-                console.error('[WhatsApp] Failed to save document error log:', logErr.message);
+                console.error('[WhatsApp] Failed to save document error log via atomic upsert:', logErr.message);
             }
         }
 
         const cleanError = new Error(errDetails.formatted);
         cleanError.metaError = errDetails;
         throw cleanError;
+    }
+};
+
+/**
+ * Create/register the Customer Estimate Document Template with Meta Graph API
+ */
+const createDocumentTemplate = async (customAxios = axios) => {
+    const token = process.env.META_WA_ACCESS_TOKEN;
+    const wabaId = process.env.META_WA_BUSINESS_ACCOUNT_ID;
+    if (!token || !wabaId) {
+        return { success: false, error: 'Meta credentials missing (META_WA_ACCESS_TOKEN or META_WA_BUSINESS_ACCOUNT_ID)' };
+    }
+
+    const payload = {
+        name: 'mvss_customer_estimate_doc',
+        category: 'UTILITY',
+        language: 'en',
+        components: [
+            {
+                type: 'HEADER',
+                format: 'DOCUMENT',
+                example: {
+                    header_handle: [
+                        'https://mvss-erp-backend.onrender.com/uploads/estimates/sample_estimate.pdf'
+                    ]
+                }
+            },
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThe service estimate for your vehicle {{2}} has been prepared by MVSS Automobiles.\n\nEstimate No: {{3}}\nJob Card No: {{4}}\nEstimated Amount: ₹{{5}}\n\nPlease review the attached estimate PDF.\n\nThank you,\nMVSS Automobiles',
+                example: {
+                    body_text: [
+                        ['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/078', 'JC-1001', '3,681.60']
+                    ]
+                }
+            }
+        ]
+    };
+
+    try {
+        const response = await customAxios.post(
+            `${GRAPH_API_BASE_URL}/${wabaId}/message_templates`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        console.log('[WhatsApp] Document template submission response:', response.data);
+        return { success: true, data: response.data };
+    } catch (err) {
+        const details = getMetaErrorDetails(err);
+        console.warn('[WhatsApp] Document template registration note:', details.formatted);
+        return { success: false, error: details.formatted, details };
     }
 };
 
@@ -1054,11 +1149,13 @@ module.exports = {
     maskPhoneNumber,
     validateCustomerContact,
     syncMetaTemplates,
+    createDocumentTemplate,
     getMetaErrorDetails,
     resolveTemplateSpec,
     discoverAccessibleWabas,
     TEMPLATE_CONFIG,
     dynamicTemplateMap,
+    isCustomerSessionActive,
     GRAPH_API_VERSION,
     GRAPH_API_BASE_URL
 };
