@@ -35,33 +35,33 @@ import {
 export const getVendorBrandsList = (vendor) => {
   if (!vendor) return [];
   const list = [];
+  const vendorName = (vendor.name || vendor.vendorName || '').trim();
+  if (vendorName && !list.includes(vendorName)) {
+    list.push(vendorName);
+  }
+  if (vendor.supplierBrand && vendor.supplierBrand.trim()) {
+    const trimmed = vendor.supplierBrand.trim();
+    if (!list.includes(trimmed)) list.push(trimmed);
+  }
   if (Array.isArray(vendor.brands) && vendor.brands.length > 0) {
     vendor.brands.forEach(b => {
       const trimmed = (b || '').trim();
       if (trimmed && !list.includes(trimmed)) list.push(trimmed);
     });
   }
-  if (vendor.supplierBrand && vendor.supplierBrand.trim()) {
-    const trimmed = vendor.supplierBrand.trim();
-    if (!list.includes(trimmed)) list.unshift(trimmed);
-  }
-  // Heuristic fallback for established vendors if not explicitly set
-  if (list.length === 0 && vendor.name) {
-    const lower = vendor.name.toLowerCase();
-    if (lower.includes('bosch')) list.push('Bosch');
-    else if (lower.includes('castrol')) list.push('Castrol');
-    else if (lower.includes('gates')) list.push('Gates');
-    else if (lower.includes('philips')) list.push('Philips');
-    else if (lower.includes('exide')) list.push('Exide');
-    else if (lower.includes('minda')) list.push('Minda');
-    else if (lower.includes('lumax')) list.push('Lumax');
-  }
   return list;
 };
 
 export const getVendorSupplierBrand = (vendor) => {
   if (!vendor) return '';
-  if (vendor.supplierBrand && vendor.supplierBrand.trim()) return vendor.supplierBrand.trim();
+  // Task 1 & 4: Supplier Brand defaults to the selected Supplier/Vendor's actual name (not vendor code, phone, or GSTIN)
+  const vendorName = (typeof vendor.name === 'string' && vendor.name.trim()) 
+    ? vendor.name.trim() 
+    : (typeof vendor.vendorName === 'string' && vendor.vendorName.trim() ? vendor.vendorName.trim() : '');
+  if (vendorName) return vendorName;
+  if (vendor.supplierBrand && typeof vendor.supplierBrand === 'string' && vendor.supplierBrand.trim()) {
+    return vendor.supplierBrand.trim();
+  }
   const brands = getVendorBrandsList(vendor);
   if (brands.length > 0) return brands[0];
   return '';
@@ -570,13 +570,13 @@ export default function PurchaseReport({ token, user }) {
   // ==========================================
   const handleAddRow = () => {
     const selectedV = vendorsList.find(v => v._id === purchaseHeader.vendorId);
-    const defaultBrand = getVendorSupplierBrand(selectedV);
+    const defaultBrand = getVendorSupplierBrand(selectedV) || purchaseHeader.supplierBrand || purchaseHeader.vendorName || '';
     setPurchaseItems(prev => [...prev, createEmptyRow(defaultBrand)]);
   };
 
   const handleRemoveRow = (id) => {
     const selectedV = vendorsList.find(v => v._id === purchaseHeader.vendorId);
-    const defaultBrand = getVendorSupplierBrand(selectedV);
+    const defaultBrand = getVendorSupplierBrand(selectedV) || purchaseHeader.supplierBrand || purchaseHeader.vendorName || '';
     if (purchaseItems.length === 1) {
       // Clear values instead of removing single row
       setPurchaseItems([createEmptyRow(defaultBrand)]);
@@ -588,7 +588,7 @@ export default function PurchaseReport({ token, user }) {
   const handleSelectSKU = (rowId, partId) => {
     const selected = inventoryList.find(p => p._id === partId);
     const selectedV = vendorsList.find(v => v._id === purchaseHeader.vendorId);
-    const vendorBrand = getVendorSupplierBrand(selectedV);
+    const vendorBrand = getVendorSupplierBrand(selectedV) || purchaseHeader.supplierBrand || purchaseHeader.vendorName || '';
     setPurchaseItems(prev => prev.map(row => {
       if (row.id !== rowId) return row;
       if (!selected) {
@@ -946,8 +946,17 @@ export default function PurchaseReport({ token, user }) {
       notes: p.notes || '',
       updatePurchasePrice: true,
       updateMRP: true,
-      billingType: hasIgst ? 'Inter-State' : 'Intra-State'
+      billingType: hasIgst ? 'Inter-State' : 'Intra-State',
+      supplierBrand: (() => {
+        const vId = (p.vendorId && typeof p.vendorId === 'object') ? p.vendorId._id : p.vendorId;
+        const vObj = vendorsList.find(v => v._id === vId) || (p.vendorId && typeof p.vendorId === 'object' ? p.vendorId : null);
+        return getVendorSupplierBrand(vObj) || p.vendorName || '';
+      })()
     });
+
+    const editVendorId = (p.vendorId && typeof p.vendorId === 'object') ? p.vendorId._id : p.vendorId;
+    const selectedVendor = vendorsList.find(v => v._id === editVendorId) || (p.vendorId && typeof p.vendorId === 'object' ? p.vendorId : null);
+    const defaultVendorBrand = getVendorSupplierBrand(selectedVendor) || p.vendorName || '';
 
     const prefilledItems = p.items.map(item => {
       let itemIgstPercent = '';
@@ -956,6 +965,7 @@ export default function PurchaseReport({ token, user }) {
           ? Math.round((item.igst / item.taxableAmount) * 100).toString() 
           : (item.gstPercent || 18).toString();
       }
+      const restoredBrand = item.supplierBrand || defaultVendorBrand || '';
       return {
         id: `row_${Date.now()}_${Math.random().toString(36).substr(2, 4)}_${item._id || Math.random()}`,
         selectedPartId: item.partId || '',
@@ -976,14 +986,14 @@ export default function PurchaseReport({ token, user }) {
         warehouse: item.warehouse || 'Main Store',
         rackLocation: item.rackLocation || '',
         // New fields for Parts Master integration
-        brand: item.brand || '',
-        supplierBrand: item.supplierBrand || '',
+        brand: item.brand || restoredBrand || '',
+        supplierBrand: restoredBrand,
         vehicleMake: item.vehicleMake || '',
         vehicleModel: item.vehicleModel || '',
         compatibility: item.compatibility || '',
         oemBrand: item.oemBrand || '',
         warranty: item.warranty || '',
-        isManualBrand: Boolean(item.supplierBrand)
+        isManualBrand: Boolean(item.supplierBrand && item.supplierBrand !== defaultVendorBrand)
       };
     });
 
@@ -1087,6 +1097,9 @@ export default function PurchaseReport({ token, user }) {
     let finalStatus = purchaseHeader.paymentStatus;
     if (finalStatus === 'Unpaid') finalStatus = 'Credit';
 
+    const selectedVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+    const fallbackBrand = getVendorSupplierBrand(selectedVendor) || purchaseHeader.supplierBrand || purchaseHeader.vendorName || '';
+
     const payloadItems = purchaseItems.map(row => {
       const rowCalc = calculateRowTotals(row);
       return {
@@ -1114,7 +1127,7 @@ export default function PurchaseReport({ token, user }) {
         total: rowCalc.total,
         // New fields for Parts Master integration
         brand: row.brand || '',
-        supplierBrand: row.supplierBrand || '',
+        supplierBrand: row.supplierBrand || fallbackBrand || '',
         vehicleMake: row.vehicleMake || '',
         vehicleModel: row.vehicleModel || '',
         compatibility: row.compatibility || '',
@@ -1619,9 +1632,9 @@ export default function PurchaseReport({ token, user }) {
                     const isInter = selectedV && selectedV.gstNumber 
                       ? !selectedV.gstNumber.trim().startsWith('36') 
                       : false;
-                    const newBrand = getVendorSupplierBrand(selectedV);
+                    const newBrand = getVendorSupplierBrand(selectedV) || (selectedV ? selectedV.name : '');
                     const oldVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
-                    const oldBrand = getVendorSupplierBrand(oldVendor);
+                    const oldBrand = getVendorSupplierBrand(oldVendor) || purchaseHeader.supplierBrand || purchaseHeader.vendorName || '';
 
                     setPurchaseHeader({
                       ...purchaseHeader,
@@ -2625,7 +2638,14 @@ export default function PurchaseReport({ token, user }) {
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                       {(p.items || []).map((item, idx) => (
                                         <tr key={idx}>
-                                          <td className="py-2 px-3 font-semibold text-slate-800 dark:text-white">{item.partName}</td>
+                                          <td className="py-2 px-3 font-semibold text-slate-800 dark:text-white">
+                                            <div>{item.partName}</div>
+                                            {(item.supplierBrand || item.brand) && (
+                                              <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">
+                                                Brand: {item.supplierBrand || item.brand}
+                                              </div>
+                                            )}
+                                          </td>
                                           <td className="py-2 px-3 text-slate-600 dark:text-slate-300 font-mono">{item.partNumber}</td>
                                           <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{item.hsnCode || '8708'}</td>
                                           <td className="py-2 px-3 font-bold">{item.qty}</td>
@@ -2999,7 +3019,14 @@ export default function PurchaseReport({ token, user }) {
 
                     return (
                       <tr key={idx} className="border-b border-slate-100 dark:border-slate-800">
-                        <td className="p-2 font-bold">{item.partName}</td>
+                        <td className="p-2 font-bold">
+                          <div>{item.partName}</div>
+                          {(item.supplierBrand || item.brand) && (
+                            <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">
+                              Brand: {item.supplierBrand || item.brand}
+                            </div>
+                          )}
+                        </td>
                         <td className="p-2 font-mono text-slate-500">{item.partNumber}</td>
                         <td className="p-2">{item.hsnCode || '8708'}</td>
                         <td className="p-2 font-bold">{item.qty}</td>
