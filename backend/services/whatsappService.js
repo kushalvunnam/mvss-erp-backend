@@ -771,6 +771,16 @@ const sendTemplateMessage = async ({
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
             } catch (logSaveErr) {
+                if (logSaveErr.code === 11000) {
+                    console.warn(`[WhatsApp] Concurrency conflict (E11000) for idempotencyKey '${idempotencyKey}'. Another request is in-flight or already completed. Skipping duplicate dispatch.`);
+                    try {
+                        const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
+                        if (existingLog && ['sent', 'delivered', 'read'].includes(existingLog.status)) {
+                            return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped', alreadySent: true };
+                        }
+                    } catch (readErr) {}
+                    return { success: true, status: 'in_flight_skipped', alreadySent: false };
+                }
                 console.error(`[WhatsApp] Warning: Failed to upsert initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
                 logEntry = null;
             }
@@ -1024,6 +1034,16 @@ const sendDocumentMessage = async ({
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
             } catch (logSaveErr) {
+                if (logSaveErr.code === 11000) {
+                    console.warn(`[WhatsApp] Concurrency conflict (E11000) on document idempotencyKey '${idempotencyKey}'. Skipping duplicate document dispatch.`);
+                    try {
+                        const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
+                        if (existingLog && ['sent', 'delivered', 'read'].includes(existingLog.status)) {
+                            return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped', alreadySent: true };
+                        }
+                    } catch (readErr) {}
+                    return { success: true, status: 'in_flight_skipped', alreadySent: false };
+                }
                 console.error(`[WhatsApp] Warning: Failed to upsert initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
                 logEntry = null;
             }

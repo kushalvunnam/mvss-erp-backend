@@ -826,7 +826,7 @@ router.get('/public/customer-pdf/:id', async (req, res) => {
 });
 
 // Helper for sending Customer Estimate via WhatsApp (Stage 1 and Stage 2 sequential dispatch)
-const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 = false, skipStage2 = false, forceResend = false }) => {
+const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 = false, skipStage2 = false, forceResend = false, isRetryApproval = false }) => {
   const estimate = await Estimate.findById(estimateId);
   if (!estimate) {
     return { status: 404, error: 'Estimate not found.' };
@@ -884,23 +884,13 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   const finalEstimatedAmount = getCanonicalEstimateAmount(estimate);
   const formattedEstimatedAmount = formatIndianCurrency(finalEstimatedAmount);
   const revCount = estimate.revisionHistory?.length || 0;
-  const isForceResend = Boolean(forceResend || req?.body?.force || req?.body?.resend);
+  const isForce = Boolean(forceResend || req?.body?.force || req?.body?.resend);
 
-  const stage1ReadyKey = isForceResend
-    ? `estimate_stage1_ready_${estimate._id}_rev${revCount}_${Date.now()}`
-    : `estimate_stage1_ready_${estimate._id}_rev${revCount}`;
-  const stage1DocKey = isForceResend
-    ? `estimate_stage1_doc_${estimate._id}_rev${revCount}_${Date.now()}`
-    : `estimate_stage1_doc_${estimate._id}_rev${revCount}`;
-  const stage2AwaitingKey = isForceResend
-    ? `estimate_stage2_awaiting_${estimate._id}_rev${revCount}_${Date.now()}`
-    : `estimate_stage2_awaiting_${estimate._id}_rev${revCount}`;
-
-  // 3. In-flight concurrency lock (30s mutex)
+  // 3. In-flight concurrency lock (15s mutex per estimate to prevent duplicate simultaneous sends)
   const inFlight = await WhatsAppLog.findOne({
-    idempotencyKey: { $in: [stage1ReadyKey, stage1DocKey, stage2AwaitingKey] },
+    relatedEntity: estimate._id,
     status: 'pending',
-    createdAt: { $gte: new Date(Date.now() - 30000) }
+    createdAt: { $gte: new Date(Date.now() - 15000) }
   }).lean();
 
   if (inFlight) {
@@ -911,18 +901,48 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
     };
   }
 
-  // 4. Check if both Stage 1 and Stage 2 have ALREADY been sent successfully
-  const stage1AlreadySent = await WhatsAppLog.findOne({
-    idempotencyKey: stage1ReadyKey,
-    status: { $in: ['sent', 'delivered', 'read'] }
-  }).lean();
+  if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
 
-  const stage2AlreadySent = await WhatsAppLog.findOne({
-    idempotencyKey: { $regex: `^estimate_stage2_awaiting_${estimate._id}_rev${revCount}` },
-    status: { $in: ['sent', 'delivered', 'read'] }
-  }).lean();
+  // 4. Inspect notification history to determine Stage 1 status
+  const stage1HistorySuccess = estimate.whatsappHistory.find(h =>
+    h.stage === 'STAGE_1_ESTIMATION_READY' &&
+    ['sent', 'delivered', 'read'].includes(h.status) &&
+    h.messageId &&
+    h.messageId.trim() !== ''
+  );
 
-  if (!isForceResend && stage1AlreadySent && stage2AlreadySent) {
+  const stage1LogSuccess = await WhatsAppLog.findOne({
+    relatedEntity: estimate._id,
+    templateName: { $in: ['mvss_customer_estimate_doc', 'mvss_estimate_created'] },
+    direction: 'outbound',
+    status: { $in: ['sent', 'delivered', 'read'] },
+    messageId: { $exists: true, $ne: '' }
+  }).sort({ createdAt: -1 }).lean();
+
+  const stage1PriorAccepted = Boolean(stage1HistorySuccess || stage1LogSuccess);
+  let stage1MessageId = stage1HistorySuccess?.messageId || stage1LogSuccess?.messageId || null;
+
+  // 5. Inspect Stage 2 status
+  const stage2HistorySuccess = estimate.whatsappHistory.find(h =>
+    h.stage === 'STAGE_2_ESTIMATION_AWAITING_APPROVAL' &&
+    ['sent', 'delivered', 'read'].includes(h.status) &&
+    h.messageId &&
+    h.messageId.trim() !== ''
+  );
+
+  const stage2LogSuccess = await WhatsAppLog.findOne({
+    relatedEntity: estimate._id,
+    templateName: { $in: ['estimate_awaiting_customer_approval', 'mvss_estimate_awaiting_customer_approval'] },
+    direction: 'outbound',
+    status: { $in: ['sent', 'delivered', 'read'] },
+    messageId: { $exists: true, $ne: '' }
+  }).sort({ createdAt: -1 }).lean();
+
+  const stage2PriorAccepted = Boolean(stage2HistorySuccess || stage2LogSuccess);
+  let stage2MessageId = stage2HistorySuccess?.messageId || stage2LogSuccess?.messageId || null;
+
+  // If already sent completely and not forcing a retry:
+  if (!isForce && !isRetryApproval && stage1PriorAccepted && stage2PriorAccepted) {
     if (['Draft', 'Sent'].includes(estimate.status)) {
       estimate.status = 'Waiting for Approval';
       await estimate.save();
@@ -938,15 +958,15 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
       data: {
         success: true,
         alreadySent: true,
-        message: 'Estimation Ready and Approval Request have already been sent to customer.',
+        message: 'Customer Estimate (Stage 1) and Approval Request (Stage 2) have already been sent to customer.',
         estimate,
-        stage1MessageId: stage1AlreadySent.messageId,
-        stage2MessageId: stage2AlreadySent.messageId
+        stage1MessageId,
+        stage2MessageId
       }
     };
   }
 
-  // 5. Generate Customer Estimate PDF buffer and persist to uploads/estimates/
+  // 6. Generate Customer Estimate PDF buffer and persist to uploads/estimates/
   const fs = require('fs');
   const path = require('path');
   const { PassThrough } = require('stream');
@@ -1000,139 +1020,81 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   const estimateNumber = String(estimate.estimateNo || 'N/A').trim();
   const jobCardNumber = String(jc?.jobCardNo || 'N/A').trim();
 
-  if (!estimate.whatsappHistory) estimate.whatsappHistory = [];
-
   // ==========================================
-  // STAGE 1: ESTIMATION READY
-  // Triggered when admin clicks Send Estimate.
-  // Template: mvss_estimate_created (5 params)
-  // Attachment: Customer Estimate PDF (Never GST PDF)
+  // STAGE 1: ESTIMATION READY + CUSTOMER ESTIMATE PDF
+  // MUST ALWAYS BE THE FIRST MESSAGE.
+  // Never skipped if not previously accepted.
   // ==========================================
-  // Stage 1 success determination:
-  // Only consider Stage 1 previously sent if WhatsAppLog confirms a successful delivery (sent, delivered, read) for this revision
-  const stage1PriorSuccess = Boolean(stage1AlreadySent);
+  let stage1Success = stage1PriorAccepted;
+  let stage1JustSent = false;
 
-  let stage1Success = stage1PriorSuccess;
-  let stage1Result = stage1AlreadySent ? { messageId: stage1AlreadySent.messageId } : null;
-  let docResult = null;
-  let stage1TemplateUsed = 'mvss_estimate_created';
-
-  if (!skipStage1 && (isForceResend || !stage1PriorSuccess)) {
+  // If Stage 1 was NOT previously accepted, OR if explicitly forced (and not retry of approval):
+  if (!stage1PriorAccepted || (isForce && !isRetryApproval)) {
     console.log(`[Estimate Automation] [STAGE 1] Triggering Estimation Ready for Estimate ${estimateNumber}...`);
 
-    // Check if mvss_customer_estimate_doc is approved in Meta
-    const docTplSpec = resolveTemplateSpec('mvss_customer_estimate_doc');
-    const isDocTemplateApproved = docTplSpec && (docTplSpec.status === 'APPROVED' || docTplSpec.status === 'CONFIG_FALLBACK');
+    const stage1ReadyKey = isForce
+      ? `estimate_stage1_ready_${estimate._id}_rev${revCount}_${Date.now()}`
+      : `estimate_stage1_ready_${estimate._id}_rev${revCount}`;
 
-    if (isDocTemplateApproved) {
-      stage1TemplateUsed = 'mvss_customer_estimate_doc';
-      console.log(`[Estimate Automation] [STAGE 1] Using approved DOCUMENT template '${stage1TemplateUsed}' with PDF header.`);
+    // Pre-upload PDF media directly to Meta Graph API for maximum delivery reliability
+    let metaDocPayload = {
+      link: pdfUrl,
+      filename: pdfFilename
+    };
 
-      // Pre-upload PDF media directly to Meta Graph API for maximum delivery reliability
-      let metaDocPayload = {
-        link: pdfUrl,
-        filename: pdfFilename
-      };
-
-      try {
-        const uploadRes = await uploadMediaToMeta({
-          buffer: pdfBuffer,
-          filename: pdfFilename,
-          mimeType: 'application/pdf'
-        });
-        if (uploadRes?.success && uploadRes?.mediaId) {
-          metaDocPayload = {
-            id: uploadRes.mediaId,
-            filename: pdfFilename
-          };
-          console.log(`[Estimate Automation] [STAGE 1] Using Meta pre-uploaded mediaId=${uploadRes.mediaId}`);
-        }
-      } catch (mediaUploadErr) {
-        console.warn(`[Estimate Automation] [STAGE 1] Media pre-upload fallback to URL link:`, mediaUploadErr.message);
+    try {
+      const uploadRes = await uploadMediaToMeta({
+        buffer: pdfBuffer,
+        filename: pdfFilename,
+        mimeType: 'application/pdf'
+      });
+      if (uploadRes?.success && uploadRes?.mediaId) {
+        metaDocPayload = {
+          id: uploadRes.mediaId,
+          filename: pdfFilename
+        };
+        console.log(`[Estimate Automation] [STAGE 1] Using Meta pre-uploaded mediaId=${uploadRes.mediaId}`);
       }
-
-      try {
-        stage1Result = await sendTemplateMessage({
-          to: contactCheck.phone,
-          templateName: stage1TemplateUsed,
-          components: [
-            {
-              type: 'header',
-              parameters: [
-                {
-                  type: 'document',
-                  document: metaDocPayload
-                }
-              ]
-            },
-            {
-              type: 'body',
-              parameters: [
-                { type: 'text', text: customerName },
-                { type: 'text', text: vehicleNumber },
-                { type: 'text', text: estimateNumber },
-                { type: 'text', text: jobCardNumber },
-                { type: 'text', text: formattedEstimatedAmount }
-              ]
-            }
-          ],
-          recipientName: customerName,
-          relatedEntity: estimate._id,
-          onModel: 'Estimate',
-          idempotencyKey: stage1ReadyKey
-        });
-
-        if (stage1Result?.success || stage1Result?.messageId) {
-          stage1Success = true;
-          console.log(`[Estimate Automation] [STAGE 1] ${stage1TemplateUsed} accepted with PDF attachment: wamid=${stage1Result.messageId}`);
-        } else {
-          throw new Error('Meta did not return a message ID for Stage 1');
-        }
-      } catch (docTplErr) {
-        console.warn(`[Estimate Automation] [STAGE 1] DOCUMENT template dispatch failed:`, docTplErr.message || docTplErr);
-        // Fall back to standard template
-        stage1TemplateUsed = 'mvss_estimate_created';
-      }
+    } catch (mediaUploadErr) {
+      console.warn(`[Estimate Automation] [STAGE 1] Media pre-upload fallback to URL link:`, mediaUploadErr.message);
     }
 
-    if (!stage1Success) {
-      // Standard Stage 1 dispatch: mvss_estimate_created + document dispatch
-      stage1TemplateUsed = 'mvss_estimate_created';
-      console.log(`[Estimate Automation] [STAGE 1] Sending approved template '${stage1TemplateUsed}' (5 params)...`);
+    try {
+      const stage1Result = await sendTemplateMessage({
+        to: contactCheck.phone,
+        templateName: 'mvss_customer_estimate_doc',
+        components: [
+          {
+            type: 'header',
+            parameters: [
+              {
+                type: 'document',
+                document: metaDocPayload
+              }
+            ]
+          },
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: customerName },
+              { type: 'text', text: vehicleNumber },
+              { type: 'text', text: estimateNumber },
+              { type: 'text', text: jobCardNumber },
+              { type: 'text', text: formattedEstimatedAmount }
+            ]
+          }
+        ],
+        recipientName: customerName,
+        relatedEntity: estimate._id,
+        onModel: 'Estimate',
+        idempotencyKey: stage1ReadyKey
+      });
 
-      // 1. Dispatch template message
-      try {
-        stage1Result = await sendTemplateMessage({
-          to: contactCheck.phone,
-          templateName: 'mvss_estimate_created',
-          components: [
-            {
-              type: 'body',
-              parameters: [
-                { type: 'text', text: customerName },
-                { type: 'text', text: vehicleNumber },
-                { type: 'text', text: estimateNumber },
-                { type: 'text', text: jobCardNumber },
-                { type: 'text', text: formattedEstimatedAmount }
-              ]
-            }
-          ],
-          recipientName: customerName,
-          relatedEntity: estimate._id,
-          onModel: 'Estimate',
-          idempotencyKey: stage1ReadyKey
-        });
-
-        if (stage1Result?.success || stage1Result?.messageId) {
-          stage1Success = true;
-          console.log(`[Estimate Automation] [STAGE 1] mvss_estimate_created accepted: wamid=${stage1Result.messageId}`);
-        } else {
-          throw new Error('Meta did not return a message ID for Stage 1');
-        }
-      } catch (stage1Err) {
-        stage1Success = false;
-        const stage1ErrMsg = stage1Err.message || String(stage1Err);
-        console.error(`[Estimate Automation] [STAGE 1] FAILED for Estimate ${estimateNumber}:`, stage1ErrMsg);
+      if (stage1Result?.success || stage1Result?.messageId) {
+        stage1Success = true;
+        stage1JustSent = true;
+        stage1MessageId = stage1Result.messageId;
+        console.log(`[Estimate Automation] [STAGE 1] mvss_customer_estimate_doc accepted with PDF attachment: wamid=${stage1MessageId}`);
 
         estimate.whatsappHistory.push({
           stage: 'STAGE_1_ESTIMATION_READY',
@@ -1141,44 +1103,14 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
           sentAt: new Date(),
           recipientPhone: contactCheck.phone,
           pdfUrl,
-          status: 'failed',
-          error: stage1ErrMsg,
+          status: 'sent',
+          messageId: stage1MessageId,
           finalAmount: finalEstimatedAmount,
-          templateName: 'mvss_estimate_created',
+          templateName: 'mvss_customer_estimate_doc',
           sentBy: user?._id,
           sentByName: user?.name || user?.username || 'Authorized User'
         });
-        await estimate.save();
 
-        // STRICT RULE: If Stage 1 fails, do NOT send Stage 2!
-        return {
-          status: 500,
-          error: `Stage 1 (Estimation Ready) failed: ${stage1ErrMsg}. Stage 2 was not sent. Status remains ${estimate.status}.`,
-          estimate
-        };
-      }
-
-      // 2. Dispatch Customer Estimate PDF attachment (check session active status to prevent 131047 errors)
-      const sessionActive = await isCustomerSessionActive(contactCheck.phone);
-      if (sessionActive) {
-        try {
-          docResult = await sendDocumentMessage({
-            to: contactCheck.phone,
-            documentUrl: pdfUrl,
-            pdfBuffer,
-            filename: pdfFilename,
-            caption: `Customer Estimate - ${estimateNumber}`,
-            recipientName: customerName,
-            relatedEntity: estimate._id,
-            onModel: 'Estimate',
-            idempotencyKey: stage1DocKey
-          });
-          console.log(`[Estimate Automation] [STAGE 1] Customer Estimate PDF attached: wamid=${docResult?.messageId}`);
-        } catch (docErr) {
-          console.warn(`[Estimate Automation] [STAGE 1] PDF document dispatch note:`, docErr.message || docErr);
-        }
-      } else {
-        console.warn(`[Estimate Automation] [STAGE 1] Customer 24h conversation session is inactive. Deferring standalone document dispatch to prevent Meta 131047 error.`);
         estimate.whatsappHistory.push({
           stage: 'DOCUMENT_ESTIMATE_PDF',
           estimateId: estimate._id,
@@ -1186,17 +1118,22 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
           sentAt: new Date(),
           recipientPhone: contactCheck.phone,
           pdfUrl,
-          status: 'pending_session',
-          templateName: 'document_attachment',
-          error: 'Standalone document deferred. Waiting for customer response to open 24h conversation window.',
+          status: 'sent',
+          messageId: stage1MessageId,
+          templateName: 'mvss_customer_estimate_doc (Header Attachment)',
           sentBy: user?._id,
           sentByName: user?.name || user?.username || 'Authorized User'
         });
-      }
-    }
 
-    // Save successful Stage 1 history
-    if (stage1Success && stage1Result?.messageId) {
+        await estimate.save();
+      } else {
+        throw new Error('Meta did not return a message ID for Stage 1');
+      }
+    } catch (stage1Err) {
+      stage1Success = false;
+      const stage1ErrMsg = stage1Err.message || String(stage1Err);
+      console.error(`[Estimate Automation] [STAGE 1] FAILED for Estimate ${estimateNumber}:`, stage1ErrMsg);
+
       estimate.whatsappHistory.push({
         stage: 'STAGE_1_ESTIMATION_READY',
         estimateId: estimate._id,
@@ -1204,201 +1141,180 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
         sentAt: new Date(),
         recipientPhone: contactCheck.phone,
         pdfUrl,
-        status: 'sent',
-        messageId: stage1Result.messageId,
-        finalAmount: finalEstimatedAmount,
-        templateName: stage1TemplateUsed,
-        sentBy: user?._id,
-        sentByName: user?.name || user?.username || 'Authorized User'
-      });
-
-      if (stage1TemplateUsed === 'mvss_customer_estimate_doc') {
-        estimate.whatsappHistory.push({
-          stage: 'DOCUMENT_ESTIMATE_PDF',
-          estimateId: estimate._id,
-          jobCardId: estimate.jobCardId,
-          sentAt: new Date(),
-          recipientPhone: contactCheck.phone,
-          pdfUrl,
-          status: 'sent',
-          messageId: stage1Result.messageId,
-          templateName: 'mvss_customer_estimate_doc (Header Attachment)',
-          sentBy: user?._id,
-          sentByName: user?.name || user?.username || 'Authorized User'
-        });
-      } else if (docResult?.messageId) {
-        estimate.whatsappHistory.push({
-          stage: 'DOCUMENT_ESTIMATE_PDF',
-          estimateId: estimate._id,
-          jobCardId: estimate.jobCardId,
-          sentAt: new Date(),
-          recipientPhone: contactCheck.phone,
-          pdfUrl,
-          status: 'sent',
-          messageId: docResult.messageId,
-          templateName: 'document_attachment',
-          sentBy: user?._id,
-          sentByName: user?.name || user?.username || 'Authorized User'
-        });
-      }
-      await estimate.save();
-    }
-  }
-
-  // ==========================================
-  // STAGE 2: ESTIMATION AWAITING APPROVAL
-  // Triggered ONLY AFTER Stage 1 is successfully delivered/accepted
-  // Template: estimate_awaiting_customer_approval OR mvss_estimate_awaiting_customer_approval (4 params)
-  // ==========================================
-  if (!stage1Success) {
-    return {
-      status: 500,
-      error: 'Stage 1 has not been accepted by WhatsApp provider. Stage 2 cannot be triggered.',
-      estimate
-    };
-  }
-
-  let stage2Success = !isForceResend && Boolean(stage2AlreadySent);
-  let stage2Result = stage2AlreadySent ? { messageId: stage2AlreadySent.messageId } : null;
-  let stage2TemplateUsed = stage2AlreadySent?.templateName || null;
-  let stage2Error = null;
-
-  if (!skipStage2 && (isForceResend || !stage2AlreadySent)) {
-    console.log(`[Estimate Automation] [STAGE 2] Triggering Estimation Awaiting Approval for Estimate ${estimateNumber}...`);
-
-    const stage2Candidates = [
-      {
-        name: 'estimate_awaiting_customer_approval',
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              { type: 'text', text: customerName },
-              { type: 'text', text: vehicleNumber },
-              { type: 'text', text: estimateNumber },
-              { type: 'text', text: formattedEstimatedAmount }
-            ]
-          }
-        ]
-      },
-      {
-        name: 'mvss_estimate_awaiting_customer_approval',
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              { type: 'text', text: customerName },
-              { type: 'text', text: vehicleNumber },
-              { type: 'text', text: estimateNumber },
-              { type: 'text', text: formattedEstimatedAmount }
-            ]
-          }
-        ]
-      }
-    ];
-
-    for (const candidate of stage2Candidates) {
-      try {
-        const candidateKey = `${stage2AwaitingKey}_${candidate.name}`;
-        stage2Result = await sendTemplateMessage({
-          to: contactCheck.phone,
-          templateName: candidate.name,
-          components: candidate.components,
-          recipientName: customerName,
-          relatedEntity: estimate._id,
-          onModel: 'Estimate',
-          idempotencyKey: candidateKey
-        });
-
-        if (stage2Result?.success || stage2Result?.messageId) {
-          stage2Success = true;
-          stage2TemplateUsed = candidate.name;
-          console.log(`[Estimate Automation] [STAGE 2] '${candidate.name}' accepted: wamid=${stage2Result.messageId}`);
-          break;
-        }
-      } catch (candErr) {
-        stage2Error = candErr;
-        console.warn(`[Estimate Automation] [STAGE 2] Candidate '${candidate.name}' note:`, candErr.message || candErr);
-      }
-    }
-
-    if (stage2Success) {
-      estimate.status = 'Waiting for Approval';
-      estimate.whatsappHistory.push({
-        stage: 'STAGE_2_ESTIMATION_AWAITING_APPROVAL',
-        estimateId: estimate._id,
-        jobCardId: estimate.jobCardId,
-        sentAt: new Date(),
-        recipientPhone: contactCheck.phone,
-        status: 'sent',
-        messageId: stage2Result.messageId,
-        finalAmount: finalEstimatedAmount,
-        templateName: stage2TemplateUsed,
-        sentBy: user?._id,
-        sentByName: user?.name || user?.username || 'Authorized User'
-      });
-      await estimate.save();
-
-      // Sync linked Job Card to 'Waiting for Customer Approval'
-      if (estimate.jobCardId) {
-        await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
-          status: 'Waiting for Customer Approval',
-          estAmt: finalEstimatedAmount
-        });
-      }
-
-      await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate (Stage 1 & 2) for ${estimate.estimateNo} to ${contactCheck.masked}. Status: Waiting for Approval`, req);
-
-      return {
-        status: 200,
-        data: {
-          success: true,
-          message: `Customer Estimate ready notification and approval request sent via WhatsApp.`,
-          estimate,
-          stage1MessageId: stage1Result?.messageId,
-          stage2MessageId: stage2Result?.messageId
-        }
-      };
-    } else {
-      // Stage 2 failed, but Stage 1 succeeded
-      const stage2ErrMsg = stage2Error?.message || 'Meta template delivery failed for Stage 2';
-      console.error(`[Estimate Automation] [STAGE 2] Failed for Estimate ${estimateNumber}:`, stage2ErrMsg);
-
-      estimate.status = 'Sent'; // Stage 1 went through
-      estimate.whatsappHistory.push({
-        stage: 'STAGE_2_ESTIMATION_AWAITING_APPROVAL',
-        estimateId: estimate._id,
-        jobCardId: estimate.jobCardId,
-        sentAt: new Date(),
-        recipientPhone: contactCheck.phone,
         status: 'failed',
-        error: stage2ErrMsg,
+        error: stage1ErrMsg,
         finalAmount: finalEstimatedAmount,
-        templateName: 'estimate_awaiting_customer_approval',
+        templateName: 'mvss_customer_estimate_doc',
         sentBy: user?._id,
         sentByName: user?.name || user?.username || 'Authorized User'
       });
       await estimate.save();
 
+      // STRICT RULE: If Stage 1 fails, do NOT send Stage 2!
       return {
-        status: 207,
-        warning: 'Stage 1 (Estimation Ready) was delivered, but Stage 2 (Awaiting Approval) failed. You can retry Stage 2 directly.',
-        error: stage2ErrMsg,
-        stage1Success: true,
-        stage2Success: false,
+        status: 500,
+        error: `Stage 1 (Estimation Ready + Customer Estimate PDF) delivery failed: ${stage1ErrMsg}. Stage 2 was not sent.`,
         estimate
       };
     }
   }
 
-  return {
-    status: 200,
-    data: {
-      success: true,
-      message: 'Estimate WhatsApp messages processed.',
+  // Double check: Stage 2 MUST NEVER be sent before Stage 1 is accepted!
+  if (!stage1Success || !stage1MessageId) {
+    return {
+      status: 500,
+      error: 'Stage 1 (Estimation Ready + PDF) has not been accepted by WhatsApp provider. Stage 2 cannot be triggered.',
       estimate
+    };
+  }
+
+  // ==========================================
+  // STAGE 2: ESTIMATION AWAITING APPROVAL
+  // THIS MUST ALWAYS BE THE SECOND MESSAGE.
+  // Triggered only after Stage 1 is verified accepted.
+  // ==========================================
+  // Sequencing guarantee: If Stage 1 was just dispatched in this invocation,
+  // pause 2500ms so Meta delivers Stage 1 (PDF attachment) first to the handset.
+  if (stage1JustSent) {
+    console.log('[Estimate Automation] Sequencing delay: waiting 2500ms to guarantee Stage 1 delivers before Stage 2...');
+    await new Promise(resolve => setTimeout(resolve, 2500));
+  }
+
+  console.log(`[Estimate Automation] [STAGE 2] Triggering Estimation Awaiting Approval for Estimate ${estimateNumber}...`);
+
+  const stage2AwaitingKey = (isForce || isRetryApproval)
+    ? `estimate_stage2_awaiting_${estimate._id}_rev${revCount}_${Date.now()}`
+    : `estimate_stage2_awaiting_${estimate._id}_rev${revCount}`;
+
+  const stage2Candidates = [
+    {
+      name: 'estimate_awaiting_customer_approval',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: estimateNumber },
+            { type: 'text', text: formattedEstimatedAmount }
+          ]
+        }
+      ]
+    },
+    {
+      name: 'mvss_estimate_awaiting_customer_approval',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName },
+            { type: 'text', text: vehicleNumber },
+            { type: 'text', text: estimateNumber },
+            { type: 'text', text: formattedEstimatedAmount }
+          ]
+        }
+      ]
     }
-  };
+  ];
+
+  let stage2Success = false;
+  let stage2Result = null;
+  let stage2TemplateUsed = null;
+  let stage2Error = null;
+
+  for (const candidate of stage2Candidates) {
+    try {
+      const candidateKey = `${stage2AwaitingKey}_${candidate.name}`;
+      stage2Result = await sendTemplateMessage({
+        to: contactCheck.phone,
+        templateName: candidate.name,
+        components: candidate.components,
+        recipientName: customerName,
+        relatedEntity: estimate._id,
+        onModel: 'Estimate',
+        idempotencyKey: candidateKey
+      });
+
+      if (stage2Result?.success || stage2Result?.messageId) {
+        stage2Success = true;
+        stage2TemplateUsed = candidate.name;
+        stage2MessageId = stage2Result.messageId;
+        console.log(`[Estimate Automation] [STAGE 2] '${candidate.name}' accepted: wamid=${stage2MessageId}`);
+        break;
+      }
+    } catch (candErr) {
+      stage2Error = candErr;
+      console.warn(`[Estimate Automation] [STAGE 2] Candidate '${candidate.name}' note:`, candErr.message || candErr);
+    }
+  }
+
+  if (stage2Success) {
+    estimate.status = 'Waiting for Approval';
+    estimate.whatsappHistory.push({
+      stage: 'STAGE_2_ESTIMATION_AWAITING_APPROVAL',
+      estimateId: estimate._id,
+      jobCardId: estimate.jobCardId,
+      sentAt: new Date(),
+      recipientPhone: contactCheck.phone,
+      status: 'sent',
+      messageId: stage2MessageId,
+      finalAmount: finalEstimatedAmount,
+      templateName: stage2TemplateUsed,
+      sentBy: user?._id,
+      sentByName: user?.name || user?.username || 'Authorized User'
+    });
+    await estimate.save();
+
+    // Sync linked Job Card to 'Waiting for Customer Approval'
+    if (estimate.jobCardId) {
+      await JobCardModel.findByIdAndUpdate(estimate.jobCardId, {
+        status: 'Waiting for Customer Approval',
+        estAmt: finalEstimatedAmount
+      });
+    }
+
+    await logAction(user, 'ESTIMATE_WHATSAPP_SENT', `Sent Customer Estimate (Stage 1 & 2) for ${estimate.estimateNo} to ${contactCheck.masked}. Status: Waiting for Approval`, req);
+
+    return {
+      status: 200,
+      data: {
+        success: true,
+        message: `Customer Estimate (Stage 1 with PDF) and Approval Request (Stage 2) sent successfully via WhatsApp.`,
+        estimate,
+        stage1MessageId,
+        stage2MessageId
+      }
+    };
+  } else {
+    // Stage 2 failed, but Stage 1 succeeded
+    const stage2ErrMsg = stage2Error?.message || 'Meta template delivery failed for Stage 2';
+    console.error(`[Estimate Automation] [STAGE 2] Failed for Estimate ${estimateNumber}:`, stage2ErrMsg);
+
+    estimate.status = 'Sent'; // Stage 1 went through
+    estimate.whatsappHistory.push({
+      stage: 'STAGE_2_ESTIMATION_AWAITING_APPROVAL',
+      estimateId: estimate._id,
+      jobCardId: estimate.jobCardId,
+      sentAt: new Date(),
+      recipientPhone: contactCheck.phone,
+      status: 'failed',
+      error: stage2ErrMsg,
+      finalAmount: finalEstimatedAmount,
+      templateName: 'estimate_awaiting_customer_approval',
+      sentBy: user?._id,
+      sentByName: user?.name || user?.username || 'Authorized User'
+    });
+    await estimate.save();
+
+    return {
+      status: 207,
+      warning: 'Stage 1 (Estimation Ready + Customer Estimate PDF) was delivered successfully, but Stage 2 (Awaiting Approval) failed. You can retry approval directly.',
+      error: stage2ErrMsg,
+      stage1Success: true,
+      stage2Success: false,
+      estimate
+    };
+  }
 };
 
 // Send Customer Estimate via WhatsApp (Triggers Stage 1 and Stage 2 sequentially)
@@ -1435,22 +1351,27 @@ router.post('/:id/send-whatsapp', auth, restrictTo('Admin', 'Service', 'Accounts
   }
 });
 
-// Retry Stage 2 (Awaiting Approval Request) without re-sending Stage 1
+// Retry Approval Flow:
+// 1. Checks Stage 1 status.
+// 2. If Stage 1 failed or missing, retries Stage 1 FIRST with Customer Estimate PDF.
+// 3. Verifies provider acceptance. If Stage 1 fails, stops and returns Meta error.
+// 4. Only after Stage 1 acceptance, dispatches Stage 2 (Awaiting Approval).
+// 5. Never skips Stage 1. Never resends Stage 1 unnecessarily if already accepted.
 router.post('/:id/retry-approval-notification', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive', 'Spares'), async (req, res) => {
   try {
     const result = await sendCustomerEstimateWhatsApp({
       estimateId: req.params.id,
       user: req.user,
       req,
-      skipStage1: true, // Only retry Stage 2
-      forceResend: true
+      isRetryApproval: true,
+      forceResend: false
     });
     if (result.error && result.status !== 207) {
       return res.status(result.status || 400).send({ error: result.error, estimate: result.estimate });
     }
     return res.status(result.status || 200).send(result.data || result);
   } catch (err) {
-    return res.status(500).send({ error: 'Failed to retry Stage 2 WhatsApp notification: ' + err.message });
+    return res.status(500).send({ error: 'Failed to process WhatsApp approval recovery: ' + err.message });
   }
 });
 

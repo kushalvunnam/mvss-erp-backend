@@ -117,23 +117,23 @@ export default function Estimates({ token, user, setActiveTab }) {
       if (res.ok) {
         setNotification({
           type: 'success',
-          title: 'Approval Request Dispatched',
-          message: data.message || `Stage 2 Approval request for ${est.estimateNo} was sent via WhatsApp.`
+          title: 'WhatsApp Sequence Dispatched',
+          message: data.message || `Customer Estimate notifications for ${est.estimateNo} processed successfully.`
         });
         await fetchEstimates();
       } else {
         setNotification({
           type: 'error',
-          title: 'Retry Failed',
-          message: data.error || 'Failed to dispatch Stage 2 WhatsApp notification.'
+          title: 'Delivery Failed',
+          message: data.error || 'Failed to dispatch WhatsApp notification sequence.'
         });
       }
     } catch (err) {
-      console.error('Error retrying Stage 2:', err);
+      console.error('Error retrying WhatsApp sequence:', err);
       setNotification({
         type: 'error',
         title: 'Communication Error',
-        message: err.message || 'Network error while attempting to retry Stage 2.'
+        message: err.message || 'Network error while attempting to retry WhatsApp sequence.'
       });
     } finally {
       setSendingMap(prev => ({ ...prev, [est._id]: false }));
@@ -1030,17 +1030,24 @@ export default function Estimates({ token, user, setActiveTab }) {
                                 )}
                               </button>
                             )}
-                            {isAdvisorOrAdmin && ['Sent', 'Waiting for Approval'].includes(est.status) && (
-                              <button
-                                onClick={(e) => handleRetryApprovalNotification(est, e)}
-                                disabled={Boolean(sendingMap[est._id])}
-                                className="px-2 py-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-sm transition-all"
-                                title="Retry WhatsApp Approval Request (Stage 2)"
-                              >
-                                {sendingMap[est._id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageSquare className="w-3 h-3" />}
-                                <span>Retry Approval</span>
-                              </button>
-                            )}
+                            {isAdvisorOrAdmin && ['Sent', 'Waiting for Approval'].includes(est.status) && (() => {
+                              const stage1History = est.whatsappHistory?.filter(h => h.stage === 'STAGE_1_ESTIMATION_READY') || [];
+                              const stage1Sent = stage1History.some(h => ['sent', 'delivered', 'read'].includes(h.status));
+                              const stage1Failed = stage1History.length > 0 && !stage1Sent;
+                              const isRetryDelivery = stage1Failed || !stage1Sent;
+
+                              return (
+                                <button
+                                  onClick={(e) => handleRetryApprovalNotification(est, e)}
+                                  disabled={Boolean(sendingMap[est._id])}
+                                  className={`px-2 py-1 ${isRetryDelivery ? 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400' : 'bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400'} text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-sm transition-all`}
+                                  title={isRetryDelivery ? "Retry Stage 1 with PDF and Stage 2 Approval" : "Retry Stage 2 Approval Notification"}
+                                >
+                                  {sendingMap[est._id] ? <Loader2 className="w-3 h-3 animate-spin" /> : (isRetryDelivery ? <Send className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />)}
+                                  <span>{isRetryDelivery ? 'Retry Delivery' : 'Retry Approval'}</span>
+                                </button>
+                              );
+                            })()}
                             {isAdvisorOrAdmin && est.status === 'Approved' && (
                               <button
                                 onClick={(e) => handleRetryApprovedNotification(est, e)}
@@ -1309,11 +1316,22 @@ export default function Estimates({ token, user, setActiveTab }) {
                                             )}
                                           </div>
                                           <div className="flex items-center gap-2">
+                                            {!isSuccess && hist.stage === 'STAGE_1_ESTIMATION_READY' && isAdvisorOrAdmin && (
+                                              <button
+                                                onClick={(e) => handleRetryApprovalNotification(est, e)}
+                                                disabled={Boolean(sendingMap[est._id])}
+                                                className="px-2 py-0.5 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white rounded text-[9px] font-bold shadow-sm"
+                                                title="Retry Stage 1 with PDF and Stage 2 Approval"
+                                              >
+                                                Retry Stage 1 & 2
+                                              </button>
+                                            )}
                                             {!isSuccess && hist.stage === 'STAGE_2_ESTIMATION_AWAITING_APPROVAL' && isAdvisorOrAdmin && (
                                               <button
                                                 onClick={(e) => handleRetryApprovalNotification(est, e)}
                                                 disabled={Boolean(sendingMap[est._id])}
                                                 className="px-2 py-0.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded text-[9px] font-bold shadow-sm"
+                                                title="Retry Stage 2 Approval Notification"
                                               >
                                                 Retry Stage 2
                                               </button>
