@@ -1239,6 +1239,25 @@ export default function Estimates({ token, user, setActiveTab }) {
                                         stageBadgeBg = 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700';
                                       }
 
+                                      let statusBadgeStyle = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-800';
+                                      let statusLabel = (hist.status || 'unknown').toUpperCase();
+                                      if (hist.status === 'read') {
+                                        statusBadgeStyle = 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800';
+                                        statusLabel = 'READ';
+                                      } else if (hist.status === 'delivered') {
+                                        statusBadgeStyle = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
+                                        statusLabel = 'DELIVERED';
+                                      } else if (hist.status === 'sent') {
+                                        statusBadgeStyle = 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-300 dark:border-sky-800';
+                                        statusLabel = 'SENT';
+                                      } else if (hist.status === 'pending_session') {
+                                        statusBadgeStyle = 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800';
+                                        statusLabel = 'PENDING 24H WINDOW';
+                                      } else if (hist.status === 'pending') {
+                                        statusBadgeStyle = 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700';
+                                        statusLabel = 'PENDING';
+                                      }
+
                                       return (
                                         <div key={hIdx} className="py-2.5 flex flex-wrap justify-between items-center gap-2 text-[10px]">
                                           <div className="space-y-1">
@@ -1246,12 +1265,8 @@ export default function Estimates({ token, user, setActiveTab }) {
                                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${stageBadgeBg}`}>
                                                 {stageLabel}
                                               </span>
-                                              <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase ${
-                                                isSuccess 
-                                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800' 
-                                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-                                              }`}>
-                                                {hist.status}
+                                              <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase border ${statusBadgeStyle}`}>
+                                                {statusLabel}
                                               </span>
                                               <span className="font-semibold text-slate-700 dark:text-slate-200">
                                                 To: {hist.recipientPhone || 'Customer'}
@@ -1259,6 +1274,11 @@ export default function Estimates({ token, user, setActiveTab }) {
                                               {hist.templateName && (
                                                 <span className="font-mono text-slate-500 dark:text-slate-400">
                                                   [{hist.templateName}]
+                                                </span>
+                                              )}
+                                              {hist.messageId && (
+                                                <span className="font-mono text-[8.5px] text-slate-400 dark:text-slate-500" title={`Message ID: ${hist.messageId}`}>
+                                                  wamid: ...{hist.messageId.slice(-8)}
                                                 </span>
                                               )}
                                               {hist.finalAmount ? (
@@ -1270,8 +1290,17 @@ export default function Estimates({ token, user, setActiveTab }) {
                                                 <span className="text-slate-400">by {hist.sentByName}</span>
                                               )}
                                               <span className="text-slate-400">
-                                                • {new Date(hist.sentAt).toLocaleString('en-IN')}
+                                                • Sent: {new Date(hist.sentAt).toLocaleString('en-IN')}
                                               </span>
+                                              {hist.readAt ? (
+                                                <span className="text-cyan-600 dark:text-cyan-400 font-bold">
+                                                  • Read: {new Date(hist.readAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                              ) : hist.deliveredAt ? (
+                                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                                  • Delivered: {new Date(hist.deliveredAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                              ) : null}
                                             </div>
                                             {hist.error && (
                                               <p className="text-rose-600 dark:text-rose-400 font-medium text-[9.5px]">

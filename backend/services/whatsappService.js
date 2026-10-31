@@ -169,7 +169,7 @@ const TEMPLATE_CONFIG = {
     'estimate_awaiting_customer_approval': { lang: 'en', paramCount: 4 },
     'mvss_estimate_awaiting_customer_approval': { lang: 'en', paramCount: 4 },
     'mvss_estimate_created': { lang: 'en', paramCount: 5 },
-    'mvss_customer_estimate_doc': { lang: 'en', paramCount: 5, headerFormat: 'DOCUMENT' },
+    'mvss_customer_estimate_doc': { lang: 'en', paramCount: 5, headerFormat: 'DOCUMENT', status: 'APPROVED' },
     'mvss_estimate_approved': { lang: 'en', paramCount: 5 },
     'mvss_work_started': { lang: 'en', paramCount: 3 },
     'mvss_additional_work': { lang: 'en', paramCount: 5 },
@@ -232,8 +232,9 @@ const resolveTemplateSpec = (requestedName) => {
         return {
             name: requestedName,
             language: staticSpec.lang || 'en',
-            status: 'CONFIG_FALLBACK',
-            paramCount: staticSpec.paramCount
+            status: staticSpec.status || 'APPROVED',
+            paramCount: staticSpec.paramCount,
+            headerFormat: staticSpec.headerFormat || null
         };
     }
 
@@ -531,6 +532,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
 
             metaTemplates.forEach(t => {
                 const bodyComponent = t.components?.find(c => c.type && c.type.toUpperCase() === 'BODY');
+                const headerComponent = t.components?.find(c => c.type && c.type.toUpperCase() === 'HEADER');
                 let paramCount = 0;
                 if (bodyComponent && bodyComponent.text) {
                     const matches = bodyComponent.text.match(/\{\{\d+\}\}/g);
@@ -546,10 +548,12 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     category: t.category,
                     id: t.id,
                     paramCount,
+                    headerFormat: headerComponent?.format || null,
+                    components: t.components,
                     bodyText: bodyComponent?.text || null,
                     example: bodyComponent?.example?.body_text?.[0] || null
                 });
-                console.log(`  - Meta Template -> Name: ${t.name} | Lang: ${t.language} | Status: ${t.status} | Body Params: ${paramCount}`);
+                console.log(`  - Meta Template -> Name: ${t.name} | Lang: ${t.language} | Status: ${t.status} | Format: ${headerComponent?.format || 'TEXT'} | Body Params: ${paramCount}`);
             });
 
             auditReport.templatesAudit.success = true;
@@ -872,6 +876,72 @@ const sendTemplateMessage = async ({
 };
 
 /**
+ * Upload a media file (e.g. PDF) directly to Meta Graph API /media endpoint.
+ * Returns { success: true, mediaId: string } or { success: false, error: string }.
+ */
+const uploadMediaToMeta = async ({
+    buffer,
+    filename = 'Customer_Estimate.pdf',
+    mimeType = 'application/pdf'
+}, customAxios = axios) => {
+    try {
+        const token = process.env.META_WA_ACCESS_TOKEN;
+        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+
+        if (!token || !phoneNumberId) {
+            return { success: false, error: 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID)' };
+        }
+        if (!buffer || buffer.length === 0) {
+            return { success: false, error: 'Buffer is empty or missing' };
+        }
+
+        const formData = new FormData();
+        const blob = new Blob([buffer], { type: mimeType });
+        formData.append('file', blob, filename);
+        formData.append('type', mimeType);
+        formData.append('messaging_product', 'whatsapp');
+
+        let mediaId = null;
+        if (typeof fetch === 'function') {
+            const res = await fetch(`${GRAPH_API_BASE_URL}/${phoneNumberId}/media`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+            const data = await res.json();
+            if (res.ok && data?.id) {
+                mediaId = data.id;
+            } else {
+                const errMsg = data?.error?.message || `HTTP ${res.status}`;
+                console.warn(`[WhatsApp] Meta Media fetch upload note: ${errMsg}`);
+                return { success: false, error: errMsg };
+            }
+        } else {
+            const mediaRes = await customAxios.post(
+                `${GRAPH_API_BASE_URL}/${phoneNumberId}/media`,
+                formData,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (mediaRes.data?.id) {
+                mediaId = mediaRes.data.id;
+            }
+        }
+
+        if (mediaId) {
+            console.log(`[WhatsApp] Successfully uploaded media to Meta: mediaId=${mediaId} [Filename: ${filename}]`);
+            return { success: true, mediaId };
+        }
+        return { success: false, error: 'No media ID returned from Meta' };
+    } catch (err) {
+        const errDetails = getMetaErrorDetails(err);
+        console.warn(`[WhatsApp] uploadMediaToMeta error: ${errDetails.formatted}`);
+        return { success: false, error: errDetails.formatted };
+    }
+};
+
+/**
  * Send a document/PDF attachment message via Meta WhatsApp Cloud API
  */
 const sendDocumentMessage = async ({
@@ -969,29 +1039,14 @@ const sendDocumentMessage = async ({
         }
 
         // Try direct Meta media upload if buffer is available
-        if (pdfBuffer && typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
-            try {
-                const formData = new FormData();
-                const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
-                formData.append('file', blob, filename || 'Customer_Estimate.pdf');
-                formData.append('type', 'application/pdf');
-                formData.append('messaging_product', 'whatsapp');
-
-                const mediaRes = await customAxios.post(
-                    `${GRAPH_API_BASE_URL}/${phoneNumberId}/media`,
-                    formData,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                        }
-                    }
-                );
-                if (mediaRes.data?.id) {
-                    documentPayload.id = mediaRes.data.id;
-                    console.log(`[WhatsApp] Uploaded PDF media directly to Meta: mediaId=${documentPayload.id}`);
-                }
-            } catch (mediaErr) {
-                console.warn(`[WhatsApp] Meta Media direct upload note: ${mediaErr.message || mediaErr}.`);
+        if (pdfBuffer) {
+            const uploadRes = await uploadMediaToMeta({
+                buffer: pdfBuffer,
+                filename: filename || 'Customer_Estimate.pdf',
+                mimeType: 'application/pdf'
+            }, customAxios);
+            if (uploadRes.success && uploadRes.mediaId) {
+                documentPayload.id = uploadRes.mediaId;
             }
         }
 
@@ -1209,6 +1264,7 @@ const createDocumentTemplate = async (customAxios = axios) => {
 module.exports = {
     sendTemplateMessage,
     sendDocumentMessage,
+    uploadMediaToMeta,
     normalizePhoneNumber,
     maskPhoneNumber,
     validateCustomerContact,

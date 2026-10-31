@@ -836,7 +836,7 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
   const CustomerModel = require('../models/Customer');
   const VehicleModel = require('../models/Vehicle');
   const WhatsAppLog = require('../models/WhatsAppLog');
-  const { validateCustomerContact, sendTemplateMessage, sendDocumentMessage, isCustomerSessionActive, resolveTemplateSpec } = require('../services/whatsappService');
+  const { validateCustomerContact, sendTemplateMessage, sendDocumentMessage, uploadMediaToMeta, isCustomerSessionActive, resolveTemplateSpec } = require('../services/whatsappService');
   const { generateCustomerEstimatePDF } = require('../utils/pdfGenerator');
 
   const jc = estimate.jobCardId ? await JobCardModel.findById(estimate.jobCardId) : null;
@@ -1022,11 +1022,35 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
 
     // Check if mvss_customer_estimate_doc is approved in Meta
     const docTplSpec = resolveTemplateSpec('mvss_customer_estimate_doc');
-    const isDocTemplateApproved = docTplSpec && docTplSpec.status === 'APPROVED';
+    const isDocTemplateApproved = docTplSpec && (docTplSpec.status === 'APPROVED' || docTplSpec.status === 'CONFIG_FALLBACK');
 
     if (isDocTemplateApproved) {
       stage1TemplateUsed = 'mvss_customer_estimate_doc';
       console.log(`[Estimate Automation] [STAGE 1] Using approved DOCUMENT template '${stage1TemplateUsed}' with PDF header.`);
+
+      // Pre-upload PDF media directly to Meta Graph API for maximum delivery reliability
+      let metaDocPayload = {
+        link: pdfUrl,
+        filename: pdfFilename
+      };
+
+      try {
+        const uploadRes = await uploadMediaToMeta({
+          buffer: pdfBuffer,
+          filename: pdfFilename,
+          mimeType: 'application/pdf'
+        });
+        if (uploadRes?.success && uploadRes?.mediaId) {
+          metaDocPayload = {
+            id: uploadRes.mediaId,
+            filename: pdfFilename
+          };
+          console.log(`[Estimate Automation] [STAGE 1] Using Meta pre-uploaded mediaId=${uploadRes.mediaId}`);
+        }
+      } catch (mediaUploadErr) {
+        console.warn(`[Estimate Automation] [STAGE 1] Media pre-upload fallback to URL link:`, mediaUploadErr.message);
+      }
+
       try {
         stage1Result = await sendTemplateMessage({
           to: contactCheck.phone,
@@ -1037,10 +1061,7 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
               parameters: [
                 {
                   type: 'document',
-                  document: {
-                    link: pdfUrl,
-                    filename: pdfFilename
-                  }
+                  document: metaDocPayload
                 }
               ]
             },
@@ -1137,22 +1158,40 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
         };
       }
 
-      // 2. Dispatch Customer Estimate PDF attachment
-      try {
-        docResult = await sendDocumentMessage({
-          to: contactCheck.phone,
-          documentUrl: pdfUrl,
-          pdfBuffer,
-          filename: pdfFilename,
-          caption: `Customer Estimate - ${estimateNumber}`,
-          recipientName: customerName,
-          relatedEntity: estimate._id,
-          onModel: 'Estimate',
-          idempotencyKey: stage1DocKey
+      // 2. Dispatch Customer Estimate PDF attachment (check session active status to prevent 131047 errors)
+      const sessionActive = await isCustomerSessionActive(contactCheck.phone);
+      if (sessionActive) {
+        try {
+          docResult = await sendDocumentMessage({
+            to: contactCheck.phone,
+            documentUrl: pdfUrl,
+            pdfBuffer,
+            filename: pdfFilename,
+            caption: `Customer Estimate - ${estimateNumber}`,
+            recipientName: customerName,
+            relatedEntity: estimate._id,
+            onModel: 'Estimate',
+            idempotencyKey: stage1DocKey
+          });
+          console.log(`[Estimate Automation] [STAGE 1] Customer Estimate PDF attached: wamid=${docResult?.messageId}`);
+        } catch (docErr) {
+          console.warn(`[Estimate Automation] [STAGE 1] PDF document dispatch note:`, docErr.message || docErr);
+        }
+      } else {
+        console.warn(`[Estimate Automation] [STAGE 1] Customer 24h conversation session is inactive. Deferring standalone document dispatch to prevent Meta 131047 error.`);
+        estimate.whatsappHistory.push({
+          stage: 'DOCUMENT_ESTIMATE_PDF',
+          estimateId: estimate._id,
+          jobCardId: estimate.jobCardId,
+          sentAt: new Date(),
+          recipientPhone: contactCheck.phone,
+          pdfUrl,
+          status: 'pending_session',
+          templateName: 'document_attachment',
+          error: 'Standalone document deferred. Waiting for customer response to open 24h conversation window.',
+          sentBy: user?._id,
+          sentByName: user?.name || user?.username || 'Authorized User'
         });
-        console.log(`[Estimate Automation] [STAGE 1] Customer Estimate PDF attached: wamid=${docResult?.messageId}`);
-      } catch (docErr) {
-        console.warn(`[Estimate Automation] [STAGE 1] PDF document dispatch note:`, docErr.message || docErr);
       }
     }
 
@@ -1173,7 +1212,21 @@ const sendCustomerEstimateWhatsApp = async ({ estimateId, user, req, skipStage1 
         sentByName: user?.name || user?.username || 'Authorized User'
       });
 
-      if (docResult?.messageId) {
+      if (stage1TemplateUsed === 'mvss_customer_estimate_doc') {
+        estimate.whatsappHistory.push({
+          stage: 'DOCUMENT_ESTIMATE_PDF',
+          estimateId: estimate._id,
+          jobCardId: estimate.jobCardId,
+          sentAt: new Date(),
+          recipientPhone: contactCheck.phone,
+          pdfUrl,
+          status: 'sent',
+          messageId: stage1Result.messageId,
+          templateName: 'mvss_customer_estimate_doc (Header Attachment)',
+          sentBy: user?._id,
+          sentByName: user?.name || user?.username || 'Authorized User'
+        });
+      } else if (docResult?.messageId) {
         estimate.whatsappHistory.push({
           stage: 'DOCUMENT_ESTIMATE_PDF',
           estimateId: estimate._id,

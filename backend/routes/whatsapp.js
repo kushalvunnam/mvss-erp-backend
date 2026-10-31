@@ -55,14 +55,55 @@ router.post('/webhook', async (req, res) => {
                         for (const status of value.statuses) {
                             const messageId = status.id;
                             const statusString = status.status; // 'sent', 'delivered', 'read', 'failed'
+                            const statusTimestamp = status.timestamp ? new Date(Number(status.timestamp) * 1000) : new Date();
                             
-                            let updatePayload = { status: statusString };
-                            if (statusString === 'failed' && status.errors) {
-                                updatePayload.errorMessage = status.errors[0]?.message || 'Unknown Meta Error';
+                            let updatePayload = { 
+                                status: statusString,
+                                lastAttemptAt: statusTimestamp
+                            };
+                            if (statusString === 'delivered') {
+                                updatePayload.deliveredAt = statusTimestamp;
+                            } else if (statusString === 'read') {
+                                updatePayload.readAt = statusTimestamp;
+                            } else if (statusString === 'failed') {
+                                const errObj = status.errors?.[0];
+                                updatePayload.errorMessage = errObj ? `${errObj.title ? `[${errObj.title}] ` : ''}${errObj.message || 'Unknown Meta Error'}${errObj.error_data?.details ? ` (${errObj.error_data.details})` : ''}` : 'Unknown Meta Error';
+                                updatePayload.metaErrorCode = String(errObj?.code || '');
                             }
 
                             // Update our log asynchronously
-                            await WhatsAppLog.findOneAndUpdate({ messageId }, updatePayload);
+                            await WhatsAppLog.findOneAndUpdate({ messageId }, { $set: updatePayload });
+
+                            // Synchronize delivery status directly to Estimate.whatsappHistory
+                            try {
+                                const Estimate = require('../models/Estimate');
+                                const estUpdateFields = {
+                                    'whatsappHistory.$.status': statusString
+                                };
+                                if (statusString === 'delivered') {
+                                    estUpdateFields['whatsappHistory.$.deliveredAt'] = statusTimestamp;
+                                } else if (statusString === 'read') {
+                                    estUpdateFields['whatsappHistory.$.readAt'] = statusTimestamp;
+                                } else if (statusString === 'failed') {
+                                    const errObj = status.errors?.[0];
+                                    const errorText = errObj
+                                        ? `[Code ${errObj.code}] ${errObj.title || 'Error'}: ${errObj.message || ''}${errObj.error_data?.details ? ` (${errObj.error_data.details})` : ''}`
+                                        : 'Meta Delivery Failed';
+                                    estUpdateFields['whatsappHistory.$.error'] = errorText;
+                                    estUpdateFields['whatsappHistory.$.failedAt'] = statusTimestamp;
+                                }
+
+                                const updateResult = await Estimate.updateMany(
+                                    { 'whatsappHistory.messageId': messageId },
+                                    { $set: estUpdateFields }
+                                );
+                                if (updateResult.modifiedCount > 0) {
+                                    console.log(`[WhatsApp Webhook] Synced status '${statusString}' for messageId ${messageId} to ${updateResult.modifiedCount} Estimate record(s)`);
+                                }
+                            } catch (estSyncErr) {
+                                console.warn('[WhatsApp Webhook] Error syncing status to Estimate.whatsappHistory:', estSyncErr.message);
+                            }
+
                             console.log(`[WhatsApp Webhook] [Stage 7] Webhook delivery status received: MessageId=${messageId}, Status=${statusString}${statusString === 'failed' ? `, Error=${updatePayload.errorMessage}` : ''}`);
                         }
                     }
