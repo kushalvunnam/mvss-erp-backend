@@ -274,8 +274,18 @@ const JobCardSchema = new mongoose.Schema({
 
   advancePayments: [{
     amount: { type: Number, required: true },
-    type: { type: String, enum: ['Cash', 'Online', 'Card Swipe'], required: true },
-    paymentMode: { type: String, enum: ['Cash', 'Online', 'Card Swipe', 'Scanner Payment (QR)'], required: true },
+    type: { 
+      type: String, 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      default: 'Cash',
+      required: true 
+    },
+    paymentMode: { 
+      type: String, 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      default: 'Cash',
+      required: true 
+    },
     paymentDate: { type: Date, default: Date.now },
     transactionId: { type: String, default: '' },
     remarks: { type: String, default: '' },
@@ -283,7 +293,12 @@ const JobCardSchema = new mongoose.Schema({
   }],
   finalPayments: [{
     amount: { type: Number, required: true },
-    paymentType: { type: String, enum: ['Cash', 'Online', 'Card Swipe', 'Scanner Payment'], required: true },
+    paymentType: { 
+      type: String, 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      default: 'Cash',
+      required: true 
+    },
     transactionId: { type: String, default: '' },
     referenceNumber: { type: String, default: '' },
     remarks: { type: String, default: '' },
@@ -292,7 +307,7 @@ const JobCardSchema = new mongoose.Schema({
   }],
   paymentStatus: {
     type: String,
-    enum: ['Pending', 'Partially Paid', 'Fully Paid', 'Settled (Waived Off)'],
+    enum: ['Pending', 'Unpaid', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived'],
     default: 'Pending'
   },
   waiver: {
@@ -303,6 +318,19 @@ const JobCardSchema = new mongoose.Schema({
     approvedBy: { type: String, default: '' },
     waivedAt: { type: Date },
     reason: { type: String, default: '' }
+  },
+
+  financialSummary: {
+    finalBillAmount: { type: Number, default: 0 },
+    totalAdvance: { type: Number, default: 0 },
+    totalFinal: { type: Number, default: 0 },
+    totalReceived: { type: Number, default: 0 },
+    waivedAmount: { type: Number, default: 0 },
+    balanceDue: { type: Number, default: 0 },
+    pendingAmount: { type: Number, default: 0 },
+    customerCredit: { type: Number, default: 0 },
+    paymentStatus: { type: String, default: 'Pending' },
+    lastCalculatedAt: { type: Date, default: Date.now }
   },
 
   billingSummary: {

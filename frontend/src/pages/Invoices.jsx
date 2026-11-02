@@ -1017,24 +1017,40 @@ export default function Invoices({ token, user, setActiveTab }) {
                             {inv.customerId?.type === 'Corporate' && inv.billingNameOption !== 'ContactPerson' && inv.customerId?.companyName ? inv.customerId.companyName : (inv.customerId?.name || 'Unknown')}
                           </td>
                           <td className="p-4">
-                            <span className="block font-extrabold text-slate-800 dark:text-slate-200">₹{inv.totals?.grandTotal?.toLocaleString('en-IN') || 0}</span>
+                            <span className="block font-extrabold text-slate-800 dark:text-slate-200">₹{(inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0).toLocaleString('en-IN')}</span>
                             {inv.advanceReceived > 0 && (
                               <span className="block text-[9px] font-semibold text-emerald-600 dark:text-emerald-450 mt-0.5">
                                 Adv: ₹{inv.advanceReceived.toLocaleString('en-IN')}
                               </span>
                             )}
-                            {inv.advanceReceived > 0 && (
-                              <span className="block text-[9px] font-bold text-slate-500 dark:text-slate-400">
-                                Due: ₹{(inv.balanceDue !== undefined ? inv.balanceDue : Math.max(0, (inv.totals?.grandTotal || 0) - inv.advanceReceived)).toLocaleString('en-IN')}
+                            <span className="block text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                              Due: ₹{(inv.balanceDue !== undefined ? inv.balanceDue : Math.max(0, (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0) - (inv.amountPaid || inv.advanceReceived || 0))).toLocaleString('en-IN')}
+                            </span>
+                            {inv.customerCredit > 0 && (
+                              <span className="block text-[9px] font-bold text-blue-600 dark:text-blue-400">
+                                Credit: ₹{inv.customerCredit.toLocaleString('en-IN')}
                               </span>
                             )}
                           </td>
                           <td className="p-4 font-semibold text-[10px] text-slate-500 uppercase tracking-wider">
                             {inv.gstDetails?.isInterstate ? 'IGST Interstate' : 'CGST/SGST Intra'}
                           </td>
-                          <td className="p-4">
-                            <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${statusBg}`}>
+                          <td className="p-4 space-y-1">
+                            <span className={`block px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${statusBg}`}>
                               {inv.status}
+                            </span>
+                            <span className={`block px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                              inv.paymentStatus === 'Paid' || inv.paymentStatus === 'Fully Paid'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
+                                : inv.paymentStatus === 'Partially Paid'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                                : inv.paymentStatus === 'Overpaid'
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
+                                : inv.paymentStatus === 'Settled (Waived Off)' || inv.paymentStatus === 'Waived'
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400'
+                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400'
+                            }`}>
+                              {inv.paymentStatus || 'Unpaid'}
                             </span>
                           </td>
                           <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1134,15 +1150,43 @@ export default function Invoices({ token, user, setActiveTab }) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-bold">Grand Total:</span>
-                    <span className="text-slate-800 dark:text-slate-100 font-black text-sm">₹{selectedInvoice.totals?.grandTotal?.toLocaleString('en-IN') || 0}</span>
+                    <span className="text-slate-800 dark:text-slate-100 font-black text-sm">₹{(selectedInvoice.totals?.roundedGrandTotal || selectedInvoice.totals?.grandTotal || 0).toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-bold">Advance Received:</span>
                     <span className="text-emerald-600 dark:text-emerald-450 font-black text-sm">- ₹{(selectedInvoice.advanceReceived || 0).toLocaleString('en-IN')}</span>
                   </div>
+                  {selectedInvoice.amountPaid > 0 && selectedInvoice.amountPaid !== selectedInvoice.advanceReceived && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400 font-bold">Total Paid / Received:</span>
+                      <span className="text-emerald-600 dark:text-emerald-450 font-black text-sm">₹{(selectedInvoice.amountPaid || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+                  {selectedInvoice.customerCredit > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-blue-500 font-bold">Customer Credit:</span>
+                      <span className="text-blue-600 dark:text-blue-400 font-black text-sm">+ ₹{selectedInvoice.customerCredit.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-bold">Balance Due:</span>
-                    <span className="text-indigo-750 dark:text-indigo-400 font-black text-sm">₹{(selectedInvoice.balanceDue !== undefined ? selectedInvoice.balanceDue : Math.max(0, (selectedInvoice.totals?.grandTotal || 0) - (selectedInvoice.advanceReceived || 0))).toLocaleString('en-IN')}</span>
+                    <span className="text-rose-600 dark:text-rose-450 font-black text-sm">₹{(selectedInvoice.balanceDue !== undefined ? selectedInvoice.balanceDue : Math.max(0, (selectedInvoice.totals?.roundedGrandTotal || selectedInvoice.totals?.grandTotal || 0) - (selectedInvoice.amountPaid || selectedInvoice.advanceReceived || 0))).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold">Payment Status:</span>
+                    <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                      selectedInvoice.paymentStatus === 'Paid' || selectedInvoice.paymentStatus === 'Fully Paid'
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
+                        : selectedInvoice.paymentStatus === 'Partially Paid'
+                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                        : selectedInvoice.paymentStatus === 'Overpaid'
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
+                        : selectedInvoice.paymentStatus === 'Settled (Waived Off)' || selectedInvoice.paymentStatus === 'Waived'
+                        ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400'
+                        : 'bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400'
+                    }`}>
+                      {selectedInvoice.paymentStatus || 'Unpaid'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-slate-400 font-bold">Invoice Status:</span>

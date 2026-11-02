@@ -301,40 +301,78 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const getFinalBillAmount = () => {
-    return invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jc?.billingSummary?.grandTotal || 0);
+    const amt = invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jc?.financialSummary?.finalBillAmount !== undefined ? jc.financialSummary.finalBillAmount : (jc?.billingSummary?.grandTotal || 0));
+    return Math.round((Number(amt || 0) + Number.EPSILON) * 100) / 100;
   };
 
   const getTotalAdvanceReceived = () => {
     const total = jc?.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
-    return isNaN(total) ? 0 : total;
+    return Math.round((Number(total || 0) + Number.EPSILON) * 100) / 100;
+  };
+
+  const getTotalFinalPayments = () => {
+    const total = jc?.finalPayments ? jc.finalPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
+    return Math.round((Number(total || 0) + Number.EPSILON) * 100) / 100;
+  };
+
+  const getTotalReceived = () => {
+    return Math.round((getTotalAdvanceReceived() + getTotalFinalPayments() + Number.EPSILON) * 100) / 100;
+  };
+
+  const getWaivedAmount = () => {
+    return (jc?.waiver && Number(jc.waiver.waivedAmount) > 0) ? Math.round((Number(jc.waiver.waivedAmount) + Number.EPSILON) * 100) / 100 : 0;
   };
 
   const getEstimatedBalanceDue = () => {
     const totalAdvance = getTotalAdvanceReceived();
-    let targetTotal = getFinalBillAmount();
+    const targetTotal = getFinalBillAmount();
     const balance = targetTotal - totalAdvance;
-    return isNaN(balance) ? 0 : Math.max(0, balance);
+    return balance > 0 ? Math.round((balance + Number.EPSILON) * 100) / 100 : 0;
   };
 
   const getBalancePayable = () => {
-    let bp = Math.max(0, getFinalBillAmount() - getTotalAdvanceReceived());
-    if (jc?.waiver && jc.waiver.waivedAmount > 0) {
-      bp = Math.max(0, bp - jc.waiver.waivedAmount);
-    }
-    return bp;
-  };
-
-  const getTotalFinalPayments = () => {
-    return jc?.finalPayments ? jc.finalPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
+    const bp = Math.max(0, getFinalBillAmount() - getTotalAdvanceReceived() - getWaivedAmount());
+    return Math.round((bp + Number.EPSILON) * 100) / 100;
   };
 
   const getPendingAmount = () => {
-    let pending = Math.max(0, getBalancePayable() - getTotalFinalPayments());
-    return Math.max(0, pending);
+    const pending = Math.max(0, getFinalBillAmount() - getTotalReceived() - getWaivedAmount());
+    return pending <= 0.05 ? 0 : Math.round((pending + Number.EPSILON) * 100) / 100;
   };
 
-  const getTotalReceived = () => {
-    return getTotalAdvanceReceived() + getTotalFinalPayments();
+  const getCustomerCredit = () => {
+    const bill = getFinalBillAmount();
+    const received = getTotalReceived();
+    if (received > (bill + 0.05)) {
+      return Math.round((received - bill + Number.EPSILON) * 100) / 100;
+    }
+    return 0;
+  };
+
+  const handleDownloadReceipt = async (paymentId) => {
+    try {
+      const url = `${API_BASE_URL}/jobcards/${jcId}/payment-receipt${paymentId ? `/${paymentId}` : ''}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to download receipt');
+        return;
+      }
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `receipt-${paymentId ? paymentId.slice(-6) : 'payment'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to download receipt.');
+    }
   };
 
   const getCombinedPaymentHistory = () => {
@@ -1525,9 +1563,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-205"
                     >
                       <option value="Cash">Cash</option>
-                      <option value="Online">Online</option>
+                      <option value="UPI">UPI</option>
+                      <option value="QR / Scanner Payment">QR / Scanner Payment</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
                       <option value="Card Swipe">Card Swipe</option>
-                      <option value="Scanner Payment (QR)">Scanner Payment (QR)</option>
                     </select>
                   </div>
                   <div>
@@ -1648,9 +1687,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                           className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
                         >
                           <option value="Cash">Cash</option>
-                          <option value="Online">Online</option>
+                          <option value="UPI">UPI</option>
+                          <option value="QR / Scanner Payment">QR / Scanner Payment</option>
+                          <option value="Bank Transfer">Bank Transfer</option>
                           <option value="Card Swipe">Card Swipe</option>
-                          <option value="Scanner Payment">Scanner Payment</option>
                         </select>
                       </div>
                       <div>
@@ -1743,6 +1783,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                     <span className="font-bold font-mono text-purple-600 dark:text-purple-400">₹{jc.waiver.waivedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
+                {getCustomerCredit() > 0 && (
+                  <div className="flex justify-between items-center py-1.5 px-2 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200/50">
+                    <span className="font-bold text-blue-700 dark:text-blue-400">Customer Excess Credit</span>
+                    <span className="font-black font-mono text-blue-700 dark:text-blue-400">+₹{getCustomerCredit().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Pending Amount</span>
                   <span className="font-extrabold font-mono text-rose-600 dark:text-rose-450">₹{getPendingAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
@@ -1750,17 +1796,29 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 <div className="flex justify-between items-center pt-2">
                   <span className="font-semibold text-slate-400">Payment Status</span>
                   <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
-                    jc?.paymentStatus === 'Fully Paid' 
+                    jc?.paymentStatus === 'Overpaid'
+                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200/50'
+                      : jc?.paymentStatus === 'Fully Paid' || jc?.paymentStatus === 'Paid'
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-450 border-emerald-200/50' 
                       : jc?.paymentStatus === 'Partially Paid'
                       ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-450 border-amber-200/50'
-                      : jc?.paymentStatus === 'Settled (Waived Off)'
+                      : jc?.paymentStatus === 'Settled (Waived Off)' || jc?.paymentStatus === 'Waived'
                       ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-450 border-purple-200/50'
                       : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-450 border-rose-200/50'
                   }`}>
                     {jc?.paymentStatus || 'Pending'}
                   </span>
                 </div>
+                {getTotalReceived() > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadReceipt()}
+                    className="w-full mt-2 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 transition-colors border border-slate-200 dark:border-slate-700"
+                    title="Download Official Payment Receipt PDF"
+                  >
+                    <Receipt className="w-3.5 h-3.5 text-indigo-500" /> Download Payment Receipt PDF
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1816,27 +1874,39 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                           {p.remarks || '-'}
                         </td>
                         <td className="py-3 px-3 text-center">
-                          {p.isWaiver ? (
-                            <button
-                              type="button"
-                              disabled
-                              className="text-slate-350 dark:text-slate-650 p-1 rounded-lg cursor-not-allowed opacity-50"
-                              title="Waiver cannot be deleted directly"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            ['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
+                          <div className="flex items-center justify-center gap-1">
+                            {!p.isWaiver && (
                               <button
                                 type="button"
-                                onClick={() => p.isAdvance ? handleDeleteAdvance(p.id) : handleDeleteFinalPayment(p.id)}
-                                className="text-red-500 hover:text-red-700 p-1 rounded-lg transition-colors hover:bg-red-500/10"
-                                title={`Delete ${p.type.toLowerCase()}`}
+                                onClick={() => handleDownloadReceipt(p.id)}
+                                className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 p-1 rounded-lg transition-colors hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                                title="Download payment receipt PDF"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {p.isWaiver ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="text-slate-350 dark:text-slate-650 p-1 rounded-lg cursor-not-allowed opacity-50"
+                                title="Waiver cannot be deleted directly"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
-                            )
-                          )}
+                            ) : (
+                              ['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
+                                <button
+                                  type="button"
+                                  onClick={() => p.isAdvance ? handleDeleteAdvance(p.id) : handleDeleteFinalPayment(p.id)}
+                                  className="text-red-500 hover:text-red-700 p-1 rounded-lg transition-colors hover:bg-red-500/10"
+                                  title={`Delete ${p.type.toLowerCase()}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))

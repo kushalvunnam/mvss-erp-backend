@@ -797,6 +797,28 @@ function drawSummaryBlock(doc, y, totals, isInterstate, grandTotalWords) {
     y += 20;
   }
 
+  // Invoice Payment & Settlement Breakdown
+  if (totals.isInvoice) {
+    const adv = Number(totals.advanceReceived) || 0;
+    const paid = Number(totals.amountPaid) || 0;
+    const due = Number(totals.balanceDue !== undefined ? totals.balanceDue : Math.max(0, roundedGrandTotal - paid));
+    const credit = Number(totals.customerCredit) || 0;
+    const statusText = String(totals.paymentStatus || (due <= 0.05 ? 'PAID' : (paid > 0 ? 'PARTIALLY PAID' : 'UNPAID'))).toUpperCase();
+
+    doc.strokeColor('#000000').lineWidth(1.5).rect(30, y, 535, 22).stroke();
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5);
+    
+    let leftInfo = `Advance: Rs. ${adv.toFixed(2)}   |   Total Paid: Rs. ${paid.toFixed(2)}`;
+    if (credit > 0) {
+      leftInfo += `   |   Customer Credit: Rs. ${credit.toFixed(2)}`;
+    }
+    doc.text(leftInfo, 35, y + 6);
+
+    const dueColor = due <= 0.05 ? '#059669' : '#dc2626';
+    doc.fillColor(dueColor).text(`Balance Due: Rs. ${due.toFixed(2)}  (${statusText})`, 302.5, y + 6, { width: 255, align: 'right' });
+    y += 22;
+  }
+
   return y;
 }
 
@@ -1287,7 +1309,15 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
   }
 
   // Summary box totals representation using gross values
+  const grandTot = invoice.totals.roundedGrandTotal || invoice.totals.grandTotal || 0;
+  const advRec = invoice.advanceReceived || 0;
+  const amtPaid = invoice.amountPaid || 0;
+  const balDue = (invoice.balanceDue !== undefined && invoice.balanceDue !== null)
+    ? invoice.balanceDue
+    : Math.max(0, grandTot - amtPaid);
+
   const summaryTotals = {
+    isInvoice: true,
     partsTotal: partsGrossSum,
     labourTotal: labourGrossSum,
     cgstTotalParts: partsCgstSum,
@@ -1299,9 +1329,14 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
     igstTotalLabour: labourIgstSum,
     gstTotalLabour: labourCgstSum + labourSgstSum + labourIgstSum,
     discount: discountAmount,
-    grandTotal: invoice.totals.roundedGrandTotal || invoice.totals.grandTotal,
+    grandTotal: grandTot,
     approvedAmount: invoice.insuranceClaimDetails?.approvedAmount || 0,
-    customerPayableAmount: invoice.insuranceClaimDetails?.customerPayableAmount || invoice.totals.roundedGrandTotal || invoice.totals.grandTotal
+    customerPayableAmount: invoice.insuranceClaimDetails?.customerPayableAmount || grandTot,
+    advanceReceived: advRec,
+    amountPaid: amtPaid,
+    balanceDue: balDue,
+    customerCredit: invoice.customerCredit || 0,
+    paymentStatus: invoice.paymentStatus || (balDue <= 0.05 ? 'Paid' : (amtPaid > 0 ? 'Partially Paid' : 'Unpaid'))
   };
   
   const grandTotalWords = invoice.grandTotalWords || numberToWords(invoice.totals.roundedGrandTotal || invoice.totals.grandTotal);
@@ -1960,10 +1995,178 @@ function generateCustomerEstimatePDF(estimate, customer, vehicle, stream, jobCar
   doc.end();
 }
 
+// Generate Payment Receipt PDF
+function generatePaymentReceiptPDF({ receiptNo, receiptDate, payment, jobCard, invoice, customer, vehicle, financialSummary, stream }) {
+  const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
+  doc.pipe(stream);
+
+  // Outer border
+  doc.strokeColor('#000000').lineWidth(1.5).rect(30, 30, 535, 782).stroke();
+
+  // Company Header
+  drawCompanyHeader(doc, 'OFFICIAL PAYMENT RECEIPT', '36AAJCM4778P1ZI');
+
+  let y = 115;
+  // Receipt Metadata Grid
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 55).stroke();
+  doc.moveTo(297.5, y).lineTo(297.5, y + 55).stroke();
+
+  const formattedDate = new Date(receiptDate || payment?.paymentDate || Date.now()).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8.5);
+  doc.text('RECEIPT NO:', 35, y + 8);
+  doc.font('Helvetica').fontSize(8.5).text(receiptNo || `REC-${payment?._id?.toString()?.slice(-8)?.toUpperCase() || 'PAYMENT'}`, 110, y + 8);
+
+  doc.font('Helvetica-Bold').text('DATE & TIME:', 35, y + 23);
+  doc.font('Helvetica').fontSize(8).text(formattedDate, 110, y + 23);
+
+  doc.font('Helvetica-Bold').text('ISSUED BY:', 35, y + 38);
+  doc.font('Helvetica').fontSize(8).text(payment?.recordedBy || 'Accounts Department', 110, y + 38);
+
+  doc.font('Helvetica-Bold').text('JOB CARD NO:', 305, y + 8);
+  doc.font('Helvetica').fontSize(8.5).text(jobCard?.jobCardNo || 'N/A', 390, y + 8);
+
+  doc.font('Helvetica-Bold').text('INVOICE NO:', 305, y + 23);
+  doc.font('Helvetica').fontSize(8.5).text(invoice?.invoiceNo || 'Pending / Draft', 390, y + 23);
+
+  doc.font('Helvetica-Bold').text('PAYMENT CLASS:', 305, y + 38);
+  const isAdv = payment?.isAdvance || payment?.paymentMode !== undefined || payment?.type === 'Advance Deposit';
+  doc.font('Helvetica').fontSize(8.5).text(isAdv ? 'Advance Deposit' : 'Final Settlement', 390, y + 38);
+
+  y += 65;
+
+  // Customer & Vehicle Information Block
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 60).stroke();
+  doc.moveTo(297.5, y).lineTo(297.5, y + 60).stroke();
+
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
+  doc.text('RECEIVED FROM (CUSTOMER):', 35, y + 7);
+  doc.font('Helvetica').fontSize(8.5).text(customer?.name || 'Valued Customer', 35, y + 20);
+  doc.fontSize(7.5).fillColor('#475569')
+     .text(`Mobile: ${customer?.mobile || customer?.phone || 'N/A'}`, 35, y + 33)
+     .text(`Address: ${customer?.address || 'N/A'}`, 35, y + 45, { width: 250, ellipsis: true });
+
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8);
+  doc.text('VEHICLE DETAILS:', 305, y + 7);
+  doc.font('Helvetica').fontSize(8.5).text(vehicle?.vehicleNumber || vehicle?.regNo || 'N/A', 305, y + 20);
+  doc.fontSize(7.5).fillColor('#475569')
+     .text(`Make & Model: ${vehicle?.make || ''} ${vehicle?.model || ''}`, 305, y + 33)
+     .text(`Odometer: ${jobCard?.odometerReading || vehicle?.odometerReading || 'N/A'} km`, 305, y + 45);
+
+  y += 70;
+
+  // Payment Details Section Header
+  doc.fillColor('#1e293b').rect(30, y, 535, 18).fill();
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('TRANSACTION RECEIPT DETAILS', 35, y + 4);
+  y += 18;
+
+  // Table Header
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 20).stroke();
+  doc.fillColor('#f8fafc').rect(30.5, y + 0.5, 534, 19).fill();
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5);
+  doc.text('PAYMENT MODE', 35, y + 6);
+  doc.text('TRANSACTION / REF ID', 160, y + 6);
+  doc.text('REMARKS', 320, y + 6);
+  doc.text('AMOUNT RECEIVED', 460, y + 6, { width: 95, align: 'right' });
+  y += 20;
+
+  // Table Row
+  const payAmt = Number(payment?.amount || 0);
+  const payMode = payment?.paymentMode || payment?.paymentType || payment?.mode || 'Cash';
+  const payTxn = payment?.transactionId || payment?.referenceNumber || payment?.txnId || 'N/A';
+  const payRemarks = payment?.remarks || '-';
+
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 25).stroke();
+  doc.fillColor('#000000').font('Helvetica').fontSize(8);
+  doc.text(payMode, 35, y + 8);
+  doc.font('Helvetica-Bold').text(payTxn, 160, y + 8, { width: 150, ellipsis: true });
+  doc.font('Helvetica').text(payRemarks, 320, y + 8, { width: 135, ellipsis: true });
+  doc.font('Helvetica-Bold').fontSize(9).text(`Rs. ${payAmt.toFixed(2)}`, 460, y + 8, { width: 95, align: 'right' });
+  y += 25;
+
+  // Amount In Words Box
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 24).stroke();
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8).text('Amount in Words:', 35, y + 7);
+  doc.font('Helvetica').fontSize(8).text(`INR ${numberToWords(Math.round(payAmt))}`, 125, y + 7, { width: 430, ellipsis: true });
+  y += 34;
+
+  // Account Standing Summary Box
+  doc.fillColor('#1e293b').rect(30, y, 535, 18).fill();
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('ACCOUNT FINANCIAL SUMMARY', 35, y + 4);
+  y += 18;
+
+  const finBill = Number(financialSummary?.finalBillAmount || invoice?.totals?.roundedGrandTotal || invoice?.totals?.grandTotal || jobCard?.billingSummary?.grandTotal || 0);
+  const finAdv = Number(financialSummary?.totalAdvance || 0);
+  const finFinal = Number(financialSummary?.totalFinal || 0);
+  const finRec = Number(financialSummary?.totalReceived || (finAdv + finFinal));
+  const finWaived = Number(financialSummary?.waivedAmount || 0);
+  const finBal = Number(financialSummary?.balanceDue !== undefined ? financialSummary.balanceDue : Math.max(0, finBill - finRec));
+  const finCredit = Number(financialSummary?.customerCredit || 0);
+  const finStatus = String(financialSummary?.paymentStatus || (finBal <= 0.05 ? 'Fully Paid' : 'Partially Paid')).toUpperCase();
+
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 80).stroke();
+  
+  // Left side: totals breakdown
+  doc.fillColor('#000000').font('Helvetica').fontSize(8);
+  doc.text('Final Invoice / Bill Amount:', 35, y + 8);
+  doc.font('Helvetica-Bold').text(`Rs. ${finBill.toFixed(2)}`, 180, y + 8, { width: 80, align: 'right' });
+
+  doc.font('Helvetica').text('Total Advance Received:', 35, y + 22);
+  doc.font('Helvetica-Bold').text(`Rs. ${finAdv.toFixed(2)}`, 180, y + 22, { width: 80, align: 'right' });
+
+  doc.font('Helvetica').text('Total Balance Received:', 35, y + 36);
+  doc.font('Helvetica-Bold').text(`Rs. ${finFinal.toFixed(2)}`, 180, y + 36, { width: 80, align: 'right' });
+
+  doc.font('Helvetica').text('Total Amount Received to Date:', 35, y + 50);
+  doc.font('Helvetica-Bold').fillColor('#059669').text(`Rs. ${finRec.toFixed(2)}`, 180, y + 50, { width: 80, align: 'right' });
+
+  if (finWaived > 0) {
+    doc.fillColor('#7c3aed').font('Helvetica').text('Waived / Discounted:', 35, y + 64);
+    doc.font('Helvetica-Bold').text(`Rs. ${finWaived.toFixed(2)}`, 180, y + 64, { width: 80, align: 'right' });
+  }
+
+  // Right side: Outstanding Balance & Status
+  doc.moveTo(297.5, y).lineTo(297.5, y + 80).stroke();
+
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8.5);
+  doc.text('OUTSTANDING BALANCE DUE:', 310, y + 12);
+  const dueCol = finBal <= 0.05 ? '#059669' : '#dc2626';
+  doc.fillColor(dueCol).fontSize(14).font('Helvetica-Bold').text(`Rs. ${finBal.toFixed(2)}`, 310, y + 26);
+
+  if (finCredit > 0) {
+    doc.fillColor('#2563eb').fontSize(8).font('Helvetica-Bold').text(`Customer Excess Credit: Rs. ${finCredit.toFixed(2)}`, 310, y + 46);
+  }
+
+  doc.fillColor('#000000').fontSize(8).font('Helvetica-Bold').text('PAYMENT STATUS:', 310, y + 58);
+  doc.fillColor(dueCol).text(finStatus, 410, y + 58);
+
+  y += 95;
+
+  // Terms and Signature block
+  doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 110).stroke();
+  doc.moveTo(297.5, y).lineTo(297.5, y + 110).stroke();
+
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5).text('TERMS & NOTES:', 35, y + 8);
+  doc.fillColor('#475569').font('Helvetica').fontSize(6.5)
+     .text('1. All payments are subject to realization of Cheque / Online / UPI transfer.', 35, y + 20, { width: 250 })
+     .text('2. This is a computer generated official payment receipt.', 35, y + 32, { width: 250 })
+     .text('3. Please retain this receipt for warranty and service records.', 35, y + 44, { width: 250 })
+     .text('4. Goods once sold will be taken back or replaced as per company policy.', 35, y + 56, { width: 250 });
+
+  doc.fillColor('#000000').font('Helvetica-Bold').fontSize(7.5).text('For MVSS AUTOMOBILES PVT LTD', 310, y + 8);
+  doc.fillColor('#64748b').font('Helvetica').fontSize(7).text('(Authorized Signatory / Cashier)', 310, y + 88);
+
+  addPageNumbers(doc);
+  doc.end();
+}
+
 module.exports = {
   generateJobCardPDF,
   generateEstimatePDF,
   generateCustomerEstimatePDF,
   generateInvoicePDF,
   generateGatePassPDF,
+  generatePaymentReceiptPDF,
 };

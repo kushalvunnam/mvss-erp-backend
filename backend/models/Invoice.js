@@ -233,12 +233,12 @@ const invoiceSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ['Unpaid', 'Partially Paid', 'Paid'],
+    enum: ['Unpaid', 'Pending', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived'],
     default: 'Unpaid',
   },
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'Card', 'UPI', 'Bank Transfer', 'Insurance Claim', 'Split'],
+    enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Insurance Claim', 'Split', 'Scanner Payment', 'Scanner Payment (QR)'],
     default: 'Cash',
   },
   amountPaid: {
@@ -250,6 +250,10 @@ const invoiceSchema = new mongoose.Schema({
     default: 0,
   },
   balanceDue: {
+    type: Number,
+    default: 0,
+  },
+  customerCredit: {
     type: Number,
     default: 0,
   },

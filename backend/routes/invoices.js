@@ -321,8 +321,8 @@ router.post('/', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), as
     await invoice.save();
 
     try {
-      const { updateJobCardPaymentStatus } = require('./jobcards');
-      await updateJobCardPaymentStatus(jobCard);
+      const { recalculateJobCardFinancials } = require('../services/financialCalculationService');
+      await recalculateJobCardFinancials(jobCard, { invoice });
       await jobCard.save();
     } catch (err) {
       console.error('Failed to update job card payment status:', err);
@@ -484,20 +484,35 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
       invoice.manualInvoiceRef = manualInvoiceRef;
     }
 
-    invoice.balanceDue = Math.max(0, (invoice.totals.roundedGrandTotal || invoice.totals.grandTotal || 0) - (invoice.advanceReceived || 0));
+    const { recalculateJobCardFinancials } = require('../services/financialCalculationService');
+    const jc = await JobCard.findById(invoice.jobCardId);
+    if (jc) {
+      const res = await recalculateJobCardFinancials(jc, { invoice, saveInvoice: false });
+      if (res && res.summary) {
+        invoice.advanceReceived = res.summary.totalAdvance;
+        invoice.amountPaid = res.summary.totalReceived;
+        invoice.balanceDue = res.summary.pendingAmount;
+        invoice.customerCredit = res.summary.customerCredit;
+        invoice.paymentStatus = res.summary.invoicePaymentStatus;
+      }
+      await jc.save();
+    } else {
+      const grandTot = invoice.totals.roundedGrandTotal || invoice.totals.grandTotal || 0;
+      const adv = Number(invoice.advanceReceived) || 0;
+      const paid = Number(invoice.amountPaid) || 0;
+      const totalRec = adv + paid;
+      invoice.balanceDue = Math.max(0, grandTot - totalRec);
+      invoice.customerCredit = totalRec > grandTot ? (totalRec - grandTot) : 0;
+      if (invoice.balanceDue <= 0.05) {
+        invoice.paymentStatus = totalRec > grandTot ? 'Overpaid' : 'Paid';
+      } else if (totalRec > 0) {
+        invoice.paymentStatus = 'Partially Paid';
+      } else {
+        invoice.paymentStatus = 'Unpaid';
+      }
+    }
 
     await invoice.save();
-
-    try {
-      const { updateJobCardPaymentStatus } = require('./jobcards');
-      const jc = await JobCard.findById(invoice.jobCardId);
-      if (jc) {
-        await updateJobCardPaymentStatus(jc);
-        await jc.save();
-      }
-    } catch (err) {
-      console.error('Failed to update job card payment status:', err);
-    }
 
     // Trigger stock deduction and job card updates upon finalization
     if (isFinalizing) {
@@ -872,21 +887,55 @@ router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive
     const invoice = await Invoice.findById(req.params.id).populate('customerId');
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
 
-    invoice.paymentStatus = 'Paid';
-    invoice.status = 'Finalized'; // Finalized when paid
-    if (paymentMethod) invoice.paymentMethod = paymentMethod;
-    invoice.amountPaid = amountPaid || invoice.totals.grandTotal;
-    await invoice.save();
+    const { recalculateJobCardFinancials } = require('../services/financialCalculationService');
+    const JobCard = require('../models/JobCard');
+    const jc = invoice.jobCardId ? await JobCard.findById(invoice.jobCardId) : null;
 
-    try {
-      const { updateJobCardPaymentStatus } = require('./jobcards');
-      const jc = await JobCard.findById(invoice.jobCardId);
-      if (jc) {
-        await updateJobCardPaymentStatus(jc);
-        await jc.save();
+    const grandTotal = invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0;
+    const cleanMethod = paymentMethod || invoice.paymentMethod || 'Cash';
+
+    if (jc) {
+      const totalAdv = (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const totalFinAlready = (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const currentPaid = totalAdv + totalFinAlready;
+      const outstandingDue = Math.max(0, grandTotal - currentPaid);
+
+      const paymentToRecord = amountPaid !== undefined ? Number(amountPaid) : outstandingDue;
+
+      if (paymentToRecord > 0) {
+        jc.finalPayments.push({
+          amount: paymentToRecord,
+          paymentType: cleanMethod,
+          transactionId: req.body.transactionId || '',
+          referenceNumber: '',
+          remarks: req.body.remarks || `Payment recorded for Invoice ${invoice.invoiceNo}`,
+          paymentDate: new Date(),
+          recordedBy: req.user ? (req.user.name || req.user.username) : 'System'
+        });
       }
-    } catch (err) {
-      console.error('Failed to update job card payment status:', err);
+
+      invoice.paymentMethod = cleanMethod;
+      invoice.status = 'Finalized';
+
+      const resCalc = await recalculateJobCardFinancials(jc, { invoice, saveInvoice: false });
+      if (resCalc && resCalc.summary) {
+        invoice.advanceReceived = resCalc.summary.totalAdvance;
+        invoice.amountPaid = resCalc.summary.totalReceived;
+        invoice.balanceDue = resCalc.summary.pendingAmount;
+        invoice.customerCredit = resCalc.summary.customerCredit;
+        invoice.paymentStatus = resCalc.summary.invoicePaymentStatus;
+      }
+      await invoice.save();
+      await jc.save();
+    } else {
+      const payAmount = amountPaid !== undefined ? Number(amountPaid) : grandTotal;
+      invoice.paymentStatus = payAmount >= grandTotal ? 'Paid' : 'Partially Paid';
+      invoice.status = 'Finalized';
+      invoice.paymentMethod = cleanMethod;
+      invoice.amountPaid = payAmount;
+      invoice.balanceDue = Math.max(0, grandTotal - payAmount);
+      invoice.customerCredit = payAmount > grandTotal ? (payAmount - grandTotal) : 0;
+      await invoice.save();
     }
 
     // Create notification entry

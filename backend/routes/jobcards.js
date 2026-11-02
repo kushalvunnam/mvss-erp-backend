@@ -943,34 +943,55 @@ router.get('/:id/advance-payments', auth, async (req, res) => {
   }
 });
 
+const { recalculateJobCardFinancials } = require('../services/financialCalculationService');
+const { generatePaymentReceiptPDF } = require('../utils/pdfGenerator');
+
+// Helper to update Job Card Payment Status based on invoice grand totals and payments (Single Source of Truth)
+const updateJobCardPaymentStatus = async (jobCard) => {
+  return await recalculateJobCardFinancials(jobCard);
+};
+
 // Add advance payment to Job Card
 router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
   try {
     const { amount, type, paymentMode, transactionId, remarks, paymentDate } = req.body;
-    if (!amount || amount <= 0) {
-      return res.status(400).send({ error: 'Valid advance payment amount is required.' });
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).send({ error: 'Valid positive advance payment amount is required.' });
     }
-    if (!type || !paymentMode) {
-      return res.status(400).send({ error: 'Advance type and payment mode are required.' });
-    }
+    const cleanMode = (paymentMode || type || 'Cash').trim();
+    const cleanType = (type || paymentMode || 'Cash').trim();
 
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
 
+    // Concurrency / Duplicate protection: Check if identical payment was recorded in the last 5 seconds
+    const recentDuplicate = (jobCard.advancePayments || []).find(p => {
+      const isSameAmount = Math.abs(Number(p.amount) - numAmount) < 0.001;
+      const isSameMode = p.paymentMode === cleanMode;
+      const isSameTxn = (!transactionId && !p.transactionId) || (transactionId && p.transactionId === transactionId);
+      const isRecent = (Date.now() - new Date(p.paymentDate || p.createdAt || 0).getTime()) < 5000;
+      return isSameAmount && isSameMode && isSameTxn && isRecent;
+    });
+    if (recentDuplicate) {
+      return res.status(409).send({ error: 'A duplicate advance payment was just recorded. Please refresh.' });
+    }
+
     jobCard.advancePayments.push({
-      amount: Number(amount),
-      type,
-      paymentMode,
+      amount: numAmount,
+      type: cleanType,
+      paymentMode: cleanMode,
       paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
       transactionId: transactionId || '',
       remarks: remarks || '',
       recordedBy: req.user ? req.user.name : 'System'
     });
 
-    await updateJobCardPaymentStatus(jobCard);
+    await recalculateJobCardFinancials(jobCard);
     await jobCard.save();
 
-    await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_ADD', `Recorded advance payment of ₹${amount} for Job Card ${jobCard.jobCardNo}`, req);
+    await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_ADD', `Recorded advance payment of ₹${numAmount} for Job Card ${jobCard.jobCardNo}`, req);
+    
     // WhatsApp Integration: Advance Payment Received
     try {
       const Customer = require('../models/Customer');
@@ -979,7 +1000,7 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
       const vehicle = await VehicleModel.findById(jobCard.vehicleId);
       if (customer && (customer.mobile || customer.phone)) {
         const Invoice = require('../models/Invoice');
-        let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }) || await Invoice.findOne({ jobCardId: jobCard._id });
+        let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }) || await Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
         const { sendTemplateMessage } = require('../services/whatsappService');
         
         const addedPaymentId = jobCard.advancePayments[jobCard.advancePayments.length - 1]?._id;
@@ -991,7 +1012,7 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
               { type: 'text', text: customer.name },
               { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
               { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' },
-              { type: 'text', text: String(amount) },
+              { type: 'text', text: String(numAmount) },
               { type: 'text', text: 'Advance' }
             ]}
           ],
@@ -1015,8 +1036,8 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
 router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
   try {
     const { amount, type, paymentMode, transactionId, remarks, paymentDate } = req.body;
-    if (amount !== undefined && (isNaN(amount) || amount <= 0)) {
-      return res.status(400).send({ error: 'Valid advance payment amount is required.' });
+    if (amount !== undefined && (isNaN(amount) || Number(amount) <= 0)) {
+      return res.status(400).send({ error: 'Valid positive advance payment amount is required.' });
     }
 
     const jobCard = await JobCard.findById(req.params.id);
@@ -1034,7 +1055,7 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
     if (transactionId !== undefined) payment.transactionId = transactionId || '';
     if (remarks !== undefined) payment.remarks = remarks || '';
 
-    await updateJobCardPaymentStatus(jobCard);
+    await recalculateJobCardFinancials(jobCard);
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_UPDATE', `Updated advance payment ID ${payment._id} on Job Card ${jobCard.jobCardNo}`, req);
@@ -1043,52 +1064,6 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
     res.status(400).send({ error: 'Failed to update advance payment: ' + error.message });
   }
 });
-
-// Helper to update Job Card Payment Status based on invoice grand totals and payments
-const updateJobCardPaymentStatus = async (jobCard) => {
-  const Invoice = require('../models/Invoice');
-  let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
-  if (!invoice) {
-    invoice = await Invoice.findOne({ jobCardId: jobCard._id });
-  }
-
-  const finalBillAmount = invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jobCard.billingSummary?.grandTotal || 0);
-
-  const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + p.amount, 0);
-  const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + p.amount, 0);
-  const totalReceived = totalAdvance + totalFinal;
-
-  let pendingAmount = Math.max(0, finalBillAmount - totalReceived);
-
-  if (jobCard.waiver && jobCard.waiver.waivedAmount > 0) {
-    pendingAmount = Math.max(0, pendingAmount - jobCard.waiver.waivedAmount);
-  }
-
-  if (jobCard.waiver && jobCard.waiver.waivedAmount > 0 && pendingAmount <= 0.05) {
-    jobCard.paymentStatus = 'Settled (Waived Off)';
-  } else if (finalBillAmount > 0) {
-    if (pendingAmount <= 0.05) {
-      jobCard.paymentStatus = 'Fully Paid';
-    } else if (totalReceived > 0) {
-      jobCard.paymentStatus = 'Partially Paid';
-    } else {
-      jobCard.paymentStatus = 'Pending';
-    }
-  } else {
-    jobCard.paymentStatus = totalReceived > 0 ? 'Partially Paid' : 'Pending';
-  }
-
-  if (invoice) {
-    const isWaiverPaid = (jobCard.waiver && jobCard.waiver.waivedAmount > 0 && pendingAmount <= 0.05);
-    const newStatus = (pendingAmount <= 0.05 || isWaiverPaid) ? 'Paid' : (totalReceived > 0 ? 'Partially Paid' : 'Unpaid');
-    if (invoice.amountPaid !== totalReceived || invoice.balanceDue !== pendingAmount || invoice.paymentStatus !== newStatus) {
-      invoice.amountPaid = totalReceived;
-      invoice.balanceDue = pendingAmount;
-      invoice.paymentStatus = newStatus;
-      await invoice.save();
-    }
-  }
-};
 
 // Delete advance payment from Job Card
 router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
@@ -1104,7 +1079,7 @@ router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin'
     const removedPayment = jobCard.advancePayments[paymentIndex];
     jobCard.advancePayments.splice(paymentIndex, 1);
     
-    await updateJobCardPaymentStatus(jobCard);
+    await recalculateJobCardFinancials(jobCard);
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_ADVANCE_PAYMENT_REMOVE', `Deleted advance payment of ₹${removedPayment.amount} from Job Card ${jobCard.jobCardNo}`, req);
@@ -1129,19 +1104,30 @@ router.get('/:id/final-payments', auth, async (req, res) => {
 router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
   try {
     const { amount, paymentType, transactionId, referenceNumber, remarks, paymentDate } = req.body;
-    if (!amount || amount <= 0) {
-      return res.status(400).send({ error: 'Valid final payment amount is required.' });
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).send({ error: 'Valid positive final payment amount is required.' });
     }
-    if (!paymentType) {
-      return res.status(400).send({ error: 'Payment type is required.' });
-    }
+    const cleanType = (paymentType || 'Cash').trim();
 
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
 
+    // Concurrency / Duplicate protection: Check if identical final payment recorded in last 5 seconds
+    const recentDuplicate = (jobCard.finalPayments || []).find(p => {
+      const isSameAmount = Math.abs(Number(p.amount) - numAmount) < 0.001;
+      const isSameType = p.paymentType === cleanType;
+      const isSameTxn = (!transactionId && !p.transactionId) || (transactionId && p.transactionId === transactionId);
+      const isRecent = (Date.now() - new Date(p.paymentDate || p.createdAt || 0).getTime()) < 5000;
+      return isSameAmount && isSameType && isSameTxn && isRecent;
+    });
+    if (recentDuplicate) {
+      return res.status(409).send({ error: 'A duplicate final payment was just recorded. Please refresh.' });
+    }
+
     jobCard.finalPayments.push({
-      amount: Number(amount),
-      paymentType,
+      amount: numAmount,
+      paymentType: cleanType,
       transactionId: transactionId || '',
       referenceNumber: referenceNumber || '',
       remarks: remarks || '',
@@ -1149,10 +1135,11 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
       recordedBy: req.user ? req.user.name : 'System'
     });
 
-    await updateJobCardPaymentStatus(jobCard);
+    await recalculateJobCardFinancials(jobCard);
     await jobCard.save();
 
-    await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_ADD', `Recorded final payment of ₹${amount} for Job Card ${jobCard.jobCardNo}`, req);
+    await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_ADD', `Recorded final payment of ₹${numAmount} for Job Card ${jobCard.jobCardNo}`, req);
+    
     // WhatsApp Integration: Final Payment Received
     try {
       const Customer = require('../models/Customer');
@@ -1161,7 +1148,7 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
       const vehicle = await VehicleModel.findById(jobCard.vehicleId);
       if (customer && (customer.mobile || customer.phone)) {
         const Invoice = require('../models/Invoice');
-        let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }) || await Invoice.findOne({ jobCardId: jobCard._id });
+        let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }) || await Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
         const { sendTemplateMessage } = require('../services/whatsappService');
         
         const addedPaymentId = jobCard.finalPayments[jobCard.finalPayments.length - 1]?._id;
@@ -1173,7 +1160,7 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
               { type: 'text', text: customer.name },
               { type: 'text', text: vehicle ? vehicle.vehicleNumber : 'your vehicle' },
               { type: 'text', text: invoice ? invoice.invoiceNo : 'N/A' },
-              { type: 'text', text: String(amount) },
+              { type: 'text', text: String(numAmount) },
               { type: 'text', text: 'Final' }
             ]}
           ],
@@ -1193,6 +1180,39 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
   }
 });
 
+// Update/edit final payment on Job Card
+router.put('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+  try {
+    const { amount, paymentType, transactionId, referenceNumber, remarks, paymentDate } = req.body;
+    if (amount !== undefined && (isNaN(amount) || Number(amount) <= 0)) {
+      return res.status(400).send({ error: 'Valid positive final payment amount is required.' });
+    }
+
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    const payment = jobCard.finalPayments.id(req.params.paymentId);
+    if (!payment) {
+      return res.status(404).send({ error: 'Final payment record not found.' });
+    }
+
+    if (amount !== undefined) payment.amount = Number(amount);
+    if (paymentType !== undefined) payment.paymentType = paymentType;
+    if (paymentDate !== undefined) payment.paymentDate = new Date(paymentDate);
+    if (transactionId !== undefined) payment.transactionId = transactionId || '';
+    if (referenceNumber !== undefined) payment.referenceNumber = referenceNumber || '';
+    if (remarks !== undefined) payment.remarks = remarks || '';
+
+    await recalculateJobCardFinancials(jobCard);
+    await jobCard.save();
+
+    await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_UPDATE', `Updated final payment ID ${payment._id} on Job Card ${jobCard.jobCardNo}`, req);
+    res.send(jobCard);
+  } catch (error) {
+    res.status(400).send({ error: 'Failed to update final payment: ' + error.message });
+  }
+});
+
 // Delete final payment from Job Card
 router.delete('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
   try {
@@ -1207,7 +1227,7 @@ router.delete('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 
     const removedPayment = jobCard.finalPayments[paymentIndex];
     jobCard.finalPayments.splice(paymentIndex, 1);
 
-    await updateJobCardPaymentStatus(jobCard);
+    await recalculateJobCardFinancials(jobCard);
     await jobCard.save();
 
     await logAction(req.user, 'JOBCARD_FINAL_PAYMENT_REMOVE', `Deleted final payment of ₹${removedPayment.amount} from Job Card ${jobCard.jobCardNo}`, req);
@@ -1221,8 +1241,9 @@ router.delete('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 
 router.post('/:id/waive-off', auth, restrictTo('Super Admin', 'Admin', 'Accounts Executive', 'Accounts'), async (req, res) => {
   try {
     const { waivedAmount, reason } = req.body;
-    if (waivedAmount === undefined || Number(waivedAmount) <= 0) {
-      return res.status(400).send({ error: 'Valid waived amount is required.' });
+    const numWaived = Number(waivedAmount);
+    if (isNaN(numWaived) || numWaived <= 0) {
+      return res.status(400).send({ error: 'Valid positive waived amount is required.' });
     }
     if (!reason || !reason.trim()) {
       return res.status(400).send({ error: 'Waiver reason is required.' });
@@ -1234,40 +1255,109 @@ router.post('/:id/waive-off', auth, restrictTo('Super Admin', 'Admin', 'Accounts
     const Invoice = require('../models/Invoice');
     let invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' });
     if (!invoice) {
-      invoice = await Invoice.findOne({ jobCardId: jobCard._id });
+      invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
     }
 
-    const finalBillAmount = invoice ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0) : (jobCard.billingSummary?.grandTotal || 0);
+    const finalBillAmount = invoice
+      ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0)
+      : (jobCard.billingSummary?.grandTotal || 0);
 
-    const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + p.amount, 0);
-    const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + p.amount, 0);
+    const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalReceived = totalAdvance + totalFinal;
+    const balanceDue = Math.max(0, finalBillAmount - totalReceived);
 
-    const finalCollectedAmount = totalReceived;
+    if (numWaived > (balanceDue + 0.05)) {
+      return res.status(400).send({ error: `Waived amount (₹${numWaived}) cannot exceed outstanding balance (₹${balanceDue}).` });
+    }
 
     jobCard.waiver = {
       originalBillAmount: finalBillAmount,
       amountReceived: totalReceived,
-      waivedAmount: Number(waivedAmount),
-      finalCollectedAmount: finalCollectedAmount,
+      waivedAmount: numWaived,
+      finalCollectedAmount: totalReceived,
       approvedBy: req.user ? req.user.name : 'System Admin',
       waivedAt: new Date(),
       reason: reason.trim()
     };
 
-    await updateJobCardPaymentStatus(jobCard);
+    await recalculateJobCardFinancials(jobCard);
     await jobCard.save();
 
     await logAction(
       req.user,
       'JOBCARD_BALANCE_WAIVE_OFF',
-      `Waived off ₹${waivedAmount} for Job Card ${jobCard.jobCardNo}. Reason: ${reason}`,
+      `Waived off ₹${numWaived} for Job Card ${jobCard.jobCardNo}. Reason: ${reason}`,
       req
     );
 
     res.send(jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to record waiver: ' + error.message });
+  }
+});
+
+// Download Payment Receipt PDF for a payment on this Job Card
+router.get('/:id/payment-receipt/:paymentId?', auth, async (req, res) => {
+  try {
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    const Customer = require('../models/Customer');
+    const Vehicle = require('../models/Vehicle');
+    const Invoice = require('../models/Invoice');
+
+    const [customer, vehicle, invoice] = await Promise.all([
+      jobCard.customerId ? Customer.findById(jobCard.customerId).lean() : null,
+      jobCard.vehicleId ? Vehicle.findById(jobCard.vehicleId).lean() : null,
+      Invoice.findOne({ jobCardId: jobCard._id, status: 'Finalized' }).lean() || Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } }).lean()
+    ]);
+
+    let targetPayment = null;
+    let isAdvance = false;
+
+    if (req.params.paymentId) {
+      targetPayment = (jobCard.advancePayments || []).find(p => p._id.toString() === req.params.paymentId);
+      if (targetPayment) {
+        isAdvance = true;
+      } else {
+        targetPayment = (jobCard.finalPayments || []).find(p => p._id.toString() === req.params.paymentId);
+      }
+    }
+
+    if (!targetPayment) {
+      const allPayments = [
+        ...(jobCard.advancePayments || []).map(p => ({ ...p.toObject(), isAdvance: true })),
+        ...(jobCard.finalPayments || []).map(p => ({ ...p.toObject(), isAdvance: false }))
+      ].sort((a, b) => new Date(b.paymentDate) - new Date(a.paymentDate));
+
+      if (allPayments.length === 0) {
+        return res.status(400).send({ error: 'No payments recorded on this Job Card to generate a receipt.' });
+      }
+      targetPayment = allPayments[0];
+      isAdvance = targetPayment.isAdvance;
+    }
+
+    const receiptNo = `REC-${(targetPayment._id ? targetPayment._id.toString().slice(-6) : Date.now().toString().slice(-6)).toUpperCase()}`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=receipt-${receiptNo}.pdf`);
+
+    await logAction(req.user, 'REPORT_EXPORTED', `Exported Payment Receipt ${receiptNo} for Job Card ${jobCard.jobCardNo}`, req);
+
+    generatePaymentReceiptPDF({
+      receiptNo,
+      receiptDate: targetPayment.paymentDate,
+      payment: { ...targetPayment, isAdvance },
+      jobCard,
+      invoice,
+      customer: customer || { name: 'Valued Customer', mobile: 'N/A' },
+      vehicle: vehicle || { vehicleNumber: 'N/A', make: 'N/A', model: 'N/A' },
+      financialSummary: jobCard.financialSummary,
+      stream: res
+    });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to generate payment receipt: ' + error.message });
   }
 });
 

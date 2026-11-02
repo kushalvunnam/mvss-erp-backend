@@ -673,8 +673,8 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
         isInterstate: isInter
       });
 
-      const totalAdvance = jc.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + p.amount, 0) : 0;
-      setAdvanceReceived(totalAdvance);
+      const totalAdvance = jc.advancePayments ? jc.advancePayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) : 0;
+      setAdvanceReceived(Math.round((totalAdvance + Number.EPSILON) * 100) / 100);
 
       setInsuranceDetails(prev => ({
         ...prev,
