@@ -38,25 +38,7 @@ const computeFinancials = ({
     }, 0)
   );
 
-  // 2. Estimated Balance Due & Excess Advance Credit
-  const rawEstBalance = roundToTwo(estAmount - totalAdvance);
-  const estimatedBalanceDue = rawEstBalance > 0 ? rawEstBalance : 0;
-  const excessAdvanceCredit = totalAdvance > (estAmount + 0.05)
-    ? roundToTwo(totalAdvance - estAmount)
-    : 0;
-
-  // 3. Final Payments (sum only valid positive numbers)
-  const totalFinal = roundToTwo(
-    (finalPayments || []).reduce((sum, p) => {
-      const amt = Number(p?.amount) || 0;
-      return sum + (amt > 0 ? amt : 0);
-    }, 0)
-  );
-
-  // 4. Total Received (Advance + Final)
-  const totalReceived = roundToTwo(totalAdvance + totalFinal);
-
-  // 5. Total Waived (sum of active waivers, or fallback to single waiver object)
+  // 2. Total Waived (sum of active waivers, or fallback to single waiver object)
   let totalWaived = 0;
   if (Array.isArray(waivers) && waivers.length > 0) {
     totalWaived = roundToTwo(
@@ -71,6 +53,26 @@ const computeFinancials = ({
   } else if (waiver && Number(waiver.waivedAmount) > 0) {
     totalWaived = roundToTwo(Number(waiver.waivedAmount));
   }
+
+  // 3. Estimated Balance Due & Excess Advance Credit
+  // Take approved active waivers into account for estimated balance
+  const netEstimated = Math.max(0, roundToTwo(estAmount - totalWaived));
+  const rawEstBalance = roundToTwo(netEstimated - totalAdvance);
+  const estimatedBalanceDue = rawEstBalance > 0 ? rawEstBalance : 0;
+  const excessAdvanceCredit = totalAdvance > (netEstimated + 0.05)
+    ? roundToTwo(totalAdvance - netEstimated)
+    : 0;
+
+  // 4. Final Payments (sum only valid positive numbers)
+  const totalFinal = roundToTwo(
+    (finalPayments || []).reduce((sum, p) => {
+      const amt = Number(p?.amount) || 0;
+      return sum + (amt > 0 ? amt : 0);
+    }, 0)
+  );
+
+  // 5. Total Received (Advance + Final)
+  const totalReceived = roundToTwo(totalAdvance + totalFinal);
 
   // 6. Net Amount Payable (Final Bill Amount minus approved waivers)
   const netAmountPayable = Math.max(0, roundToTwo(billAmount - totalWaived));
@@ -90,8 +92,13 @@ const computeFinancials = ({
   // 9. Customer Credit / Overpayment
   // If total payment received exceeds the net amount payable
   let customerCredit = 0;
-  if (totalReceived > (netAmountPayable + 0.05)) {
-    customerCredit = roundToTwo(totalReceived - netAmountPayable);
+  if (billAmount > 0) {
+    if (totalReceived > (netAmountPayable + 0.05)) {
+      customerCredit = roundToTwo(totalReceived - netAmountPayable);
+    }
+  } else {
+    // When no invoice exists yet, customer credit ONLY applies if advance payments exceed net estimated repair amount
+    customerCredit = excessAdvanceCredit;
   }
 
   // 10. Payment Status Logic
@@ -99,12 +106,25 @@ const computeFinancials = ({
   let invoicePaymentStatus = 'Unpaid';
 
   if (billAmount === 0) {
-    if (totalReceived > 0.05) {
-      paymentStatus = 'Overpaid';
-      invoicePaymentStatus = 'Overpaid';
+    if (estAmount > 0) {
+      if (totalReceived >= (netEstimated - 0.05) && totalReceived > 0) {
+        paymentStatus = totalWaived > 0 ? 'Waived / Fully Settled' : (excessAdvanceCredit > 0 ? 'Overpaid' : 'Fully Paid');
+        invoicePaymentStatus = totalWaived > 0 ? 'Waived / Fully Settled' : (excessAdvanceCredit > 0 ? 'Overpaid' : 'Paid');
+      } else if (totalReceived > 0.05) {
+        paymentStatus = 'Partially Paid';
+        invoicePaymentStatus = 'Partially Paid';
+      } else {
+        paymentStatus = 'Pending';
+        invoicePaymentStatus = 'Unpaid';
+      }
     } else {
-      paymentStatus = 'Fully Paid';
-      invoicePaymentStatus = 'Paid';
+      if (totalReceived > 0.05) {
+        paymentStatus = 'Overpaid';
+        invoicePaymentStatus = 'Overpaid';
+      } else {
+        paymentStatus = 'Pending';
+        invoicePaymentStatus = 'Unpaid';
+      }
     }
   } else if (outstandingBalance <= 0.05) {
     if (totalWaived > 0) {
@@ -140,7 +160,9 @@ const computeFinancials = ({
     pendingAmount,
     outstandingBalance,
     customerCredit,
-    isSettled: outstandingBalance <= 0.05,
+    isSettled: billAmount > 0
+      ? (outstandingBalance <= 0.05)
+      : (estAmount > 0 ? (totalReceived >= (netEstimated - 0.05) && totalReceived > 0) : false),
     paymentStatus,
     invoicePaymentStatus
   };

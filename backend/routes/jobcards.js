@@ -1327,7 +1327,17 @@ const recordJobCardWaiver = async (req, res) => {
       return res.status(400).send({ error: 'Valid reason for waiver is mandatory.' });
     }
 
-    const validCategories = ['Customer Negotiation', 'Corporate Discount', 'Management Approval', 'Service Recovery', 'Other'];
+    const validCategories = [
+      'Customer Negotiation',
+      'Goodwill Gesture',
+      'Management Approval',
+      'Service Delay Compensation',
+      'Disputed Amount',
+      'Round-off / Minor Adjustment',
+      'Corporate Discount',
+      'Service Recovery',
+      'Other'
+    ];
     const chosenCategory = validCategories.includes(category) ? category : 'Customer Negotiation';
 
     const jobCard = await JobCard.findById(req.params.id);
@@ -1343,6 +1353,11 @@ const recordJobCardWaiver = async (req, res) => {
       ? (invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0)
       : (jobCard.billingSummary?.grandTotal || 0);
 
+    const estAmount = Number(jobCard.estAmt) || 
+      (jobCard.financialSummary?.estimatedRepairAmount !== undefined ? jobCard.financialSummary.estimatedRepairAmount : 0);
+
+    const baseAmount = finalBillAmount > 0 ? finalBillAmount : estAmount;
+
     const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalReceived = totalAdvance + totalFinal;
@@ -1352,11 +1367,11 @@ const recordJobCardWaiver = async (req, res) => {
       .filter(w => w.status !== 'Reversed')
       .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
 
-    const outstandingBeforeThisWaiver = Math.max(0, finalBillAmount - activeWaiverTotal - totalReceived);
+    const outstandingBeforeThisWaiver = Math.max(0, baseAmount - activeWaiverTotal - totalReceived);
 
     if (numWaived > (outstandingBeforeThisWaiver + 0.05)) {
       return res.status(400).send({
-        error: `Waived amount (₹${numWaived.toFixed(2)}) cannot exceed remaining outstanding balance (₹${outstandingBeforeThisWaiver.toFixed(2)}).`
+        error: `Waived amount (₹${numWaived.toFixed(2)}) cannot exceed remaining balance (₹${outstandingBeforeThisWaiver.toFixed(2)}).`
       });
     }
 

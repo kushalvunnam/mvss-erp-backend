@@ -69,6 +69,25 @@ async function runAllTests() {
     console.log('✓ Scenario 1 (Unit): Estimate ₹3,681.60 - Advance ₹2,000 = Estimated Balance Due ₹1,681.60');
   }
 
+  // Scenario 1B: Pre-invoice Estimate Waiver
+  {
+    const res = computeFinancials({
+      estimatedRepairAmount: 3681.60,
+      finalBillAmount: 0,
+      advancePayments: [{ amount: 2000, paymentMode: 'UPI' }],
+      finalPayments: [],
+      waivers: [{ amount: 500, status: 'Active' }]
+    });
+    assert.strictEqual(res.estimatedRepairAmount, 3681.60, 'S1B: Estimated Repair Amount should be 3681.60');
+    assert.strictEqual(res.totalWaived, 500, 'S1B: Total Waived should be 500');
+    assert.strictEqual(res.totalAdvance, 2000, 'S1B: Total Advance should be 2000');
+    assert.strictEqual(res.estimatedBalanceDue, 1181.60, 'S1B: Estimated Balance Due should be 1181.60');
+    assert.strictEqual(res.excessAdvanceCredit, 0, 'S1B: Excess Advance Credit should be 0');
+    assert.strictEqual(res.customerCredit, 0, 'S1B: Customer Credit should be 0');
+    assert.strictEqual(res.paymentStatus, 'Partially Paid', 'S1B: Payment Status should be Partially Paid');
+    console.log('✓ Scenario 1B (Unit): Estimate ₹3,681.60 - Waiver ₹500 - Advance ₹2,000 = Estimated Balance Due ₹1,181.60');
+  }
+
   // Scenario 2
   {
     const res = computeFinancials({

@@ -260,9 +260,9 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
       alert('Please enter a valid waiver reason.');
       return;
     }
-    const pending = getOutstandingBalance();
-    if (parseFloat(waiverAmount) > (pending + 0.05)) {
-      alert(`Waiver amount (₹${parseFloat(waiverAmount).toFixed(2)}) cannot exceed the pending balance of ₹${pending.toFixed(2)}.`);
+    const maxAllowed = getFinalBillAmount() > 0 ? getOutstandingBalance() : getEstimatedBalanceDue();
+    if (parseFloat(waiverAmount) > (maxAllowed + 0.05)) {
+      alert(`Waiver amount (₹${parseFloat(waiverAmount).toFixed(2)}) cannot exceed the remaining balance of ₹${maxAllowed.toFixed(2)}.`);
       return;
     }
     setWaiving(true);
@@ -377,15 +377,18 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const getEstimatedBalanceDue = () => {
     const estAmt = getEstimatedRepairAmount();
     const totalAdvance = getTotalAdvanceReceived();
-    const balance = estAmt - totalAdvance;
+    const totalWaived = getTotalActiveWaived();
+    const balance = estAmt - totalWaived - totalAdvance;
     return balance > 0 ? Math.round((balance + Number.EPSILON) * 100) / 100 : 0;
   };
 
   const getEstimatedAdvanceExcess = () => {
     const estAmt = getEstimatedRepairAmount();
     const totalAdvance = getTotalAdvanceReceived();
-    if (totalAdvance > (estAmt + 0.05)) {
-      return Math.round((totalAdvance - estAmt + Number.EPSILON) * 100) / 100;
+    const totalWaived = getTotalActiveWaived();
+    const netEst = Math.max(0, estAmt - totalWaived);
+    if (totalAdvance > (netEst + 0.05)) {
+      return Math.round((totalAdvance - netEst + Number.EPSILON) * 100) / 100;
     }
     return 0;
   };
@@ -412,18 +415,25 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const getWaivedAmount = () => getTotalActiveWaived();
 
   const getNetAmountPayable = () => {
-    const net = Math.max(0, getFinalBillAmount() - getTotalActiveWaived());
+    const base = getFinalBillAmount() > 0 ? getFinalBillAmount() : getEstimatedRepairAmount();
+    const net = Math.max(0, base - getTotalActiveWaived());
     return Math.round((net + Number.EPSILON) * 100) / 100;
   };
 
   const getOutstandingBalance = () => {
-    const bal = Math.max(0, getNetAmountPayable() - getTotalReceived());
-    return bal <= 0.05 ? 0 : Math.round((bal + Number.EPSILON) * 100) / 100;
+    if (getFinalBillAmount() > 0) {
+      const bal = Math.max(0, getNetAmountPayable() - getTotalReceived());
+      return bal <= 0.05 ? 0 : Math.round((bal + Number.EPSILON) * 100) / 100;
+    }
+    return getEstimatedBalanceDue();
   };
 
   const getBalancePayable = () => {
-    const bp = Math.max(0, getNetAmountPayable() - getTotalAdvanceReceived());
-    return Math.round((bp + Number.EPSILON) * 100) / 100;
+    if (getFinalBillAmount() > 0) {
+      const bp = Math.max(0, getNetAmountPayable() - getTotalAdvanceReceived());
+      return Math.round((bp + Number.EPSILON) * 100) / 100;
+    }
+    return getEstimatedBalanceDue();
   };
 
   const getPendingAmount = () => {
@@ -431,10 +441,15 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const getCustomerCredit = () => {
-    const netPayable = getNetAmountPayable();
+    const bill = getFinalBillAmount();
     const received = getTotalReceived();
-    if (received > (netPayable + 0.05)) {
-      return Math.round((received - netPayable + Number.EPSILON) * 100) / 100;
+    if (bill > 0) {
+      const netPayable = getNetAmountPayable();
+      if (received > (netPayable + 0.05)) {
+        return Math.round((received - netPayable + Number.EPSILON) * 100) / 100;
+      }
+    } else {
+      return getEstimatedAdvanceExcess();
     }
     return 0;
   };
@@ -497,18 +512,38 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         });
       });
     }
-    if (jc?.waiver && jc.waiver.waivedAmount > 0) {
+    if (Array.isArray(jc?.waivers) && jc.waivers.length > 0) {
+      jc.waivers.forEach((w, idx) => {
+        history.push({
+          id: w._id || `waiver-${idx}`,
+          waiverId: w._id,
+          type: w.status === 'Reversed' ? 'Waiver (Reversed)' : 'Balance Waiver',
+          date: w.createdAt || new Date(),
+          mode: w.category || 'Waived Off',
+          amount: w.amount,
+          txnId: w.status === 'Reversed' ? 'REVERSED' : 'WAIVER',
+          recordedBy: w.approvedBy || 'System',
+          remarks: w.status === 'Reversed'
+            ? `${w.reason} (Reversed by ${w.reversedBy || 'Staff'}: ${w.reversalReason || ''})`
+            : (w.remarks ? `${w.reason} - ${w.remarks}` : w.reason),
+          isAdvance: false,
+          isWaiver: true,
+          waiverStatus: w.status
+        });
+      });
+    } else if (jc?.waiver && jc.waiver.waivedAmount > 0) {
       history.push({
         id: 'waiver-' + jc._id,
         type: 'Balance Waiver',
         date: jc.waiver.waivedAt || new Date(),
-        mode: 'Waived Off',
+        mode: jc.waiver.category || 'Waived Off',
         amount: jc.waiver.waivedAmount,
         txnId: 'WAIVER',
         recordedBy: jc.waiver.approvedBy || 'System',
         remarks: jc.waiver.reason,
         isAdvance: false,
-        isWaiver: true
+        isWaiver: true,
+        waiverStatus: 'Active'
       });
     }
     return history.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1803,19 +1838,50 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <p className="text-[11px] text-slate-450 font-semibold mt-0.5">Process and settle the remaining balance for the job card</p>
             </div>
             
-            {/* Live calculations */}
-            <div className="flex gap-4">
-              <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 px-3.5 py-2 rounded-xl text-right">
-                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Balance Payable</span>
-                <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono">
-                  ₹{getBalancePayable().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 px-3.5 py-2 rounded-xl text-right">
-                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending Amount</span>
-                <span className="text-sm font-black text-rose-600 dark:text-rose-450 font-mono">
-                  ₹{getPendingAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Prominent Waive Off / Discount Action in Header */}
+              {['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const maxWaiver = getFinalBillAmount() > 0 ? getOutstandingBalance() : getEstimatedBalanceDue();
+                    setWaiverAmount(maxWaiver > 0 ? maxWaiver.toFixed(2) : '');
+                    setWaiverReason('');
+                    setWaiverCategory('Customer Negotiation');
+                    setWaiverApprovedBy(user?.name || '');
+                    setWaiverRemarks('');
+                    setShowWaiverModal(true);
+                  }}
+                  className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 shrink-0"
+                >
+                  <AlertTriangle className="w-4 h-4" /> Waive Off / Discount
+                </button>
+              )}
+
+              {/* Live calculations */}
+              <div className="flex gap-2 sm:gap-4">
+                <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-right">
+                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                    {getFinalBillAmount() > 0 ? 'Balance Payable' : 'Est. Balance Due'}
+                  </span>
+                  <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono">
+                    ₹{(getFinalBillAmount() > 0 ? getBalancePayable() : getEstimatedBalanceDue()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-right">
+                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                    {getFinalBillAmount() > 0 ? 'Pending Amount' : 'Invoice Status'}
+                  </span>
+                  {getFinalBillAmount() > 0 ? (
+                    <span className="text-sm font-black text-rose-600 dark:text-rose-450 font-mono">
+                      ₹{getPendingAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-black text-amber-600 dark:text-amber-400 uppercase">
+                      Pending
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1824,11 +1890,77 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             {/* Form to Receive Payment */}
             <div className="lg:col-span-2">
               {['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
-                getPendingAmount() <= 0.05 ? (
+                getFinalBillAmount() === 0 ? (
+                  /* Case 1: Final Invoice Not Yet Generated */
+                  <div className="bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 p-4 rounded-2xl space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-xl shrink-0">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1">
+                        <h5 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wide">
+                          Final Invoice Not Yet Generated
+                        </h5>
+                        <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
+                          This Job Card is currently in progress. The current estimated balance due is{' '}
+                          <span className="font-bold font-mono text-amber-950 dark:text-white">
+                            ₹{getEstimatedBalanceDue().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>{' '}
+                          (Estimated Repair: ₹{getEstimatedRepairAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}, Advance: ₹{getTotalAdvanceReceived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}).
+                        </p>
+                        <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                          Advance payments can be added in the Advance Payment section above. You can also apply an authorized discount/waiver on the estimated balance below.
+                        </p>
+                      </div>
+                    </div>
+
+                    {['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) && (
+                      <div className="pt-2 border-t border-amber-200/60 dark:border-amber-900/50 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 uppercase">
+                          Authorized Actions:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const maxWaiver = getEstimatedBalanceDue();
+                            setWaiverAmount(maxWaiver > 0 ? maxWaiver.toFixed(2) : '');
+                            setWaiverReason('');
+                            setWaiverCategory('Customer Negotiation');
+                            setWaiverApprovedBy(user?.name || '');
+                            setWaiverRemarks('');
+                            setShowWaiverModal(true);
+                          }}
+                          className="py-2 px-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+                        >
+                          <AlertTriangle className="w-4 h-4" /> Waive Off / Discount Adjustment
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : getPendingAmount() <= 0.05 ? (
+                  /* Case 2: Final Invoice exists and is fully settled / paid */
                   <div className="bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-200 dark:border-emerald-800 p-4 rounded-2xl text-center space-y-2">
                     <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
                     <h5 className="text-xs font-bold text-emerald-800 dark:text-emerald-450 uppercase tracking-wide">Balance Settled</h5>
                     <p className="text-[10px] text-emerald-600 dark:text-emerald-500 font-medium">This Job Card's balance has been fully settled/paid or waived off.</p>
+                    {['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) && (
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWaiverAmount('');
+                            setWaiverReason('');
+                            setWaiverCategory('Customer Negotiation');
+                            setWaiverApprovedBy(user?.name || '');
+                            setWaiverRemarks('');
+                            setShowWaiverModal(true);
+                          }}
+                          className="py-1.5 px-3 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1.5"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5" /> View / Manage Waivers
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <form onSubmit={handleAddFinalPayment} className="bg-slate-50 dark:bg-slate-950/10 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl space-y-3">
@@ -1959,7 +2091,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Final Invoice Amount</span>
-                  <span className="font-bold font-mono text-slate-800 dark:text-white">₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className="font-bold font-mono text-slate-800 dark:text-white">
+                    ₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    {getFinalBillAmount() === 0 && (
+                      <span className="text-[10px] font-normal text-amber-500 ml-1.5">(Pending)</span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Total Advance Received</span>
@@ -1971,7 +2108,29 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Total Waive-Off / Discount</span>
-                  <span className="font-bold font-mono text-purple-600 dark:text-purple-400">₹{getTotalActiveWaived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold font-mono text-purple-600 dark:text-purple-400">
+                      ₹{getTotalActiveWaived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                    {['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const maxWaiver = getFinalBillAmount() > 0 ? getOutstandingBalance() : getEstimatedBalanceDue();
+                          setWaiverAmount(maxWaiver > 0 ? maxWaiver.toFixed(2) : '');
+                          setWaiverReason('');
+                          setWaiverCategory('Customer Negotiation');
+                          setWaiverApprovedBy(user?.name || '');
+                          setWaiverRemarks('');
+                          setShowWaiverModal(true);
+                        }}
+                        className="px-2 py-0.5 rounded bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/70 dark:hover:bg-purple-900/70 text-[10px] font-extrabold text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors"
+                        title="Click to apply or manage waivers / discounts"
+                      >
+                        {getTotalActiveWaived() > 0 ? 'Manage' : '+ Waive Off'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-dashed border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-400">Net Amount Payable</span>
@@ -2080,14 +2239,20 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                               </button>
                             )}
                             {p.isWaiver ? (
-                              <button
-                                type="button"
-                                disabled
-                                className="text-slate-350 dark:text-slate-650 p-1 rounded-lg cursor-not-allowed opacity-50"
-                                title="Waiver cannot be deleted directly"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              p.waiverStatus !== 'Reversed' && ['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleReverseWaiver(p.waiverId)}
+                                  className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300 text-[10px] font-bold border border-rose-200 transition-colors"
+                                  title="Reverse this approved waiver"
+                                >
+                                  Reverse
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">
+                                  {p.waiverStatus === 'Reversed' ? 'Reversed' : 'Locked'}
+                                </span>
+                              )
                             ) : (
                               ['Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
                                 <button
@@ -2115,6 +2280,89 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               </table>
             </div>
           </div>
+
+          {/* Approved Waivers & Discounts Audit History Table */}
+          {jc?.waivers && jc.waivers.length > 0 && (
+            <div className="space-y-2 select-none border-t border-slate-150 dark:border-slate-800 pt-4">
+              <div className="flex justify-between items-center">
+                <h5 className="text-xs font-black text-purple-850 dark:text-purple-300 uppercase tracking-wide flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-purple-500" /> Approved Waivers & Discounts Audit Log
+                </h5>
+                <span className="text-[10px] font-bold text-slate-400">
+                  Total Active Waived: <span className="font-mono text-purple-600 dark:text-purple-400 font-black">₹{getTotalActiveWaived().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-purple-100 dark:border-purple-950/60 text-[10px] uppercase font-bold text-slate-455 bg-purple-50/30 dark:bg-purple-950/20">
+                      <th className="py-2.5 px-3">Date & Time</th>
+                      <th className="py-2.5 px-3">Category</th>
+                      <th className="py-2.5 px-3 text-right">Waived Amount</th>
+                      <th className="py-2.5 px-3">Reason / Justification</th>
+                      <th className="py-2.5 px-3">Approved By</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {jc.waivers.map((w, idx) => (
+                      <tr key={w._id || idx} className="hover:bg-purple-50/20 dark:hover:bg-purple-950/10 transition-colors">
+                        <td className="py-2.5 px-3 font-medium text-slate-500 whitespace-nowrap">
+                          {w.createdAt ? new Date(w.createdAt).toLocaleString('en-IN') : 'N/A'}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                            {w.category || 'Customer Negotiation'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-bold font-mono text-purple-700 dark:text-purple-300 whitespace-nowrap">
+                          ₹{(w.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-350 font-medium max-w-xs">
+                          <div>"{w.reason}"</div>
+                          {w.remarks && <div className="text-[10px] text-slate-400 italic">Notes: {w.remarks}</div>}
+                          {w.status === 'Reversed' && w.reversalReason && (
+                            <div className="text-[10px] text-rose-600 dark:text-rose-450 font-bold mt-0.5">
+                              Reversal reason: "{w.reversalReason}"
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-500 font-medium">
+                          {w.approvedBy || 'Staff'}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase border ${
+                            w.status === 'Reversed'
+                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border-rose-200'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200'
+                          }`}>
+                            {w.status || 'Active'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          {w.status !== 'Reversed' && ['Super Admin', 'Admin', 'Accounts Executive', 'Accounts'].includes(user?.role) ? (
+                            <button
+                              type="button"
+                              disabled={reversing}
+                              onClick={() => handleReverseWaiver(w._id)}
+                              className="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300 text-[10px] font-bold border border-rose-200 transition-colors disabled:opacity-50"
+                            >
+                              Reverse
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">
+                              {w.status === 'Reversed' ? `Reversed by ${w.reversedBy || 'Staff'}` : 'Locked'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
         </div>
 
@@ -2299,8 +2547,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0 text-xs font-semibold text-slate-600 dark:text-slate-400">
                 <div className="bg-slate-50 dark:bg-slate-950/20 p-3 rounded-xl space-y-1.5 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-400 font-semibold">Original Bill Amount:</span>
-                    <span className="font-bold font-mono text-slate-800 dark:text-white">₹{getFinalBillAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-slate-400 font-semibold">
+                      {getFinalBillAmount() > 0 ? 'Final Invoice Amount:' : 'Estimated Repair Amount:'}
+                    </span>
+                    <span className="font-bold font-mono text-slate-800 dark:text-white">
+                      ₹{(getFinalBillAmount() > 0 ? getFinalBillAmount() : getEstimatedRepairAmount()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-semibold">Total Received So Far:</span>
@@ -2313,8 +2565,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                     </div>
                   )}
                   <div className="flex justify-between border-t border-dashed border-slate-250 dark:border-slate-700 pt-1.5">
-                    <span className="text-slate-500 font-bold">Outstanding Balance Due:</span>
-                    <span className="font-bold font-mono text-rose-600 dark:text-rose-450">₹{getOutstandingBalance().toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-slate-500 font-bold">
+                      {getFinalBillAmount() > 0 ? 'Outstanding Invoice Balance:' : 'Estimated Balance Due:'}
+                    </span>
+                    <span className="font-bold font-mono text-rose-600 dark:text-rose-450">
+                      ₹{(getFinalBillAmount() > 0 ? getOutstandingBalance() : getEstimatedBalanceDue()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                 </div>
 
@@ -2325,7 +2581,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       type="number"
                       step="0.01"
                       min="0.01"
-                      max={getOutstandingBalance().toFixed(2)}
+                      max={(getFinalBillAmount() > 0 ? getOutstandingBalance() : getEstimatedBalanceDue()).toFixed(2)}
                       value={waiverAmount}
                       onChange={(e) => setWaiverAmount(e.target.value)}
                       placeholder="Enter amount to waive"
@@ -2341,9 +2597,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-slate-800 dark:text-slate-200"
                     >
                       <option value="Customer Negotiation">Customer Negotiation</option>
-                      <option value="Corporate Discount">Corporate Discount</option>
+                      <option value="Goodwill Gesture">Goodwill Gesture</option>
                       <option value="Management Approval">Management Approval</option>
-                      <option value="Service Recovery">Service Recovery</option>
+                      <option value="Service Delay Compensation">Service Delay Compensation</option>
+                      <option value="Disputed Amount">Disputed Amount</option>
+                      <option value="Round-off / Minor Adjustment">Round-off / Minor Adjustment</option>
+                      <option value="Corporate Discount">Corporate Discount</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
@@ -2455,7 +2714,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 </button>
                 <button
                   type="submit"
-                  disabled={waiving || getOutstandingBalance() <= 0.05}
+                  disabled={waiving || (getFinalBillAmount() > 0 ? getOutstandingBalance() : getEstimatedBalanceDue()) <= 0.05}
                   className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-all shadow-md shadow-purple-600/10 disabled:opacity-50"
                 >
                   {waiving ? 'Processing...' : 'Confirm Waiver'}

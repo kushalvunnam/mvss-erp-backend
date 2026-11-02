@@ -317,7 +317,17 @@ const JobCardSchema = new mongoose.Schema({
     reason: { type: String, required: true, trim: true },
     category: { 
       type: String, 
-      enum: ['Customer Negotiation', 'Corporate Discount', 'Management Approval', 'Service Recovery', 'Other'],
+      enum: [
+        'Customer Negotiation',
+        'Goodwill Gesture',
+        'Management Approval',
+        'Service Delay Compensation',
+        'Disputed Amount',
+        'Round-off / Minor Adjustment',
+        'Corporate Discount',
+        'Service Recovery',
+        'Other'
+      ],
       default: 'Customer Negotiation'
     },
     approvedBy: { type: String, required: true, trim: true },
