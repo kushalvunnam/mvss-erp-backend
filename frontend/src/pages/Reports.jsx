@@ -717,9 +717,12 @@ export default function Reports({ token, user }) {
           'Invoice No',
           'Invoice Date',
           'Vehicle Delivery Date',
+          'Estimated Repair Amount',
           'Final Invoice Amount',
           'Total Advance Received',
           'Total Payments Received',
+          'Approved Waiver / Discount',
+          'Net Amount Payable',
           'Outstanding Balance',
           'Payment Status',
           'Credit Due Date'
@@ -732,9 +735,12 @@ export default function Reports({ token, user }) {
           item.invoiceNo || 'N/A',
           item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A',
           item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A',
+          (item.estimatedRepairAmount || 0).toFixed(2),
           (item.finalInvoiceAmount || 0).toFixed(2),
           (item.totalAdvanceReceived || 0).toFixed(2),
           (item.totalPaymentsReceived || 0).toFixed(2),
+          (item.totalWaived || 0).toFixed(2),
+          (item.netAmountPayable !== undefined ? item.netAmountPayable : (item.finalInvoiceAmount || 0)).toFixed(2),
           (item.outstandingBalance || 0).toFixed(2),
           item.paymentStatus || 'Pending',
           item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'
@@ -1417,7 +1423,7 @@ export default function Reports({ token, user }) {
 
           {/* Pending Payments KPI Summary Cards */}
           {pendingSummary && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="bg-red-50/60 dark:bg-red-950/20 border border-red-200/60 dark:border-red-900/40 p-4 rounded-2xl">
                 <span className="text-[10px] font-extrabold uppercase text-red-600 tracking-wider block">
                   Outstanding Receivables
@@ -1432,6 +1438,14 @@ export default function Reports({ token, user }) {
                 </span>
                 <span className="text-lg font-black text-slate-800 dark:text-white mt-1 block">
                   ₹{pendingSummary.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 p-4 rounded-2xl">
+                <span className="text-[10px] font-extrabold uppercase text-purple-600 tracking-wider block">
+                  Total Waived / Discount
+                </span>
+                <span className="text-lg font-black text-purple-600 mt-1 block">
+                  ₹{(pendingSummary.totalWaived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 p-4 rounded-2xl">
@@ -1652,9 +1666,11 @@ export default function Reports({ token, user }) {
                           <th className="p-4">Invoice No</th>
                           <th className="p-4">Invoice Date</th>
                           <th className="p-4">Delivery Date</th>
-                          <th className="p-4 text-right">Final Amount</th>
+                          <th className="p-4 text-right">Final Bill</th>
                           <th className="p-4 text-right">Advance</th>
                           <th className="p-4 text-right">Total Received</th>
+                          <th className="p-4 text-right">Waived</th>
+                          <th className="p-4 text-right">Net Payable</th>
                           <th className="p-4 text-right">Outstanding</th>
                           <th className="p-4">Payment Status</th>
                           <th className="p-4">Credit Due Date</th>
@@ -1842,6 +1858,8 @@ export default function Reports({ token, user }) {
                           <td className="p-4 text-right font-bold text-slate-800 dark:text-white">₹{Math.round(item.finalInvoiceAmount || 0).toLocaleString('en-IN')}</td>
                           <td className="p-4 text-right text-slate-600 dark:text-slate-400">₹{Math.round(item.totalAdvanceReceived || 0).toLocaleString('en-IN')}</td>
                           <td className="p-4 text-right text-emerald-600 dark:text-emerald-400 font-semibold">₹{Math.round(item.totalPaymentsReceived || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-4 text-right font-semibold text-purple-600 dark:text-purple-400">₹{Math.round(item.totalWaived || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-4 text-right font-bold text-slate-800 dark:text-slate-100">₹{Math.round(item.netAmountPayable !== undefined ? item.netAmountPayable : item.finalInvoiceAmount || 0).toLocaleString('en-IN')}</td>
                           <td className="p-4 text-right font-black text-red-600 dark:text-red-400">₹{Math.round(item.outstandingBalance || 0).toLocaleString('en-IN')}</td>
                           <td className="p-4">
                             <div className="flex flex-col gap-1 items-start">

@@ -461,10 +461,13 @@ const getPendingPaymentsReportData = async (query = {}) => {
       ? (linkedInvoice.totals?.roundedGrandTotal || linkedInvoice.totals?.grandTotal || 0)
       : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
 
+    const estAmount = jc.financialSummary?.estimatedRepairAmount || jc.estAmt || 0;
     const totalAdvance = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const totalReceived = jc.financialSummary?.totalReceived ?? (linkedInvoice?.amountPaid || 0);
-    const rawBalance = roundToTwo(finalBillAmount - totalReceived);
-    const balanceDue = jc.financialSummary?.pendingAmount ?? (rawBalance > 0 ? rawBalance : 0);
+    const totalFinal = jc.financialSummary?.totalFinal ?? (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const totalReceived = jc.financialSummary?.totalReceived ?? roundToTwo(totalAdvance + totalFinal);
+    const totalWaived = jc.financialSummary?.totalWaived ?? (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0));
+    const netPayable = jc.financialSummary?.netAmountPayable ?? Math.max(0, roundToTwo(finalBillAmount - totalWaived));
+    const balanceDue = jc.financialSummary?.outstandingBalance ?? (jc.financialSummary?.pendingAmount ?? Math.max(0, roundToTwo(netPayable - totalReceived)));
 
     const effectivePaymentStatus = jc.paymentStatus || linkedInvoice?.paymentStatus || (balanceDue <= 0.05 ? 'Fully Paid' : (totalReceived > 0.05 ? 'Partially Paid' : 'Pending'));
 
@@ -489,9 +492,13 @@ const getPendingPaymentsReportData = async (query = {}) => {
       vehicleDeliveryDate: deliveryDate,
       deliveryStaff,
       deliveryTime,
+      estimatedRepairAmount: roundToTwo(estAmount),
       finalInvoiceAmount: roundToTwo(finalBillAmount),
       totalAdvanceReceived: roundToTwo(totalAdvance),
+      additionalPaymentsReceived: roundToTwo(totalFinal),
       totalPaymentsReceived: roundToTwo(totalReceived),
+      totalWaived: roundToTwo(totalWaived),
+      netAmountPayable: roundToTwo(netPayable),
       outstandingBalance: roundToTwo(balanceDue),
       paymentStatus: effectivePaymentStatus,
       jobCardStatus: jc.status,
@@ -510,7 +517,11 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const custType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
     const finalBillAmount = inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0;
     const totalReceived = inv.amountPaid || 0;
-    const balanceDue = inv.balanceDue ?? Math.max(0, finalBillAmount - totalReceived);
+    const totalAdvance = inv.advanceReceived || 0;
+    const totalFinal = Math.max(0, roundToTwo(totalReceived - totalAdvance));
+    const totalWaived = inv.totalWaived || inv.waiverAmount || 0;
+    const netPayable = inv.netAmountPayable || Math.max(0, roundToTwo(finalBillAmount - totalWaived));
+    const balanceDue = inv.balanceDue ?? Math.max(0, roundToTwo(netPayable - totalReceived));
     const creditDueDate = inv.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && inv.date ? new Date(new Date(inv.date).getTime() + 30 * 86400000) : null);
 
     rawList.push({
@@ -531,9 +542,13 @@ const getPendingPaymentsReportData = async (query = {}) => {
       vehicleDeliveryDate: null,
       deliveryStaff: '',
       deliveryTime: '',
+      estimatedRepairAmount: roundToTwo(inv.estimatedRepairAmount || 0),
       finalInvoiceAmount: roundToTwo(finalBillAmount),
-      totalAdvanceReceived: roundToTwo(inv.advanceReceived || 0),
+      totalAdvanceReceived: roundToTwo(totalAdvance),
+      additionalPaymentsReceived: roundToTwo(totalFinal),
       totalPaymentsReceived: roundToTwo(totalReceived),
+      totalWaived: roundToTwo(totalWaived),
+      netAmountPayable: roundToTwo(netPayable),
       outstandingBalance: roundToTwo(balanceDue),
       paymentStatus: inv.paymentStatus || (balanceDue <= 0.05 ? 'Fully Paid' : 'Pending'),
       jobCardStatus: 'Invoice Only',
@@ -653,6 +668,8 @@ const getPendingPaymentsReportData = async (query = {}) => {
   let totalReceivables = 0;
   let totalBilled = 0;
   let totalReceived = 0;
+  let totalWaived = 0;
+  let totalNetPayable = 0;
   let deliveredPendingCount = 0;
   let corporatePendingCount = 0;
 
@@ -660,6 +677,8 @@ const getPendingPaymentsReportData = async (query = {}) => {
     totalReceivables += item.outstandingBalance || 0;
     totalBilled += item.finalInvoiceAmount || 0;
     totalReceived += item.totalPaymentsReceived || 0;
+    totalWaived += item.totalWaived || 0;
+    totalNetPayable += item.netAmountPayable || 0;
     if (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) {
       deliveredPendingCount++;
     }
@@ -675,6 +694,8 @@ const getPendingPaymentsReportData = async (query = {}) => {
       totalReceivables: roundToTwo(totalReceivables),
       totalBilled: roundToTwo(totalBilled),
       totalReceived: roundToTwo(totalReceived),
+      totalWaived: roundToTwo(totalWaived),
+      totalNetPayable: roundToTwo(totalNetPayable),
       deliveredPendingCount,
       corporatePendingCount
     }
@@ -710,9 +731,13 @@ router.get('/pending-payments/export/excel', auth, async (req, res) => {
       'Invoice No',
       'Invoice Date',
       'Vehicle Delivery Date',
+      'Estimated Repair Amount',
       'Final Invoice Amount',
       'Total Advance Received',
+      'Additional Payments Received',
       'Total Payments Received',
+      'Approved Waiver / Discount',
+      'Net Amount Payable',
       'Outstanding Balance',
       'Payment Status',
       'Credit Due Date'
@@ -726,9 +751,13 @@ router.get('/pending-payments/export/excel', auth, async (req, res) => {
       item.invoiceNo || 'N/A',
       item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A',
       item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A',
+      (item.estimatedRepairAmount || 0).toFixed(2),
       item.finalInvoiceAmount.toFixed(2),
       item.totalAdvanceReceived.toFixed(2),
+      (item.additionalPaymentsReceived || 0).toFixed(2),
       item.totalPaymentsReceived.toFixed(2),
+      (item.totalWaived || 0).toFixed(2),
+      (item.netAmountPayable !== undefined ? item.netAmountPayable : item.finalInvoiceAmount).toFixed(2),
       item.outstandingBalance.toFixed(2),
       item.paymentStatus,
       item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'
@@ -760,25 +789,26 @@ router.get('/pending-payments/export/pdf', auth, async (req, res) => {
     // Header
     doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e3a8a').text('MVSS AUTOMOBILES', 30, 30);
     doc.fontSize(11).font('Helvetica-Bold').fillColor('#334155').text('Financial & Tax Reports — Pending Payments', 30, 52);
-    doc.fontSize(8.5).font('Helvetica').fillColor('#64748b').text(`Generated on: ${new Date().toLocaleString('en-IN')} | Total Records: ${summary.totalRecords} | Outstanding Receivables: ₹${summary.totalReceivables.toLocaleString('en-IN')}`, 30, 68);
+    doc.fontSize(8.5).font('Helvetica').fillColor('#64748b').text(`Generated on: ${new Date().toLocaleString('en-IN')} | Total Records: ${summary.totalRecords} | Total Waived: ₹${summary.totalWaived.toLocaleString('en-IN')} | Outstanding Receivables: ₹${summary.totalReceivables.toLocaleString('en-IN')}`, 30, 68);
 
     doc.moveTo(30, 84).lineTo(812, 84).strokeColor('#cbd5e1').lineWidth(1).stroke();
 
     // Table Header
     let y = 96;
     doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0f172a');
-    doc.text('Job Card No', 30, y, { width: 65 });
-    doc.text('Customer Name', 100, y, { width: 95 });
-    doc.text('Type', 200, y, { width: 55 });
-    doc.text('Vehicle Reg', 260, y, { width: 65 });
-    doc.text('Invoice No', 330, y, { width: 65 });
-    doc.text('Inv Date', 400, y, { width: 50 });
-    doc.text('Delivery Date', 455, y, { width: 55 });
-    doc.text('Final Bill (₹)', 515, y, { width: 55, align: 'right' });
-    doc.text('Advance (₹)', 575, y, { width: 50, align: 'right' });
-    doc.text('Received (₹)', 630, y, { width: 50, align: 'right' });
-    doc.text('Outstanding (₹)', 685, y, { width: 60, align: 'right' });
-    doc.text('Status', 750, y, { width: 60 });
+    doc.text('Job Card No', 30, y, { width: 55 });
+    doc.text('Customer Name', 88, y, { width: 88 });
+    doc.text('Type', 178, y, { width: 44 });
+    doc.text('Vehicle Reg', 224, y, { width: 55 });
+    doc.text('Invoice No', 281, y, { width: 55 });
+    doc.text('Inv Date', 338, y, { width: 44 });
+    doc.text('Final Bill (₹)', 384, y, { width: 50, align: 'right' });
+    doc.text('Advance (₹)', 436, y, { width: 46, align: 'right' });
+    doc.text('Received (₹)', 484, y, { width: 46, align: 'right' });
+    doc.text('Waived (₹)', 532, y, { width: 46, align: 'right' });
+    doc.text('Net Bill (₹)', 580, y, { width: 48, align: 'right' });
+    doc.text('Outstanding (₹)', 630, y, { width: 58, align: 'right' });
+    doc.text('Status', 694, y, { width: 75 });
 
     doc.moveTo(30, y + 14).lineTo(812, y + 14).strokeColor('#0f172a').lineWidth(0.8).stroke();
     y += 20;
@@ -796,26 +826,27 @@ router.get('/pending-payments/export/pdf', auth, async (req, res) => {
       }
 
       doc.fillColor('#0f172a');
-      doc.text(item.jobCardNo || 'N/A', 30, y, { width: 65 });
-      doc.text(item.customerName || 'N/A', 100, y, { width: 95 });
-      doc.text(item.customerType || 'Individual', 200, y, { width: 55 });
-      doc.text(item.vehicleRegNo || 'N/A', 260, y, { width: 65 });
-      doc.text(item.invoiceNo || 'N/A', 330, y, { width: 65 });
-      doc.text(item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A', 400, y, { width: 50 });
-      doc.text(item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A', 455, y, { width: 55 });
-      doc.text(item.finalInvoiceAmount.toFixed(2), 515, y, { width: 55, align: 'right' });
-      doc.text(item.totalAdvanceReceived.toFixed(2), 575, y, { width: 50, align: 'right' });
-      doc.text(item.totalPaymentsReceived.toFixed(2), 630, y, { width: 50, align: 'right' });
+      doc.text(item.jobCardNo || 'N/A', 30, y, { width: 55 });
+      doc.text(item.customerName || 'N/A', 88, y, { width: 88 });
+      doc.text(item.customerType || 'Individual', 178, y, { width: 44 });
+      doc.text(item.vehicleRegNo || 'N/A', 224, y, { width: 55 });
+      doc.text(item.invoiceNo || 'N/A', 281, y, { width: 55 });
+      doc.text(item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A', 338, y, { width: 44 });
+      doc.text(item.finalInvoiceAmount.toFixed(2), 384, y, { width: 50, align: 'right' });
+      doc.text(item.totalAdvanceReceived.toFixed(2), 436, y, { width: 46, align: 'right' });
+      doc.text(item.totalPaymentsReceived.toFixed(2), 484, y, { width: 46, align: 'right' });
+      doc.text((item.totalWaived || 0).toFixed(2), 532, y, { width: 46, align: 'right' });
+      doc.text((item.netAmountPayable !== undefined ? item.netAmountPayable : item.finalInvoiceAmount).toFixed(2), 580, y, { width: 48, align: 'right' });
 
       if (item.outstandingBalance > 0.05) {
         doc.fillColor('#dc2626').font('Helvetica-Bold');
       } else {
         doc.fillColor('#16a34a').font('Helvetica');
       }
-      doc.text(item.outstandingBalance.toFixed(2), 685, y, { width: 60, align: 'right' });
+      doc.text(item.outstandingBalance.toFixed(2), 630, y, { width: 58, align: 'right' });
 
       doc.fillColor('#0f172a').font('Helvetica');
-      doc.text(item.paymentStatus, 750, y, { width: 60 });
+      doc.text(item.paymentStatus, 694, y, { width: 75 });
 
       y += 15;
     });
@@ -828,8 +859,8 @@ router.get('/pending-payments/export/pdf', auth, async (req, res) => {
     }
     doc.moveTo(30, y).lineTo(812, y).strokeColor('#cbd5e1').lineWidth(1).stroke();
     y += 8;
-    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0f172a');
-    doc.text(`Total Records: ${summary.totalRecords}  |  Delivered (Pending Payment): ${summary.deliveredPendingCount}  |  Total Billed: ₹${summary.totalBilled.toLocaleString('en-IN')}  |  Total Received: ₹${summary.totalReceived.toLocaleString('en-IN')}  |  Total Receivables: ₹${summary.totalReceivables.toLocaleString('en-IN')}`, 30, y);
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#0f172a');
+    doc.text(`Total Records: ${summary.totalRecords}  |  Delivered (Pending Payment): ${summary.deliveredPendingCount}  |  Total Billed: ₹${summary.totalBilled.toLocaleString('en-IN')}  |  Total Waived: ₹${summary.totalWaived.toLocaleString('en-IN')}  |  Total Received: ₹${summary.totalReceived.toLocaleString('en-IN')}  |  Total Receivables: ₹${summary.totalReceivables.toLocaleString('en-IN')}`, 30, y);
 
     doc.end();
   } catch (error) {

@@ -555,7 +555,9 @@ router.put('/:id', auth, async (req, res) => {
         }
 
         await recalculateJobCardFinancials(jobCard, { invoice });
-        const isPaid = ['Fully Paid', 'Paid', 'Settled (Waived Off)', 'Overpaid'].includes(jobCard.paymentStatus) || (jobCard.financialSummary?.pendingAmount <= 0.05);
+        const isPaid = ['Fully Paid', 'Paid', 'Settled (Waived Off)', 'Waived', 'Waived / Fully Settled', 'Overpaid'].includes(jobCard.paymentStatus) || 
+          (jobCard.financialSummary?.outstandingBalance <= 0.05) || 
+          (jobCard.financialSummary?.pendingAmount <= 0.05);
         if (!isPaid) {
           return res.status(400).send({ 
             error: 'Delivered status is allowed only when payment status is Fully Paid. For delivery with outstanding payment, please select "Delivered – Payment Pending".' 
@@ -1313,17 +1315,20 @@ router.delete('/:id/final-payments/:paymentId', auth, restrictTo('Super Admin', 
   }
 });
 
-// Settle / Waive off remaining balance of a Job Card
-router.post('/:id/waive-off', auth, restrictTo('Super Admin', 'Admin', 'Accounts Executive', 'Accounts'), async (req, res) => {
+// Handler helper for creating a waiver
+const recordJobCardWaiver = async (req, res) => {
   try {
-    const { waivedAmount, reason } = req.body;
-    const numWaived = Number(waivedAmount);
+    const { amount, waivedAmount, reason, category, approvedBy, remarks } = req.body;
+    const numWaived = Number(amount !== undefined ? amount : waivedAmount);
     if (isNaN(numWaived) || numWaived <= 0) {
       return res.status(400).send({ error: 'Valid positive waived amount is required.' });
     }
     if (!reason || !reason.trim()) {
-      return res.status(400).send({ error: 'Waiver reason is required.' });
+      return res.status(400).send({ error: 'Valid reason for waiver is mandatory.' });
     }
+
+    const validCategories = ['Customer Negotiation', 'Corporate Discount', 'Management Approval', 'Service Recovery', 'Other'];
+    const chosenCategory = validCategories.includes(category) ? category : 'Customer Negotiation';
 
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
@@ -1341,35 +1346,109 @@ router.post('/:id/waive-off', auth, restrictTo('Super Admin', 'Admin', 'Accounts
     const totalAdvance = (jobCard.advancePayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalFinal = (jobCard.finalPayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalReceived = totalAdvance + totalFinal;
-    const balanceDue = Math.max(0, finalBillAmount - totalReceived);
 
-    if (numWaived > (balanceDue + 0.05)) {
-      return res.status(400).send({ error: `Waived amount (₹${numWaived}) cannot exceed outstanding balance (₹${balanceDue}).` });
+    // Calculate currently active waivers
+    const activeWaiverTotal = (jobCard.waivers || [])
+      .filter(w => w.status !== 'Reversed')
+      .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
+
+    const outstandingBeforeThisWaiver = Math.max(0, finalBillAmount - activeWaiverTotal - totalReceived);
+
+    if (numWaived > (outstandingBeforeThisWaiver + 0.05)) {
+      return res.status(400).send({
+        error: `Waived amount (₹${numWaived.toFixed(2)}) cannot exceed remaining outstanding balance (₹${outstandingBeforeThisWaiver.toFixed(2)}).`
+      });
     }
 
-    jobCard.waiver = {
-      originalBillAmount: finalBillAmount,
-      amountReceived: totalReceived,
-      waivedAmount: numWaived,
-      finalCollectedAmount: totalReceived,
-      approvedBy: req.user ? req.user.name : 'System Admin',
-      waivedAt: new Date(),
-      reason: reason.trim()
+    if (!jobCard.waivers) jobCard.waivers = [];
+
+    const approverName = (approvedBy && approvedBy.trim()) || (req.user ? req.user.name : 'Authorized Staff');
+
+    const newWaiver = {
+      amount: numWaived,
+      reason: reason.trim(),
+      category: chosenCategory,
+      approvedBy: approverName,
+      approvedById: req.user ? req.user._id : null,
+      remarks: (remarks || '').trim(),
+      status: 'Active',
+      createdAt: new Date(),
+      createdBy: req.user ? req.user.name : '',
+      createdById: req.user ? req.user._id : null
     };
 
-    await recalculateJobCardFinancials(jobCard);
+    jobCard.waivers.push(newWaiver);
+
+    await recalculateJobCardFinancials(jobCard, { invoice });
     await jobCard.save();
 
     await logAction(
       req.user,
       'JOBCARD_BALANCE_WAIVE_OFF',
-      `Waived off ₹${numWaived} for Job Card ${jobCard.jobCardNo}. Reason: ${reason}`,
+      `Waived off ₹${numWaived} (${chosenCategory}) for Job Card ${jobCard.jobCardNo}. Reason: ${reason}. Approved by: ${approverName}`,
       req
     );
 
     res.send(jobCard);
   } catch (error) {
     res.status(400).send({ error: 'Failed to record waiver: ' + error.message });
+  }
+};
+
+// Settle / Waive off remaining balance of a Job Card (main & alias routes)
+router.post('/:id/waive-off', auth, restrictTo('Super Admin', 'Admin', 'Accounts Executive', 'Accounts'), recordJobCardWaiver);
+router.post('/:id/waivers', auth, restrictTo('Super Admin', 'Admin', 'Accounts Executive', 'Accounts'), recordJobCardWaiver);
+
+// Get list of all waivers on a Job Card
+router.get('/:id/waivers', auth, async (req, res) => {
+  try {
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+    res.send(jobCard.waivers || []);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to fetch waivers: ' + error.message });
+  }
+});
+
+// Reverse an approved waiver with audit log
+router.post('/:id/waivers/:waiverId/reverse', auth, restrictTo('Super Admin', 'Admin', 'Accounts Executive', 'Accounts'), async (req, res) => {
+  try {
+    const { reversalReason } = req.body;
+    if (!reversalReason || !reversalReason.trim()) {
+      return res.status(400).send({ error: 'Reversal reason is mandatory to reverse a waiver.' });
+    }
+
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    const waiver = jobCard.waivers ? jobCard.waivers.id(req.params.waiverId) : null;
+    if (!waiver) {
+      return res.status(404).send({ error: 'Waiver record not found.' });
+    }
+
+    if (waiver.status === 'Reversed') {
+      return res.status(400).send({ error: 'This waiver has already been reversed.' });
+    }
+
+    waiver.status = 'Reversed';
+    waiver.reversedAt = new Date();
+    waiver.reversedBy = req.user ? req.user.name : 'Authorized Staff';
+    waiver.reversedById = req.user ? req.user._id : null;
+    waiver.reversalReason = reversalReason.trim();
+
+    await recalculateJobCardFinancials(jobCard);
+    await jobCard.save();
+
+    await logAction(
+      req.user,
+      'JOBCARD_WAIVER_REVERSED',
+      `Reversed waiver of ₹${waiver.amount} on Job Card ${jobCard.jobCardNo}. Reason: ${reversalReason.trim()}`,
+      req
+    );
+
+    res.send(jobCard);
+  } catch (error) {
+    res.status(400).send({ error: 'Failed to reverse waiver: ' + error.message });
   }
 });
 

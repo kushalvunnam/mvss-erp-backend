@@ -309,27 +309,55 @@ const JobCardSchema = new mongoose.Schema({
   }],
   paymentStatus: {
     type: String,
-    enum: ['Pending', 'Unpaid', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived'],
+    enum: ['Pending', 'Unpaid', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived', 'Waived / Fully Settled'],
     default: 'Pending'
   },
+  waivers: [{
+    amount: { type: Number, required: true },
+    reason: { type: String, required: true, trim: true },
+    category: { 
+      type: String, 
+      enum: ['Customer Negotiation', 'Corporate Discount', 'Management Approval', 'Service Recovery', 'Other'],
+      default: 'Customer Negotiation'
+    },
+    approvedBy: { type: String, required: true, trim: true },
+    approvedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    remarks: { type: String, default: '', trim: true },
+    status: { type: String, enum: ['Active', 'Reversed'], default: 'Active' },
+    createdAt: { type: Date, default: Date.now },
+    createdBy: { type: String, default: '' },
+    createdById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reversedAt: { type: Date },
+    reversedBy: { type: String, default: '' },
+    reversedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reversalReason: { type: String, default: '' }
+  }],
   waiver: {
     originalBillAmount: { type: Number, default: 0 },
     amountReceived: { type: Number, default: 0 },
     waivedAmount: { type: Number, default: 0 },
     finalCollectedAmount: { type: Number, default: 0 },
+    category: { type: String, default: 'Customer Negotiation' },
     approvedBy: { type: String, default: '' },
+    remarks: { type: String, default: '' },
     waivedAt: { type: Date },
     reason: { type: String, default: '' }
   },
 
   financialSummary: {
+    estimatedRepairAmount: { type: Number, default: 0 },
+    estimatedBalanceDue: { type: Number, default: 0 },
+    excessAdvanceCredit: { type: Number, default: 0 },
     finalBillAmount: { type: Number, default: 0 },
     totalAdvance: { type: Number, default: 0 },
     totalFinal: { type: Number, default: 0 },
     totalReceived: { type: Number, default: 0 },
+    totalWaived: { type: Number, default: 0 },
     waivedAmount: { type: Number, default: 0 },
+    netAmountPayable: { type: Number, default: 0 },
     balanceDue: { type: Number, default: 0 },
     pendingAmount: { type: Number, default: 0 },
+    outstandingBalance: { type: Number, default: 0 },
     customerCredit: { type: Number, default: 0 },
     paymentStatus: { type: String, default: 'Pending' },
     lastCalculatedAt: { type: Date, default: Date.now }

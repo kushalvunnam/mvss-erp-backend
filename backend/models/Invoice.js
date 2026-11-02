@@ -233,7 +233,7 @@ const invoiceSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ['Unpaid', 'Pending', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived'],
+    enum: ['Unpaid', 'Pending', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived', 'Waived / Fully Settled'],
     default: 'Unpaid',
   },
   paymentMethod: {
@@ -246,6 +246,22 @@ const invoiceSchema = new mongoose.Schema({
     default: 0,
   },
   advanceReceived: {
+    type: Number,
+    default: 0,
+  },
+  totalWaived: {
+    type: Number,
+    default: 0,
+  },
+  waiverAmount: {
+    type: Number,
+    default: 0,
+  },
+  netAmountPayable: {
+    type: Number,
+    default: 0,
+  },
+  estimatedRepairAmount: {
     type: Number,
     default: 0,
   },
