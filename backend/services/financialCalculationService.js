@@ -154,6 +154,21 @@ const recalculateJobCardFinancials = async (jobCard, options = {}) => {
     lastCalculatedAt: new Date()
   };
 
+  // If vehicle was already marked Delivered, but now has an outstanding balance due to payment deletion/reversal,
+  // revert workflow status to Delivered – Payment Pending while strictly preserving historical delivery date.
+  if (jobCard.status === 'Delivered' && calc.pendingAmount > 0.05) {
+    const oldStatus = jobCard.status;
+    jobCard.status = 'Delivered – Payment Pending';
+    if (!jobCard.statusHistory) jobCard.statusHistory = [];
+    jobCard.statusHistory.push({
+      status: 'Delivered – Payment Pending',
+      previousStatus: oldStatus,
+      changedAt: new Date(),
+      changedBy: 'System / Payment Adjustment',
+      remarks: 'Payment modified or removed. Outstanding balance remains on delivered vehicle.'
+    });
+  }
+
   // Synchronize to linked Invoice
   if (invoice) {
     let invoiceChanged = false;

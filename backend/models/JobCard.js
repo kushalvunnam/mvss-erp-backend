@@ -240,6 +240,8 @@ const JobCardSchema = new mongoose.Schema({
       'Awaiting for Reinspection',
       'Awaiting for Delivery Order',
       'Ready for Delivery',
+      'Delivered – Payment Pending',
+      'Delivered - Payment Pending',
       'Delivered',
       'Closed',
       'Estimation Pending'
@@ -257,7 +259,7 @@ const JobCardSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: [
-      'Created', 'Inspect Stage', 'Estimation', 'Customer Approval', 'Work In Progress', 'Body Shop', 'Surveyor Approval', 'Repair', 'Quality Check', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed',
+      'Created', 'Inspect Stage', 'Estimation', 'Customer Approval', 'Work In Progress', 'Body Shop', 'Surveyor Approval', 'Repair', 'Quality Check', 'Ready for Delivery', 'Vehicle Ready', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Delivered', 'Closed',
       'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection',
       'Vehicle Reported', 'Customer Not Responding', 'Survey Pending', 'Awaiting for Documents', 'Awaiting for Work Approval', 'Part not Available', 'Awaiting for Reinspection', 'Awaiting for Delivery Order', 'Estimation Pending'
     ],
@@ -276,13 +278,13 @@ const JobCardSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     type: { 
       type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)'], 
       default: 'Cash',
       required: true 
     },
     paymentMode: { 
       type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)'], 
       default: 'Cash',
       required: true 
     },
@@ -295,7 +297,7 @@ const JobCardSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     paymentType: { 
       type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)'], 
       default: 'Cash',
       required: true 
     },
@@ -331,6 +333,14 @@ const JobCardSchema = new mongoose.Schema({
     customerCredit: { type: Number, default: 0 },
     paymentStatus: { type: String, default: 'Pending' },
     lastCalculatedAt: { type: Date, default: Date.now }
+  },
+
+  creditDueDate: {
+    type: Date
+  },
+  creditTerms: {
+    type: String,
+    default: ''
   },
 
   billingSummary: {

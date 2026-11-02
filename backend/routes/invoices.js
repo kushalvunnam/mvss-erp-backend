@@ -527,8 +527,23 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
         }
       }
 
-      // Mark Job Card as Delivered/Closed
-      await JobCard.findByIdAndUpdate(invoice.jobCardId, { status: 'Delivered' });
+      // Update Job Card and calculate billing summary without prematurely forcing Delivered status
+      const targetJc = await JobCard.findById(invoice.jobCardId);
+      if (targetJc) {
+        if (!['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(targetJc.status)) {
+          if (targetJc.paymentStatus === 'Fully Paid' || invoice.paymentStatus === 'Paid') {
+            targetJc.status = 'Delivered';
+            if (!targetJc.deliveredBy || !targetJc.deliveredBy.date) {
+              targetJc.deliveredBy = {
+                name: req.user ? req.user.name : 'Billing Staff',
+                date: new Date(),
+                time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+              };
+            }
+          }
+        }
+        await targetJc.save();
+      }
       const { calculateBillingSummary } = require('../utils/billing');
       await calculateBillingSummary(invoice.jobCardId);
       await logAction(req.user, 'INVOICE_FINALIZE', `Finalized Invoice ${invoice.invoiceNo} & deducted inventory items`, req);
@@ -679,8 +694,23 @@ router.put('/:id/finalize', auth, restrictTo('Admin', 'Accounts', 'Accounts Exec
       }
     }
 
-    // Mark Job Card as Delivered/Closed
-    await JobCard.findByIdAndUpdate(invoice.jobCardId, { status: 'Delivered' });
+    // Update Job Card and calculate billing summary without prematurely forcing Delivered status
+    const targetJc = await JobCard.findById(invoice.jobCardId);
+    if (targetJc) {
+      if (!['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(targetJc.status)) {
+        if (targetJc.paymentStatus === 'Fully Paid' || invoice.paymentStatus === 'Paid') {
+          targetJc.status = 'Delivered';
+          if (!targetJc.deliveredBy || !targetJc.deliveredBy.date) {
+            targetJc.deliveredBy = {
+              name: req.user ? req.user.name : 'Billing Staff',
+              date: new Date(),
+              time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+            };
+          }
+        }
+      }
+      await targetJc.save();
+    }
     const { calculateBillingSummary } = require('../utils/billing');
     await calculateBillingSummary(invoice.jobCardId);
     await logAction(req.user, 'INVOICE_FINALIZE', `Finalized Invoice ${invoice.invoiceNo} & deducted inventory items`, req);

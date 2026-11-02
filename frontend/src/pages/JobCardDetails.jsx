@@ -65,6 +65,9 @@ const getStatusBadgeClass = (status) => {
     case 'Ready for Delivery':
     case 'Vehicle Ready':
       return 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-200/50';
+    case 'Delivered – Payment Pending':
+    case 'Delivered - Payment Pending':
+      return 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-300/50';
     case 'Delivered':
     case 'Closed':
       return 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
@@ -109,6 +112,15 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const [waiverAmount, setWaiverAmount] = useState('');
   const [waiverReason, setWaiverReason] = useState('');
   const [waiving, setWaiving] = useState(false);
+
+  // Delivery with Pending Payment Modal state
+  const [showDeliveryPendingModal, setShowDeliveryPendingModal] = useState(false);
+  const [deliveryStaffName, setDeliveryStaffName] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliveryTime, setDeliveryTime] = useState('');
+  const [deliveryCreditDueDate, setDeliveryCreditDueDate] = useState('');
+  const [deliveryRemarks, setDeliveryRemarks] = useState('');
+  const [submittingDelivery, setSubmittingDelivery] = useState(false);
 
   const handleAddAdvance = async (e) => {
     e.preventDefault();
@@ -620,7 +632,60 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
       setUpdating(false);
     }
   };
+
   const handlePassFQI = handlePassPDI;
+
+  const openDeliveryPendingModal = () => {
+    setDeliveryStaffName(jc?.deliveredBy?.name || user?.name || '');
+    setDeliveryDate(new Date().toISOString().split('T')[0]);
+    setDeliveryTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+    const isCorp = jc?.customerId?.type === 'Corporate' || Boolean(jc?.customerId?.companyName);
+    if (isCorp) {
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      setDeliveryCreditDueDate(d.toISOString().split('T')[0]);
+    } else {
+      setDeliveryCreditDueDate('');
+    }
+    setDeliveryRemarks('');
+    setShowDeliveryPendingModal(true);
+  };
+
+  const handleConfirmDeliveryPending = async (e) => {
+    e.preventDefault();
+    setSubmittingDelivery(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          status: 'Delivered – Payment Pending',
+          deliveredBy: {
+            name: deliveryStaffName || user?.name || 'Workshop Staff',
+            date: deliveryDate ? new Date(deliveryDate) : new Date(),
+            time: deliveryTime || new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+          },
+          creditDueDate: deliveryCreditDueDate ? new Date(deliveryCreditDueDate) : undefined,
+          statusRemarks: deliveryRemarks || 'Delivered with pending payment'
+        })
+      });
+      if (res.ok) {
+        setShowDeliveryPendingModal(false);
+        fetchDetails();
+      } else {
+        const errObj = await res.json().catch(() => ({}));
+        alert(errObj.error || 'Failed to update delivery status.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Network error connecting to the server.');
+    } finally {
+      setSubmittingDelivery(false);
+    }
+  };
 
   const handleModalSave = async (e) => {
     e.preventDefault();
@@ -995,6 +1060,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                         <option value="Work in Progress">Work in Progress</option>
                         <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
                         <option value="Ready for Delivery">Ready for Delivery</option>
+                        <option value="Delivered – Payment Pending">Delivered – Payment Pending</option>
                         <option value="Delivered">Delivered</option>
                         <option value="Closed">Closed</option>
                       </optgroup>
@@ -1022,6 +1088,36 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                         setShowUpdateModal(true);
                         return;
                       }
+                      if (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(nextStatus)) {
+                        if (jc.qcStatus !== 'Pass') {
+                          alert('Pre-Delivery Inspection (PDI) must be marked as Passed before vehicle delivery. Please complete inspection first.');
+                          setShowUpdateModal(true);
+                          return;
+                        }
+                        if (!invoice) {
+                          alert('An Invoice must be generated before vehicle delivery. Please generate an invoice first.');
+                          return;
+                        }
+                        openDeliveryPendingModal();
+                        return;
+                      }
+                      if (nextStatus === 'Delivered') {
+                        if (jc.qcStatus !== 'Pass') {
+                          alert('Pre-Delivery Inspection (PDI) must be marked as Passed before vehicle delivery. Please complete inspection first.');
+                          setShowUpdateModal(true);
+                          return;
+                        }
+                        if (!invoice) {
+                          alert('An Invoice must be generated before vehicle delivery. Please generate an invoice first.');
+                          return;
+                        }
+                        const pendingBal = jc?.financialSummary?.pendingAmount ?? (invoice?.balanceDue || 0);
+                        const isPaid = ['Fully Paid', 'Paid', 'Settled (Waived Off)', 'Overpaid'].includes(jc.paymentStatus) || (pendingBal <= 0.05);
+                        if (!isPaid) {
+                          alert(`Delivered status is allowed only when payment status is Fully Paid. Current outstanding balance is ₹${pendingBal.toFixed(2)}. For delivery with outstanding payment, please select "Delivered – Payment Pending".`);
+                          return;
+                        }
+                      }
                       const confirmChange = window.confirm(`Are you sure you want to update the job card status to "${formatStatusLabel(nextStatus)}"?`);
                       if (confirmChange) {
                         updateStatus(nextStatus);
@@ -1041,6 +1137,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                         'Work in Progress',
                         'Quality Test',
                         'Ready for Delivery',
+                        'Delivered – Payment Pending',
                         'Delivered',
                         'Closed',
                         'Body Shop'
@@ -2165,7 +2262,145 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         </div>
       )}
 
-      {/* Job Card Status History Timeline */}
+      {/* Delivery Confirmation Modal (Delivered – Payment Pending) */}
+      {showDeliveryPendingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-lg">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-50 dark:bg-amber-950/40 text-amber-600 rounded-xl">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800 dark:text-white">
+                    Confirm Vehicle Delivery (Payment Pending)
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium">
+                    Job Card: <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{jc?.jobCardNo}</span> | Vehicle: <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{jc?.vehicleId?.vehicleNumber}</span>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDeliveryPendingModal(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 rounded-2xl p-4 mb-5">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-slate-500 font-medium">Customer:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{jc?.customerId?.name} ({jc?.customerId?.type || 'Individual'})</span>
+              </div>
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-slate-500 font-medium">Final Invoice Amount:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  ₹{Number(invoice?.totals?.roundedGrandTotal || invoice?.totals?.grandTotal || jc?.financialSummary?.finalBillAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-slate-500 font-medium">Payments / Advances Received:</span>
+                <span className="font-bold text-emerald-600">
+                  ₹{Number(invoice?.amountPaid || jc?.financialSummary?.totalReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm font-black pt-2 border-t border-amber-200/60 dark:border-amber-900/40">
+                <span className="text-amber-800 dark:text-amber-400">Outstanding Balance:</span>
+                <span className="text-red-600 font-mono">
+                  ₹{Number(invoice?.balanceDue || jc?.financialSummary?.pendingAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmDeliveryPending} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block mb-1">
+                    Delivered By (Staff Name) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={deliveryStaffName}
+                    onChange={(e) => setDeliveryStaffName(e.target.value)}
+                    placeholder="Staff member completing delivery"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block mb-1">
+                    Delivery Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={deliveryDate}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block mb-1">
+                    Delivery Time
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryTime}
+                    onChange={(e) => setDeliveryTime(e.target.value)}
+                    placeholder="e.g. 04:30 PM"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block mb-1">
+                    Credit / Payment Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveryCreditDueDate}
+                    onChange={(e) => setDeliveryCreditDueDate(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block mb-1">
+                  Delivery Notes / Payment Terms Remarks
+                </label>
+                <textarea
+                  rows="2"
+                  value={deliveryRemarks}
+                  onChange={(e) => setDeliveryRemarks(e.target.value)}
+                  placeholder="e.g. Corporate 30-day payment / Customer promised to transfer pending balance via NEFT"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-medium text-slate-800 dark:text-white focus:outline-none focus:border-amber-500 resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowDeliveryPendingModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingDelivery}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-600/10 disabled:opacity-50"
+                >
+                  {submittingDelivery ? 'Confirming...' : 'Confirm Delivery (Payment Pending)'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {jc && jc.statusHistory && jc.statusHistory.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs mt-6 select-none">
           <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider mb-4 flex items-center gap-1.5">

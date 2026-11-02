@@ -4,6 +4,11 @@ const Vendor = require('../models/Vendor');
 const Purchase = require('../models/Purchase');
 const StockAdjustment = require('../models/StockAdjustment');
 const Invoice = require('../models/Invoice');
+const JobCard = require('../models/JobCard');
+const Customer = require('../models/Customer');
+const Vehicle = require('../models/Vehicle');
+const PDFDocument = require('pdfkit');
+const { roundToTwo } = require('../services/financialCalculationService');
 const { auth, restrictTo } = require('../middleware/auth');
 const router = express.Router();
 
@@ -12,7 +17,7 @@ router.use((req, res, next) => {
   next();
 });
 
-router.use(auth, restrictTo('Admin', 'Service', 'Spares', 'Body Shop', 'Accounts', 'Accounts Executive'));
+router.use(auth, restrictTo('Super Admin', 'Admin', 'Service', 'Spares', 'Body Shop', 'Accounts', 'Accounts Executive', 'Billing', 'Billing Executive'));
 
 // 1. Stock Valuation & Statement Report
 router.get('/stock-statement', auth, async (req, res) => {
@@ -391,6 +396,444 @@ router.get('/purchase-history', auth, async (req, res) => {
     });
   } catch (error) {
     res.status(500).send({ error: 'Failed to generate purchase history report: ' + error.message });
+  }
+});
+
+/**
+ * 3. Pending Payments Report Engine
+ * Comprehensive data retrieval with financial reconciliation and filtering
+ */
+const getPendingPaymentsReportData = async (query = {}) => {
+  const {
+    status,
+    filter,
+    paymentStatus,
+    customerType,
+    customerName,
+    vehicleNumber,
+    jobCardNumber,
+    jobCardNo,
+    search,
+    fromDate,
+    toDate
+  } = query;
+
+  // 1. Fetch all Job Cards and active Invoices
+  const jobCards = await JobCard.find({})
+    .populate('customerId')
+    .populate('vehicleId')
+    .sort({ createdAt: -1 });
+
+  const invoices = await Invoice.find({ status: { $ne: 'Cancelled' } })
+    .populate('customerId')
+    .populate('vehicleId')
+    .sort({ date: -1, createdAt: -1 });
+
+  const invoiceByJobCardId = new Map();
+  invoices.forEach(inv => {
+    if (inv.jobCardId) {
+      invoiceByJobCardId.set(inv.jobCardId.toString(), inv);
+    }
+  });
+
+  const processedJobCardIds = new Set();
+  const rawList = [];
+
+  // 2. Process Job Cards
+  for (const jc of jobCards) {
+    processedJobCardIds.add(jc._id.toString());
+    const linkedInvoice = invoiceByJobCardId.get(jc._id.toString());
+    const customer = jc.customerId || linkedInvoice?.customerId;
+    const vehicle = jc.vehicleId || linkedInvoice?.vehicleId;
+
+    const custName = customer?.name || 'N/A';
+    const custType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
+    const vehReg = vehicle?.vehicleNumber || vehicle?.regNo || 'N/A';
+    const vehModel = vehicle?.model || vehicle?.brand || '';
+
+    const invNo = linkedInvoice?.invoiceNo || 'N/A';
+    const invDate = linkedInvoice?.date || linkedInvoice?.createdAt || null;
+    const deliveryDate = jc.deliveredBy?.date || null;
+    const deliveryStaff = jc.deliveredBy?.name || '';
+    const deliveryTime = jc.deliveredBy?.time || '';
+
+    const finalBillAmount = linkedInvoice
+      ? (linkedInvoice.totals?.roundedGrandTotal || linkedInvoice.totals?.grandTotal || 0)
+      : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
+
+    const totalAdvance = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const totalReceived = jc.financialSummary?.totalReceived ?? (linkedInvoice?.amountPaid || 0);
+    const rawBalance = roundToTwo(finalBillAmount - totalReceived);
+    const balanceDue = jc.financialSummary?.pendingAmount ?? (rawBalance > 0 ? rawBalance : 0);
+
+    const effectivePaymentStatus = jc.paymentStatus || linkedInvoice?.paymentStatus || (balanceDue <= 0.05 ? 'Fully Paid' : (totalReceived > 0.05 ? 'Partially Paid' : 'Pending'));
+
+    const creditDueDate = linkedInvoice?.creditDueDate || jc.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
+    const creditTerms = linkedInvoice?.creditTerms || jc.creditTerms || (custType === 'Corporate' ? '30 Days' : '');
+
+    rawList.push({
+      _id: jc._id,
+      jobCardId: jc._id,
+      jobCardNo: jc.jobCardNo || 'N/A',
+      customerId: customer?._id || null,
+      customerName: custName,
+      customerType: custType,
+      companyName: customer?.companyName || '',
+      customerPhone: customer?.mobile || customer?.phone || '',
+      vehicleId: vehicle?._id || null,
+      vehicleRegNo: vehReg,
+      vehicleModel: vehModel,
+      invoiceId: linkedInvoice?._id || null,
+      invoiceNo: invNo,
+      invoiceDate: invDate,
+      vehicleDeliveryDate: deliveryDate,
+      deliveryStaff,
+      deliveryTime,
+      finalInvoiceAmount: roundToTwo(finalBillAmount),
+      totalAdvanceReceived: roundToTwo(totalAdvance),
+      totalPaymentsReceived: roundToTwo(totalReceived),
+      outstandingBalance: roundToTwo(balanceDue),
+      paymentStatus: effectivePaymentStatus,
+      jobCardStatus: jc.status,
+      creditDueDate,
+      creditTerms
+    });
+  }
+
+  // 3. Process standalone invoices without Job Cards
+  for (const inv of invoices) {
+    if (inv.jobCardId && processedJobCardIds.has(inv.jobCardId.toString())) {
+      continue;
+    }
+    const customer = inv.customerId;
+    const vehicle = inv.vehicleId;
+    const custType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
+    const finalBillAmount = inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0;
+    const totalReceived = inv.amountPaid || 0;
+    const balanceDue = inv.balanceDue ?? Math.max(0, finalBillAmount - totalReceived);
+    const creditDueDate = inv.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && inv.date ? new Date(new Date(inv.date).getTime() + 30 * 86400000) : null);
+
+    rawList.push({
+      _id: inv._id,
+      jobCardId: null,
+      jobCardNo: 'N/A',
+      customerId: customer?._id || null,
+      customerName: customer?.name || 'N/A',
+      customerType: custType,
+      companyName: customer?.companyName || '',
+      customerPhone: customer?.mobile || customer?.phone || '',
+      vehicleId: vehicle?._id || null,
+      vehicleRegNo: vehicle?.vehicleNumber || vehicle?.regNo || 'N/A',
+      vehicleModel: vehicle?.model || vehicle?.brand || '',
+      invoiceId: inv._id,
+      invoiceNo: inv.invoiceNo || 'N/A',
+      invoiceDate: inv.date || inv.createdAt || null,
+      vehicleDeliveryDate: null,
+      deliveryStaff: '',
+      deliveryTime: '',
+      finalInvoiceAmount: roundToTwo(finalBillAmount),
+      totalAdvanceReceived: roundToTwo(inv.advanceReceived || 0),
+      totalPaymentsReceived: roundToTwo(totalReceived),
+      outstandingBalance: roundToTwo(balanceDue),
+      paymentStatus: inv.paymentStatus || (balanceDue <= 0.05 ? 'Fully Paid' : 'Pending'),
+      jobCardStatus: 'Invoice Only',
+      creditDueDate,
+      creditTerms: inv.creditTerms || (custType === 'Corporate' ? '30 Days' : '')
+    });
+  }
+
+  // 4. Filtering logic
+  const targetFilter = (filter || status || '').trim().toLowerCase();
+
+  let filtered = rawList.filter(item => {
+    // A. Status / Category filters
+    if (targetFilter === 'delivered_pending' || targetFilter === 'delivered – payment pending' || targetFilter === 'delivered - payment pending') {
+      const isDelPending = ['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus);
+      if (!isDelPending) return false;
+    } else if (targetFilter === 'partially_paid' || targetFilter === 'partially paid') {
+      if (item.paymentStatus !== 'Partially Paid') return false;
+    } else if (targetFilter === 'fully_paid' || targetFilter === 'fully paid' || targetFilter === 'paid') {
+      if (!['Fully Paid', 'Paid'].includes(item.paymentStatus)) return false;
+    } else if (targetFilter === 'corporate') {
+      const isCorp = item.customerType === 'Corporate' || Boolean(item.companyName);
+      if (!isCorp) return false;
+    } else if (targetFilter && targetFilter !== 'all') {
+      const matchJcStatus = item.jobCardStatus.toLowerCase() === targetFilter;
+      const matchPayStatus = item.paymentStatus.toLowerCase() === targetFilter;
+      if (!matchJcStatus && !matchPayStatus) return false;
+    } else {
+      // Default view: Include all records with balance due OR delivered with pending payment
+      if (item.outstandingBalance <= 0.05 && !['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) {
+        return false;
+      }
+    }
+
+    // B. Explicit paymentStatus filter
+    if (paymentStatus && paymentStatus.toLowerCase() !== 'all') {
+      const pLower = paymentStatus.toLowerCase();
+      if (pLower === 'fully paid' || pLower === 'paid') {
+        if (!['Fully Paid', 'Paid'].includes(item.paymentStatus)) return false;
+      } else if (pLower === 'partially paid') {
+        if (item.paymentStatus !== 'Partially Paid') return false;
+      } else if (pLower === 'pending' || pLower === 'unpaid') {
+        if (!['Pending', 'Unpaid'].includes(item.paymentStatus)) return false;
+      } else if (item.paymentStatus.toLowerCase() !== pLower) {
+        return false;
+      }
+    }
+
+    // C. Explicit customerType filter
+    if (customerType && customerType.toLowerCase() !== 'all') {
+      const ctLower = customerType.toLowerCase();
+      if (ctLower === 'corporate') {
+        if (item.customerType !== 'Corporate' && !item.companyName) return false;
+      } else if (ctLower === 'individual') {
+        if (item.customerType === 'Corporate' || item.companyName) return false;
+      }
+    }
+
+    // D. Customer Name search
+    if (customerName && customerName.trim()) {
+      if (!item.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) return false;
+    }
+
+    // E. Vehicle Number search
+    if (vehicleNumber && vehicleNumber.trim()) {
+      if (!item.vehicleRegNo.toLowerCase().includes(vehicleNumber.trim().toLowerCase())) return false;
+    }
+
+    // F. Job Card Number search
+    const jcQuery = jobCardNumber || jobCardNo;
+    if (jcQuery && jcQuery.trim()) {
+      if (!item.jobCardNo.toLowerCase().includes(jcQuery.trim().toLowerCase())) return false;
+    }
+
+    // G. Date range filter
+    if (fromDate || toDate) {
+      const dateToCheck = item.invoiceDate || item.vehicleDeliveryDate;
+      if (dateToCheck) {
+        const itemDate = new Date(dateToCheck);
+        if (fromDate) {
+          const start = new Date(fromDate);
+          start.setHours(0, 0, 0, 0);
+          if (itemDate < start) return false;
+        }
+        if (toDate) {
+          const end = new Date(toDate);
+          end.setHours(23, 59, 59, 999);
+          if (itemDate > end) return false;
+        }
+      }
+    }
+
+    // H. Universal search string
+    if (search && search.trim()) {
+      const s = search.trim().toLowerCase();
+      const match =
+        item.jobCardNo.toLowerCase().includes(s) ||
+        item.customerName.toLowerCase().includes(s) ||
+        item.vehicleRegNo.toLowerCase().includes(s) ||
+        item.invoiceNo.toLowerCase().includes(s) ||
+        item.companyName.toLowerCase().includes(s) ||
+        item.customerPhone.toLowerCase().includes(s);
+      if (!match) return false;
+    }
+
+    return true;
+  });
+
+  // Sort by invoiceDate or createdAt descending
+  filtered.sort((a, b) => {
+    const da = new Date(a.invoiceDate || a.vehicleDeliveryDate || 0);
+    const db = new Date(b.invoiceDate || b.vehicleDeliveryDate || 0);
+    return db - da;
+  });
+
+  // Calculate summary metrics
+  let totalReceivables = 0;
+  let totalBilled = 0;
+  let totalReceived = 0;
+  let deliveredPendingCount = 0;
+  let corporatePendingCount = 0;
+
+  filtered.forEach(item => {
+    totalReceivables += item.outstandingBalance || 0;
+    totalBilled += item.finalInvoiceAmount || 0;
+    totalReceived += item.totalPaymentsReceived || 0;
+    if (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) {
+      deliveredPendingCount++;
+    }
+    if ((item.customerType === 'Corporate' || item.companyName) && item.outstandingBalance > 0.05) {
+      corporatePendingCount++;
+    }
+  });
+
+  return {
+    items: filtered,
+    summary: {
+      totalRecords: filtered.length,
+      totalReceivables: roundToTwo(totalReceivables),
+      totalBilled: roundToTwo(totalBilled),
+      totalReceived: roundToTwo(totalReceived),
+      deliveredPendingCount,
+      corporatePendingCount
+    }
+  };
+};
+
+// GET Pending Payments Report (JSON API)
+router.get('/pending-payments', auth, async (req, res) => {
+  try {
+    const { items, summary } = await getPendingPaymentsReportData(req.query);
+    res.send({
+      success: true,
+      data: items,
+      items,
+      reports: items,
+      summary
+    });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to fetch pending payments report: ' + error.message });
+  }
+});
+
+// GET Pending Payments Report (Excel / CSV Export)
+router.get('/pending-payments/export/excel', auth, async (req, res) => {
+  try {
+    const { items } = await getPendingPaymentsReportData(req.query);
+
+    const headers = [
+      'Job Card No',
+      'Customer Name',
+      'Customer Type',
+      'Vehicle Reg No',
+      'Invoice No',
+      'Invoice Date',
+      'Vehicle Delivery Date',
+      'Final Invoice Amount',
+      'Total Advance Received',
+      'Total Payments Received',
+      'Outstanding Balance',
+      'Payment Status',
+      'Credit Due Date'
+    ];
+
+    const rows = items.map(item => [
+      item.jobCardNo || 'N/A',
+      item.customerName || 'N/A',
+      item.customerType || 'Individual',
+      item.vehicleRegNo || 'N/A',
+      item.invoiceNo || 'N/A',
+      item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A',
+      item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A',
+      item.finalInvoiceAmount.toFixed(2),
+      item.totalAdvanceReceived.toFixed(2),
+      item.totalPaymentsReceived.toFixed(2),
+      item.outstandingBalance.toFixed(2),
+      item.paymentStatus,
+      item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'
+    ]);
+
+    const csvContent = [
+      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','),
+      ...rows.map(row => row.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="pending_payments_report_${Date.now()}.csv"`);
+    res.send(csvContent);
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to generate Excel report: ' + error.message });
+  }
+});
+
+// GET Pending Payments Report (PDF Export)
+router.get('/pending-payments/export/pdf', auth, async (req, res) => {
+  try {
+    const { items, summary } = await getPendingPaymentsReportData(req.query);
+
+    const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="pending_payments_report_${Date.now()}.pdf"`);
+    doc.pipe(res);
+
+    // Header
+    doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e3a8a').text('MVSS AUTOMOBILES', 30, 30);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#334155').text('Financial & Tax Reports — Pending Payments', 30, 52);
+    doc.fontSize(8.5).font('Helvetica').fillColor('#64748b').text(`Generated on: ${new Date().toLocaleString('en-IN')} | Total Records: ${summary.totalRecords} | Outstanding Receivables: ₹${summary.totalReceivables.toLocaleString('en-IN')}`, 30, 68);
+
+    doc.moveTo(30, 84).lineTo(812, 84).strokeColor('#cbd5e1').lineWidth(1).stroke();
+
+    // Table Header
+    let y = 96;
+    doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0f172a');
+    doc.text('Job Card No', 30, y, { width: 65 });
+    doc.text('Customer Name', 100, y, { width: 95 });
+    doc.text('Type', 200, y, { width: 55 });
+    doc.text('Vehicle Reg', 260, y, { width: 65 });
+    doc.text('Invoice No', 330, y, { width: 65 });
+    doc.text('Inv Date', 400, y, { width: 50 });
+    doc.text('Delivery Date', 455, y, { width: 55 });
+    doc.text('Final Bill (₹)', 515, y, { width: 55, align: 'right' });
+    doc.text('Advance (₹)', 575, y, { width: 50, align: 'right' });
+    doc.text('Received (₹)', 630, y, { width: 50, align: 'right' });
+    doc.text('Outstanding (₹)', 685, y, { width: 60, align: 'right' });
+    doc.text('Status', 750, y, { width: 60 });
+
+    doc.moveTo(30, y + 14).lineTo(812, y + 14).strokeColor('#0f172a').lineWidth(0.8).stroke();
+    y += 20;
+
+    // Table Rows
+    doc.font('Helvetica').fontSize(7);
+    items.forEach((item, idx) => {
+      if (y > 530) {
+        doc.addPage({ margin: 30, size: 'A4', layout: 'landscape' });
+        y = 35;
+      }
+
+      if (idx % 2 === 1) {
+        doc.rect(30, y - 2, 782, 14).fillColor('#f8fafc').fill();
+      }
+
+      doc.fillColor('#0f172a');
+      doc.text(item.jobCardNo || 'N/A', 30, y, { width: 65 });
+      doc.text(item.customerName || 'N/A', 100, y, { width: 95 });
+      doc.text(item.customerType || 'Individual', 200, y, { width: 55 });
+      doc.text(item.vehicleRegNo || 'N/A', 260, y, { width: 65 });
+      doc.text(item.invoiceNo || 'N/A', 330, y, { width: 65 });
+      doc.text(item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A', 400, y, { width: 50 });
+      doc.text(item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A', 455, y, { width: 55 });
+      doc.text(item.finalInvoiceAmount.toFixed(2), 515, y, { width: 55, align: 'right' });
+      doc.text(item.totalAdvanceReceived.toFixed(2), 575, y, { width: 50, align: 'right' });
+      doc.text(item.totalPaymentsReceived.toFixed(2), 630, y, { width: 50, align: 'right' });
+
+      if (item.outstandingBalance > 0.05) {
+        doc.fillColor('#dc2626').font('Helvetica-Bold');
+      } else {
+        doc.fillColor('#16a34a').font('Helvetica');
+      }
+      doc.text(item.outstandingBalance.toFixed(2), 685, y, { width: 60, align: 'right' });
+
+      doc.fillColor('#0f172a').font('Helvetica');
+      doc.text(item.paymentStatus, 750, y, { width: 60 });
+
+      y += 15;
+    });
+
+    // Summary footer
+    y += 10;
+    if (y > 510) {
+      doc.addPage({ margin: 30, size: 'A4', layout: 'landscape' });
+      y = 35;
+    }
+    doc.moveTo(30, y).lineTo(812, y).strokeColor('#cbd5e1').lineWidth(1).stroke();
+    y += 8;
+    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0f172a');
+    doc.text(`Total Records: ${summary.totalRecords}  |  Delivered (Pending Payment): ${summary.deliveredPendingCount}  |  Total Billed: ₹${summary.totalBilled.toLocaleString('en-IN')}  |  Total Received: ₹${summary.totalReceived.toLocaleString('en-IN')}  |  Total Receivables: ₹${summary.totalReceivables.toLocaleString('en-IN')}`, 30, y);
+
+    doc.end();
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to generate PDF report: ' + error.message });
   }
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { API_BASE_URL } from '../config';
 import { 
   FileText, 
@@ -50,6 +50,12 @@ export default function Reports({ token, user }) {
   const [endDate, setEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState('');
+
+  // Pending Payments specific filter states
+  const [pendingFilterStatus, setPendingFilterStatus] = useState('all'); // 'all', 'delivered_pending', 'partially_paid', 'fully_paid', 'corporate'
+  const [pendingCustomerFilter, setPendingCustomerFilter] = useState('');
+  const [pendingVehicleFilter, setPendingVehicleFilter] = useState('');
+  const [pendingJobCardFilter, setPendingJobCardFilter] = useState('');
 
   const fetchData = async () => {
     try {
@@ -245,8 +251,162 @@ export default function Reports({ token, user }) {
           return baseList.filter(inv => inv.status === 'Finalized');
         case 'payment_collection':
           return baseList.filter(inv => inv.status === 'Finalized' && inv.amountPaid > 0);
-        case 'pending_payment':
-          return baseList.filter(inv => inv.status === 'Finalized' && inv.paymentStatus !== 'Paid');
+        case 'pending_payment': {
+          const invoiceByJcId = new Map();
+          invoices.forEach(inv => {
+            const jcId = inv.jobCardId?._id || inv.jobCardId;
+            if (jcId) invoiceByJcId.set(String(jcId), inv);
+          });
+
+          const processedJcIds = new Set();
+          const items = [];
+
+          // 1. Process all Job Cards
+          jobCards.forEach(jc => {
+            processedJcIds.add(String(jc._id));
+            const inv = invoiceByJcId.get(String(jc._id));
+            const customer = jc.customerId || inv?.customerId;
+            const vehicle = jc.vehicleId || inv?.vehicleId;
+
+            const finalAmt = inv
+              ? (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0)
+              : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
+
+            const advReceived = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+            const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || 0);
+            const rawBal = Math.max(0, finalAmt - totalRec);
+            const bal = jc.financialSummary?.pendingAmount ?? (inv?.balanceDue ?? rawBal);
+
+            const pStatus = jc.paymentStatus || inv?.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
+            const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
+            const invDate = inv?.date || inv?.createdAt || jc.date || jc.createdAt;
+            const delDate = jc.deliveredBy?.date || null;
+            const creditDue = inv?.creditDueDate || jc.creditDueDate || ((cType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
+
+            items.push({
+              _id: jc._id,
+              jobCardId: jc._id,
+              jobCardNo: jc.jobCardNo || 'N/A',
+              customerName: customer?.name || 'N/A',
+              customerType: cType,
+              companyName: customer?.companyName || '',
+              vehicleRegNo: vehicle?.vehicleNumber || vehicle?.regNo || 'N/A',
+              vehicleModel: vehicle?.model || vehicle?.brand || '',
+              invoiceNo: inv?.invoiceNo || 'N/A',
+              invoiceDate: invDate,
+              vehicleDeliveryDate: delDate,
+              finalInvoiceAmount: finalAmt,
+              totalAdvanceReceived: advReceived,
+              totalPaymentsReceived: totalRec,
+              outstandingBalance: bal,
+              paymentStatus: pStatus,
+              jobCardStatus: jc.status,
+              creditDueDate: creditDue
+            });
+          });
+
+          // 2. Process standalone invoices not linked to Job Cards
+          invoices.forEach(inv => {
+            const jcId = inv.jobCardId?._id || inv.jobCardId;
+            if (jcId && processedJcIds.has(String(jcId))) return;
+
+            const customer = inv.customerId;
+            const vehicle = inv.vehicleId;
+            const finalAmt = inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0;
+            const totalRec = inv.amountPaid || 0;
+            const bal = inv.balanceDue ?? Math.max(0, finalAmt - totalRec);
+            const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
+            const invDate = inv.date || inv.createdAt;
+            const creditDue = inv.creditDueDate || ((cType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
+
+            items.push({
+              _id: inv._id,
+              jobCardId: null,
+              jobCardNo: 'N/A',
+              customerName: customer?.name || 'N/A',
+              customerType: cType,
+              companyName: customer?.companyName || '',
+              vehicleRegNo: vehicle?.vehicleNumber || vehicle?.regNo || 'N/A',
+              vehicleModel: vehicle?.model || vehicle?.brand || '',
+              invoiceNo: inv.invoiceNo || 'N/A',
+              invoiceDate: invDate,
+              vehicleDeliveryDate: null,
+              finalInvoiceAmount: finalAmt,
+              totalAdvanceReceived: inv.advanceReceived || 0,
+              totalPaymentsReceived: totalRec,
+              outstandingBalance: bal,
+              paymentStatus: inv.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : 'Pending'),
+              jobCardStatus: 'Invoice Only',
+              creditDueDate: creditDue
+            });
+          });
+
+          // 3. Filter items
+          return items.filter(item => {
+            // Tab filter
+            if (pendingFilterStatus === 'delivered_pending') {
+              if (!['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) return false;
+            } else if (pendingFilterStatus === 'partially_paid') {
+              if (item.paymentStatus !== 'Partially Paid') return false;
+            } else if (pendingFilterStatus === 'fully_paid') {
+              if (!['Fully Paid', 'Paid'].includes(item.paymentStatus)) return false;
+            } else if (pendingFilterStatus === 'corporate') {
+              if (item.customerType !== 'Corporate' && !item.companyName) return false;
+            } else {
+              // 'all' view: show items with pending balance OR delivered pending payment
+              if (item.outstandingBalance <= 0.05 && !['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) {
+                return false;
+              }
+            }
+
+            // Customer Name filter
+            if (pendingCustomerFilter.trim()) {
+              if (!item.customerName.toLowerCase().includes(pendingCustomerFilter.trim().toLowerCase())) return false;
+            }
+
+            // Vehicle Number filter
+            if (pendingVehicleFilter.trim()) {
+              if (!item.vehicleRegNo.toLowerCase().includes(pendingVehicleFilter.trim().toLowerCase())) return false;
+            }
+
+            // Job Card Number filter
+            if (pendingJobCardFilter.trim()) {
+              if (!item.jobCardNo.toLowerCase().includes(pendingJobCardFilter.trim().toLowerCase())) return false;
+            }
+
+            // Date Range
+            if (startDate || endDate) {
+              const dt = item.invoiceDate || item.vehicleDeliveryDate;
+              if (dt) {
+                const itemDate = new Date(dt);
+                if (startDate) {
+                  const s = new Date(startDate);
+                  s.setHours(0, 0, 0, 0);
+                  if (itemDate < s) return false;
+                }
+                if (endDate) {
+                  const e = new Date(endDate);
+                  e.setHours(23, 59, 59, 999);
+                  if (itemDate > e) return false;
+                }
+              }
+            }
+
+            // Universal Search Query
+            if (searchQuery.trim()) {
+              const q = searchQuery.trim().toLowerCase();
+              const match =
+                item.jobCardNo.toLowerCase().includes(q) ||
+                item.customerName.toLowerCase().includes(q) ||
+                item.vehicleRegNo.toLowerCase().includes(q) ||
+                item.invoiceNo.toLowerCase().includes(q) ||
+                item.companyName.toLowerCase().includes(q);
+              if (!match) return false;
+            }
+
+            return true;
+          });
+        }
         case 'invoice_report':
           return baseList;
         case 'gst_report':
@@ -468,6 +628,10 @@ export default function Reports({ token, user }) {
     setEndDate('');
     setSearchQuery('');
     setSelectedVehicle('');
+    setPendingFilterStatus('all');
+    setPendingCustomerFilter('');
+    setPendingVehicleFilter('');
+    setPendingJobCardFilter('');
   };
 
   const logReportExport = (format) => {
@@ -545,15 +709,35 @@ export default function Reports({ token, user }) {
           (inv.totals?.grandTotal || 0).toFixed(2)
         ]);
       } else if (selectedReport === 'pending_payment') {
-        headers = ['Invoice No', 'Date', 'Customer Name', 'Grand Total', 'Paid Amount', 'Due Amount', 'Payment Status'];
-        rows = data.map(inv => [
-          inv.invoiceNo,
-          new Date(inv.date).toLocaleDateString('en-IN'),
-          inv.customerId?.name || 'N/A',
-          (inv.totals?.grandTotal || 0).toFixed(2),
-          (inv.amountPaid || 0).toFixed(2),
-          ((inv.totals?.grandTotal || 0) - (inv.amountPaid || 0)).toFixed(2),
-          inv.paymentStatus
+        headers = [
+          'Job Card No',
+          'Customer Name',
+          'Customer Type',
+          'Vehicle Reg No',
+          'Invoice No',
+          'Invoice Date',
+          'Vehicle Delivery Date',
+          'Final Invoice Amount',
+          'Total Advance Received',
+          'Total Payments Received',
+          'Outstanding Balance',
+          'Payment Status',
+          'Credit Due Date'
+        ];
+        rows = data.map(item => [
+          item.jobCardNo || 'N/A',
+          item.customerName || 'N/A',
+          item.customerType || 'Individual',
+          item.vehicleRegNo || 'N/A',
+          item.invoiceNo || 'N/A',
+          item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A',
+          item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A',
+          (item.finalInvoiceAmount || 0).toFixed(2),
+          (item.totalAdvanceReceived || 0).toFixed(2),
+          (item.totalPaymentsReceived || 0).toFixed(2),
+          (item.outstandingBalance || 0).toFixed(2),
+          item.paymentStatus || 'Pending',
+          item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'
         ]);
       } else if (selectedReport === 'payment_collection') {
         headers = ['Invoice No', 'Date', 'Customer Name', 'Payment Method', 'Amount Billed', 'Amount Settled'];
@@ -703,18 +887,36 @@ export default function Reports({ token, user }) {
         });
       } else if (selectedReport === 'pending_payment') {
         tableHeadersHtml = `
-          <th>Invoice No</th><th>Date</th><th>Customer Name</th><th>Grand Total</th><th>Paid Amount</th><th>Due Amount</th><th>Payment Status</th>
+          <th>Job Card No</th>
+          <th>Customer Name</th>
+          <th>Customer Type</th>
+          <th>Vehicle Reg</th>
+          <th>Invoice No</th>
+          <th>Invoice Date</th>
+          <th>Delivery Date</th>
+          <th>Final Amount</th>
+          <th>Advance</th>
+          <th>Total Received</th>
+          <th>Outstanding</th>
+          <th>Payment Status</th>
+          <th>Credit Due Date</th>
         `;
-        data.forEach(inv => {
+        data.forEach(item => {
           tableRowsHtml += `
             <tr>
-              <td style="font-family:monospace; font-weight:bold;">${inv.invoiceNo}</td>
-              <td>${new Date(inv.date).toLocaleDateString('en-IN')}</td>
-              <td>${inv.customerId?.name || 'N/A'}</td>
-              <td>₹${(inv.totals?.grandTotal || 0).toFixed(2)}</td>
-              <td>₹${(inv.amountPaid || 0).toFixed(2)}</td>
-              <td style="font-weight:bold; color:#dc2626;">₹${((inv.totals?.grandTotal || 0) - (inv.amountPaid || 0)).toFixed(2)}</td>
-              <td style="font-weight:bold; text-transform:uppercase; font-size:9px;">${inv.paymentStatus}</td>
+              <td style="font-family:monospace; font-weight:bold;">${item.jobCardNo || 'N/A'}</td>
+              <td>${item.customerName || 'N/A'}</td>
+              <td>${item.customerType || 'Individual'}</td>
+              <td style="font-family:monospace; font-weight:bold;">${item.vehicleRegNo || 'N/A'}</td>
+              <td style="font-family:monospace;">${item.invoiceNo || 'N/A'}</td>
+              <td>${item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A'}</td>
+              <td>${item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A'}</td>
+              <td>₹${(item.finalInvoiceAmount || 0).toFixed(2)}</td>
+              <td>₹${(item.totalAdvanceReceived || 0).toFixed(2)}</td>
+              <td>₹${(item.totalPaymentsReceived || 0).toFixed(2)}</td>
+              <td style="font-weight:bold; color:#dc2626;">₹${(item.outstandingBalance || 0).toFixed(2)}</td>
+              <td style="font-weight:bold; text-transform:uppercase; font-size:9px;">${item.paymentStatus || 'Pending'}</td>
+              <td>${item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'}</td>
             </tr>
           `;
         });
@@ -909,6 +1111,36 @@ export default function Reports({ token, user }) {
 
   const filteredData = getReportData();
   const uniqueVehiclesList = Array.from(new Set(jobCards.map(jc => jc.vehicleId?.vehicleNumber).filter(Boolean)));
+
+  const pendingSummary = useMemo(() => {
+    if (selectedReport !== 'pending_payment') return null;
+    let totalReceivables = 0;
+    let totalBilled = 0;
+    let totalReceived = 0;
+    let deliveredPendingCount = 0;
+    let corporateCount = 0;
+
+    filteredData.forEach(item => {
+      totalReceivables += Number(item.outstandingBalance) || 0;
+      totalBilled += Number(item.finalInvoiceAmount) || 0;
+      totalReceived += Number(item.totalPaymentsReceived) || 0;
+      if (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) {
+        deliveredPendingCount++;
+      }
+      if (item.customerType === 'Corporate' || item.companyName) {
+        corporateCount++;
+      }
+    });
+
+    return {
+      totalReceivables,
+      totalBilled,
+      totalReceived,
+      deliveredPendingCount,
+      corporateCount,
+      count: filteredData.length
+    };
+  }, [selectedReport, filteredData]);
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl max-w-6xl mx-auto select-none animate-fade-in space-y-6">
@@ -1154,10 +1386,79 @@ export default function Reports({ token, user }) {
         ))}
       </div>
 
+      {/* Pending Payments Filters & KPI Summary */}
+      {selectedReport === 'pending_payment' && (
+        <div className="space-y-4">
+          {/* Status Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'all', label: 'All Pending' },
+              { id: 'delivered_pending', label: 'Delivered – Payment Pending' },
+              { id: 'partially_paid', label: 'Partially Paid' },
+              { id: 'fully_paid', label: 'Fully Paid' },
+              { id: 'corporate', label: 'Corporate' }
+            ].map(tab => {
+              const active = pendingFilterStatus === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setPendingFilterStatus(tab.id)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    active
+                      ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-350 border border-slate-200 dark:border-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Pending Payments KPI Summary Cards */}
+          {pendingSummary && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-red-50/60 dark:bg-red-950/20 border border-red-200/60 dark:border-red-900/40 p-4 rounded-2xl">
+                <span className="text-[10px] font-extrabold uppercase text-red-600 tracking-wider block">
+                  Outstanding Receivables
+                </span>
+                <span className="text-lg font-black text-red-600 mt-1 block">
+                  ₹{pendingSummary.totalReceivables.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">
+                  Total Invoiced
+                </span>
+                <span className="text-lg font-black text-slate-800 dark:text-white mt-1 block">
+                  ₹{pendingSummary.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 p-4 rounded-2xl">
+                <span className="text-[10px] font-extrabold uppercase text-emerald-600 tracking-wider block">
+                  Total Collected
+                </span>
+                <span className="text-lg font-black text-emerald-600 mt-1 block">
+                  ₹{pendingSummary.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 p-4 rounded-2xl">
+                <span className="text-[10px] font-extrabold uppercase text-amber-600 tracking-wider block">
+                  Delivered (Pending)
+                </span>
+                <span className="text-lg font-black text-amber-600 mt-1 block">
+                  {pendingSummary.deliveredPendingCount} Vehicles
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Filter panel inputs */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-205/30">
+      <div className={`grid grid-cols-1 ${selectedReport === 'pending_payment' ? 'sm:grid-cols-6' : 'sm:grid-cols-4'} gap-3 bg-slate-50 dark:bg-slate-950/20 p-4 rounded-2xl border border-slate-205/30`}>
         <div>
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
             Start Date
           </label>
           <input
@@ -1165,12 +1466,12 @@ export default function Reports({ token, user }) {
             disabled={datePreset !== 'custom'}
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="w-full px-3.5 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none disabled:opacity-50"
+            className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none disabled:opacity-50"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
             End Date
           </label>
           <input
@@ -1178,11 +1479,50 @@ export default function Reports({ token, user }) {
             disabled={datePreset !== 'custom'}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="w-full px-3.5 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none disabled:opacity-50"
+            className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none disabled:opacity-50"
           />
         </div>
 
-        {selectedReport === 'vehicle_history' ? (
+        {selectedReport === 'pending_payment' ? (
+          <>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                Customer Name
+              </label>
+              <input
+                type="text"
+                value={pendingCustomerFilter}
+                onChange={(e) => setPendingCustomerFilter(e.target.value)}
+                placeholder="Search customer..."
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                Vehicle Number
+              </label>
+              <input
+                type="text"
+                value={pendingVehicleFilter}
+                onChange={(e) => setPendingVehicleFilter(e.target.value)}
+                placeholder="Search vehicle reg..."
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                Job Card No
+              </label>
+              <input
+                type="text"
+                value={pendingJobCardFilter}
+                onChange={(e) => setPendingJobCardFilter(e.target.value)}
+                placeholder="Search JC no..."
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none"
+              />
+            </div>
+          </>
+        ) : selectedReport === 'vehicle_history' ? (
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
               Select Vehicle
@@ -1220,7 +1560,7 @@ export default function Reports({ token, user }) {
           <button
             type="button"
             onClick={clearFiltersSelection}
-            className="w-full py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all"
+            className="w-full py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all"
           >
             Clear Filters
           </button>
@@ -1305,13 +1645,19 @@ export default function Reports({ token, user }) {
                         </>
                       ) : selectedReport === 'pending_payment' ? (
                         <>
-                          <th className="p-4">Invoice No</th>
-                          <th className="p-4">Date</th>
+                          <th className="p-4">Job Card No</th>
                           <th className="p-4">Customer Name</th>
-                          <th className="p-4">Grand Total</th>
-                          <th className="p-4">Paid Amount</th>
-                          <th className="p-4">Due Amount</th>
+                          <th className="p-4">Type</th>
+                          <th className="p-4">Vehicle Reg</th>
+                          <th className="p-4">Invoice No</th>
+                          <th className="p-4">Invoice Date</th>
+                          <th className="p-4">Delivery Date</th>
+                          <th className="p-4 text-right">Final Amount</th>
+                          <th className="p-4 text-right">Advance</th>
+                          <th className="p-4 text-right">Total Received</th>
+                          <th className="p-4 text-right">Outstanding</th>
                           <th className="p-4">Payment Status</th>
+                          <th className="p-4">Credit Due Date</th>
                         </>
                       ) : selectedReport === 'payment_collection' ? (
                         <>
@@ -1469,18 +1815,60 @@ export default function Reports({ token, user }) {
                         </tr>
                       ))
                     ) : selectedReport === 'pending_payment' ? (
-                      filteredData.map(inv => (
-                        <tr key={inv._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all font-semibold">
-                          <td className="p-4 font-bold text-slate-800 dark:text-white font-mono">{inv.invoiceNo}</td>
-                          <td className="p-4 text-slate-500">{new Date(inv.date).toLocaleDateString('en-IN')}</td>
-                          <td className="p-4 text-slate-700 dark:text-slate-300">{inv.customerId?.name || 'N/A'}</td>
-                          <td className="p-4">₹{(inv.totals?.grandTotal || 0).toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-emerald-600">₹{(inv.amountPaid || 0).toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-red-600 font-bold">₹{((inv.totals?.grandTotal || 0) - (inv.amountPaid || 0)).toLocaleString('en-IN')}</td>
+                      filteredData.map(item => (
+                        <tr key={item._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all font-semibold">
+                          <td className="p-4 font-bold text-slate-800 dark:text-white font-mono">{item.jobCardNo}</td>
+                          <td className="p-4 text-slate-700 dark:text-slate-300">
+                            <div>{item.customerName}</div>
+                            {item.companyName && <div className="text-xs text-slate-400 font-normal">{item.companyName}</div>}
+                          </td>
                           <td className="p-4">
-                            <span className="px-2 py-0.5 rounded font-extrabold text-[9px] uppercase bg-red-50 text-red-700 dark:bg-red-950/20">
-                              {inv.paymentStatus}
+                            <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${item.customerType === 'Corporate' ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                              {item.customerType || 'Individual'}
                             </span>
+                          </td>
+                          <td className="p-4 font-mono font-bold text-slate-700 dark:text-slate-200">{item.vehicleRegNo}</td>
+                          <td className="p-4 font-mono text-slate-600 dark:text-slate-400">{item.invoiceNo}</td>
+                          <td className="p-4 text-slate-500">{item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A'}</td>
+                          <td className="p-4 text-slate-500">
+                            {item.vehicleDeliveryDate ? (
+                              <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                                {new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-xs">Not Delivered</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-right font-bold text-slate-800 dark:text-white">₹{Math.round(item.finalInvoiceAmount || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-4 text-right text-slate-600 dark:text-slate-400">₹{Math.round(item.totalAdvanceReceived || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-4 text-right text-emerald-600 dark:text-emerald-400 font-semibold">₹{Math.round(item.totalPaymentsReceived || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-4 text-right font-black text-red-600 dark:text-red-400">₹{Math.round(item.outstandingBalance || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-4">
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                                ['Fully Paid', 'Paid'].includes(item.paymentStatus)
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20'
+                                  : item.paymentStatus === 'Partially Paid'
+                                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/20'
+                                  : 'bg-red-50 text-red-700 dark:bg-red-950/20'
+                              }`}>
+                                {item.paymentStatus}
+                              </span>
+                              {['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus) && (
+                                <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
+                                  Delivered (Pending)
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-4 text-slate-500 font-mono text-xs">
+                            {item.creditDueDate ? (
+                              <span className={new Date(item.creditDueDate) < new Date() && item.outstandingBalance > 0.05 ? 'text-red-600 font-bold' : 'text-slate-600 dark:text-slate-400'}>
+                                {new Date(item.creditDueDate).toLocaleDateString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">N/A</span>
+                            )}
                           </td>
                         </tr>
                       ))

@@ -7,8 +7,8 @@ const calculateBillingSummary = async (jobCardId) => {
     const jobCard = await JobCard.findById(jobCardId);
     if (!jobCard) return;
 
-    // Check if status is closed (Delivered or Closed)
-    const isJcClosed = jobCard.status === 'Delivered' || jobCard.status === 'Closed';
+    // Check if status is closed (Delivered, Delivered – Payment Pending, or Closed)
+    const isJcClosed = ['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(jobCard.status);
 
     if (!isJcClosed) {
       // Clear summary if not closed

@@ -299,6 +299,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
             <option value="Work in Progress">Work in Progress</option>
             <option value="Quality Test">Pre-Delivery Inspection (PDI)</option>
             <option value="Ready for Delivery">Ready for Delivery</option>
+            <option value="Delivered – Payment Pending">Delivered – Payment Pending</option>
             <option value="Delivered">Delivered</option>
             <option value="Closed">Closed</option>
           </optgroup>
@@ -343,6 +344,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
             else if (['Work in Progress', 'Work In Progress'].includes(jc.status)) statusColor = 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200/50';
             else if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)) statusColor = 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-750 dark:text-yellow-450 border border-yellow-200/50';
             else if (['Ready for Delivery', 'Vehicle Ready'].includes(jc.status)) statusColor = 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200/50';
+            else if (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(jc.status)) statusColor = 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-300/50';
             else if (['Delivered', 'Closed'].includes(jc.status)) statusColor = 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50';
             else if (jc.status === 'Body Shop') statusColor = 'bg-fuchsia-50 dark:bg-fuchsia-950/30 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-300/50';
 
@@ -382,7 +384,8 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                                 <option value="Parts Procuring">🟠 Parts Procuring</option>
                                 <option value="Work in Progress">🔵 Work in Progress</option>
                                 <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
-                                <option value="Ready for Delivery">🟢 Ready for Delivery</option>
+                                 <option value="Ready for Delivery">🟢 Ready for Delivery</option>
+                                <option value="Delivered – Payment Pending">⚠️ Delivered – Payment Pending</option>
                                 <option value="Delivered">✅ Delivered</option>
                                 <option value="Closed">⬛ Closed</option>
                               </optgroup>
@@ -412,10 +415,11 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                             <option value="Work in Progress">🔵 Work in Progress</option>
                             <option value="Quality Test">🟡 Pre-Delivery Inspection (PDI)</option>
                             <option value="Ready for Delivery">🟢 Ready for Delivery</option>
+                            <option value="Delivered – Payment Pending">⚠️ Delivered – Payment Pending</option>
                             <option value="Delivered">✅ Delivered</option>
                             <option value="Closed">⬛ Closed</option>
                             <option value="Body Shop">🚗 Body Shop (13 Stages)...</option>
-                            {!['Created', 'Inspect Stage', 'Estimation', 'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered', 'Closed', 'Body Shop'].includes(jc.status) && (
+                            {!['Created', 'Inspect Stage', 'Estimation', 'Waiting for Customer Approval', 'Waiting for Allotment', 'Allotted', 'Parts Procuring', 'Work in Progress', 'Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Ready for Delivery', 'Vehicle Ready', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Delivered', 'Closed', 'Body Shop'].includes(jc.status) && (
                               <option value={jc.status}>{jc.status}</option>
                             )}
                           </select>

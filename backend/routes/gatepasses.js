@@ -372,10 +372,28 @@ router.post('/', auth, async (req, res) => {
       try {
         const JobCard = require('../models/JobCard');
         const existingJc = await JobCard.findById(gatepass.jobCardId);
-        if (existingJc && ['Ready for Delivery', 'Vehicle Ready', 'Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'Work In Progress'].includes(existingJc.status)) {
-          existingJc.status = 'Delivered';
+        if (existingJc && !['Delivered', 'Closed'].includes(existingJc.status)) {
+          const isPending = (existingJc.financialSummary?.pendingAmount > 0.05) || (existingJc.paymentStatus !== 'Fully Paid');
+          const targetStatus = isPending ? 'Delivered – Payment Pending' : 'Delivered';
+          const oldStatus = existingJc.status;
+          existingJc.status = targetStatus;
+          if (!existingJc.deliveredBy || !existingJc.deliveredBy.date) {
+            existingJc.deliveredBy = {
+              name: gatepass.createdBy || (req.user ? req.user.name : 'Gate Pass Staff'),
+              date: new Date(),
+              time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+            };
+          }
+          if (!existingJc.statusHistory) existingJc.statusHistory = [];
+          existingJc.statusHistory.push({
+            status: targetStatus,
+            previousStatus: oldStatus,
+            changedAt: new Date(),
+            changedBy: req.user ? req.user.name : (gatepass.createdBy || 'Gate Pass'),
+            remarks: `Gate Pass ${gatepass.gatePassNo} issued for vehicle delivery`
+          });
           await existingJc.save();
-          console.log(`[GatePass] JobCard ${existingJc.jobCardNo} marked as 'Delivered' upon gate pass issuance.`);
+          console.log(`[GatePass] JobCard ${existingJc.jobCardNo} marked as '${targetStatus}' upon gate pass issuance.`);
         }
       } catch (jcErr) {
         console.warn('[GatePass] Could not update JobCard status:', jcErr.message);

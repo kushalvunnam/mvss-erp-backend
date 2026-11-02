@@ -534,16 +534,90 @@ router.put('/:id', auth, async (req, res) => {
         });
       }
 
-      // Rule 1: Delivered is allowed only after the invoice is generated and payment status is Fully Paid.
-      if (newStatus === 'Delivered') {
+      const isDelivered = newStatus === 'Delivered';
+      const isDeliveredPaymentPending = ['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(newStatus);
+
+      // Rule 1A: Delivered is allowed only after the invoice is generated, PDI is passed, and payment status is Fully Paid.
+      if (isDelivered) {
         const Invoice = require('../models/Invoice');
-        const invoice = await Invoice.findOne({ jobCardId: jobCard._id });
+        const invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
         if (!invoice) {
           return res.status(400).send({ error: 'Delivered status is allowed only after the Invoice is generated.' });
         }
-        if (jobCard.paymentStatus !== 'Fully Paid') {
-          return res.status(400).send({ error: 'Delivered status is allowed only when payment status is Fully Paid.' });
+
+        const effectiveQcStatus = (req.body.qcStatus && typeof req.body.qcStatus === 'string' && req.body.qcStatus.trim())
+          ? req.body.qcStatus.trim()
+          : (jobCard.qcStatus || '');
+        if (effectiveQcStatus !== 'Pass') {
+          return res.status(400).send({
+            error: 'Pre-Delivery Inspection (PDI) must be completed and marked as Passed before delivering the vehicle.'
+          });
         }
+
+        await recalculateJobCardFinancials(jobCard, { invoice });
+        const isPaid = ['Fully Paid', 'Paid', 'Settled (Waived Off)', 'Overpaid'].includes(jobCard.paymentStatus) || (jobCard.financialSummary?.pendingAmount <= 0.05);
+        if (!isPaid) {
+          return res.status(400).send({ 
+            error: 'Delivered status is allowed only when payment status is Fully Paid. For delivery with outstanding payment, please select "Delivered – Payment Pending".' 
+          });
+        }
+
+        // Record or preserve delivery details
+        if (!jobCard.deliveredBy || !jobCard.deliveredBy.date) {
+          jobCard.deliveredBy = {
+            name: (req.body.deliveredBy && req.body.deliveredBy.name) || req.body.deliveredByName || (req.user ? req.user.name : 'Workshop Staff'),
+            date: (req.body.deliveredBy && req.body.deliveredBy.date) ? new Date(req.body.deliveredBy.date) : (req.body.deliveryDate ? new Date(req.body.deliveryDate) : new Date()),
+            time: (req.body.deliveredBy && req.body.deliveredBy.time) || req.body.deliveryTime || new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+          };
+        }
+      }
+
+      // Rule 1B: Delivered – Payment Pending allows delivery with outstanding payment when PDI is passed and Invoice exists.
+      if (isDeliveredPaymentPending) {
+        const Invoice = require('../models/Invoice');
+        const invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
+        if (!invoice) {
+          return res.status(400).send({ error: 'Delivered – Payment Pending is allowed only after the Invoice is generated.' });
+        }
+
+        const effectiveQcStatus = (req.body.qcStatus && typeof req.body.qcStatus === 'string' && req.body.qcStatus.trim())
+          ? req.body.qcStatus.trim()
+          : (jobCard.qcStatus || '');
+        if (effectiveQcStatus !== 'Pass') {
+          return res.status(400).send({
+            error: 'Pre-Delivery Inspection (PDI) must be completed and marked as Passed before vehicle delivery.'
+          });
+        }
+
+        // Record delivery date, time, and staff member (preserve if already set)
+        const delName = (req.body.deliveredBy && req.body.deliveredBy.name) || req.body.deliveredByName || (req.user ? req.user.name : 'Workshop Staff');
+        const delDate = (req.body.deliveredBy && req.body.deliveredBy.date) 
+          ? new Date(req.body.deliveredBy.date) 
+          : (req.body.deliveryDate ? new Date(req.body.deliveryDate) : (jobCard.deliveredBy?.date || new Date()));
+        const delTime = (req.body.deliveredBy && req.body.deliveredBy.time) 
+          || req.body.deliveryTime 
+          || (jobCard.deliveredBy?.time || new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+
+        jobCard.deliveredBy = {
+          name: delName,
+          date: delDate,
+          time: delTime
+        };
+
+        if (req.body.creditDueDate) {
+          jobCard.creditDueDate = new Date(req.body.creditDueDate);
+          if (invoice) invoice.creditDueDate = jobCard.creditDueDate;
+        }
+        if (req.body.creditTerms) {
+          jobCard.creditTerms = req.body.creditTerms;
+          if (invoice) invoice.creditTerms = req.body.creditTerms;
+        }
+        if (invoice && (req.body.creditDueDate || req.body.creditTerms)) {
+          await invoice.save();
+        }
+
+        // Recalculate without marking as fully paid
+        await recalculateJobCardFinancials(jobCard, { invoice });
       }
 
       // Rule 2: Ready for Delivery requires Pre-Delivery Inspection (PDI) completion.
@@ -570,17 +644,19 @@ router.put('/:id', auth, async (req, res) => {
         }
       }
 
+      const finalStatusToSet = isDeliveredPaymentPending ? 'Delivered – Payment Pending' : newStatus;
+
       const oldDisplay = oldStatus === 'Body Shop'
         ? `Body Shop (${jobCard.bodyShopStatus || 'Vehicle Reported'})`
         : oldStatus;
 
-      jobCard.status = newStatus;
+      jobCard.status = finalStatusToSet;
       jobCard.statusHistory.push({
-        status: newStatus,
+        status: finalStatusToSet,
         previousStatus: oldDisplay,
         changedAt: new Date(),
         changedBy: req.user ? req.user.name : 'System',
-        remarks: req.body.statusRemarks || `Status changed from ${oldDisplay} to ${newStatus}`
+        remarks: req.body.statusRemarks || `Status changed from ${oldDisplay} to ${finalStatusToSet}`
       });
     }
 
