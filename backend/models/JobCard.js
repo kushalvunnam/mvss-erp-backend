@@ -244,7 +244,13 @@ const JobCardSchema = new mongoose.Schema({
   photos: [{
     url: String,
     publicId: String,
-    photoType: { type: String, enum: ['Vehicle', 'Damage', 'Document', 'Before Repair', 'During Repair', 'After Repair'], default: 'Vehicle' }
+    photoType: { type: String, enum: ['Vehicle', 'Damage', 'Document', 'Before Repair', 'During Repair', 'After Repair'], default: 'Vehicle' },
+    filename: { type: String, default: '' },
+    originalName: { type: String, default: '' },
+    mimeType: { type: String, default: 'image/jpeg' },
+    size: { type: Number, default: 0 },
+    uploadedAt: { type: Date, default: Date.now },
+    uploadedBy: { type: String, default: '' }
   }],
 
   // Advisor & Delivery details
@@ -591,5 +597,7 @@ JobCardSchema.index({ status: 1 });
 JobCardSchema.index({ bodyShopStatus: 1 });
 JobCardSchema.index({ status: 1, updatedAt: 1 });
 JobCardSchema.index({ createdAt: 1 });
+JobCardSchema.index({ customerId: 1 });
+JobCardSchema.index({ vehicleId: 1 });
 
 module.exports = mongoose.model('JobCard', JobCardSchema);

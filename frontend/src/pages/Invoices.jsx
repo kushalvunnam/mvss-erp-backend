@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
-import { Search, Plus, Receipt, Download, Share2, Mail, CheckCircle2, Printer, Edit2, Eye, Trash2, Copy, Link, ChevronDown, MessageSquare, X } from 'lucide-react';
-import InvoiceForm from './InvoiceForm';
+import { Search, Plus, Receipt, Download, Share2, Mail, CheckCircle2, Printer, Edit2, Eye, Trash2, Copy, Link, ChevronDown, MessageSquare, X, Loader2 } from 'lucide-react';
+const InvoiceForm = lazy(() => import('./InvoiceForm'));
 
 import { getCachedData, setCachedData, invalidateCache } from '../utils/apiCache';
 

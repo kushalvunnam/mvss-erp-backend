@@ -11,24 +11,48 @@ const { generateJobCardPDF, generateGatePassPDF } = require('../utils/pdfGenerat
 const { getNextSequence } = require('../utils/documentNumbering');
 const router = express.Router();
 
-// Multer Local Storage Config
-const uploadsDir = path.join(__dirname, '../uploads');
-try {
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-} catch (mkdirErr) {}
+const mongoose = require('mongoose');
+const { uploadPhotoFile, downloadPhotoStream, deletePhotoFile, photoExists } = require('../utils/gridfs');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+let cloudinary = null;
+try {
+  cloudinary = require('cloudinary').v2;
+  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET
+    });
   }
+} catch (e) {
+  cloudinary = null;
+}
+
+const isCloudinaryConfigured = () => {
+  return Boolean(
+    cloudinary &&
+    process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET
+  );
+};
+
+const uploadToCloudinary = (buffer, options = {}) => {
+  return new Promise((resolve, reject) => {
+    if (!isCloudinaryConfigured()) return reject(new Error('Cloudinary is not configured.'));
+    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) return reject(error);
+      resolve(result);
+    });
+    stream.end(buffer);
+  });
+};
+
+// Memory storage for persistent GridFS & Cloudinary streaming
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }
 });
-const upload = multer({ storage: storage });
 
 // Dedicated Body Shop 13 Stages Workflow
 const BODY_SHOP_STAGES = [
@@ -469,24 +493,240 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
   }
 });
 
-// Upload Photo
+// Persistent Photo Streaming Route (GET and HEAD - supports <img> tags without auth)
+const streamJobCardPhoto = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    if (!fileId) return res.status(400).json({ error: 'Photo identifier is required.' });
+
+    // 1. GridFS Lookup by ObjectId
+    if (mongoose.isValidObjectId(fileId)) {
+      const fileMeta = await photoExists(fileId);
+      if (fileMeta) {
+        res.set('Content-Type', fileMeta.contentType || 'image/jpeg');
+        res.set('Content-Length', fileMeta.length);
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.set('Content-Disposition', `inline; filename="${encodeURIComponent(fileMeta.filename || 'photo.jpg')}"`);
+        if (req.method === 'HEAD') return res.status(200).end();
+
+        const stream = downloadPhotoStream(fileId);
+        stream.on('error', (err) => {
+          console.error('[Photo Stream Error] fileId:', fileId, err);
+          if (!res.headersSent) res.status(500).json({ error: 'Failed to stream photo.' });
+        });
+        return stream.pipe(res);
+      }
+    }
+
+    // 2. Legacy fallback to disk storage in uploadsDir
+    const uploadsDir = path.join(__dirname, '../uploads');
+    const diskPath = path.join(uploadsDir, fileId);
+    if (fs.existsSync(diskPath)) {
+      if (req.method === 'HEAD') return res.status(200).end();
+      return res.sendFile(diskPath);
+    }
+
+    // 3. Search GridFS by filename
+    try {
+      const { getBucket } = require('../utils/gridfs');
+      const bucket = getBucket('jobcard_photos');
+      const files = await bucket.find({ filename: fileId }).limit(1).toArray();
+      if (files.length > 0) {
+        const fileMeta = files[0];
+        res.set('Content-Type', fileMeta.contentType || 'image/jpeg');
+        res.set('Content-Length', fileMeta.length);
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.set('Content-Disposition', `inline; filename="${encodeURIComponent(fileMeta.filename || 'photo.jpg')}"`);
+        if (req.method === 'HEAD') return res.status(200).end();
+
+        const stream = bucket.openDownloadStream(fileMeta._id);
+        stream.on('error', (err) => {
+          if (!res.headersSent) res.status(500).json({ error: 'Failed to stream photo.' });
+        });
+        return stream.pipe(res);
+      }
+    } catch (_) {}
+
+    return res.status(404).json({ error: 'Photo not found in persistent database or storage.' });
+  } catch (error) {
+    console.error('[Get Photo Error]:', error);
+    res.status(500).json({ error: 'Failed to retrieve photo: ' + error.message });
+  }
+};
+
+router.get('/photo/:fileId', streamJobCardPhoto);
+router.head('/photo/:fileId', streamJobCardPhoto);
+
+// Standalone Photo Upload (uploads to GridFS or Cloudinary, returns metadata)
+router.post('/upload-photo', auth, upload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'No photo file provided.' });
+    }
+
+    const photoType = req.body.photoType || 'Vehicle';
+    let fileUrl = '';
+    let publicId = '';
+    const originalName = req.file.originalname || `photo-${Date.now()}.jpg`;
+    const mimeType = req.file.mimetype || 'image/jpeg';
+    const size = req.file.size || req.file.buffer.length;
+
+    if (isCloudinaryConfigured()) {
+      try {
+        const uploadResult = await uploadToCloudinary(req.file.buffer, {
+          folder: 'mvss_jobcards',
+          resource_type: 'auto'
+        });
+        if (uploadResult && uploadResult.secure_url) {
+          fileUrl = uploadResult.secure_url;
+          publicId = uploadResult.public_id;
+        }
+      } catch (cErr) {
+        console.warn('[Cloudinary Standalone Upload Warning]', cErr.message);
+      }
+    }
+
+    if (!fileUrl) {
+      const fileId = await uploadPhotoFile(req.file.buffer, originalName, mimeType);
+      fileUrl = `/api/jobcards/photo/${fileId.toString()}`;
+      publicId = fileId.toString();
+    }
+
+    res.status(201).json({
+      url: fileUrl,
+      publicId,
+      photoType,
+      filename: originalName,
+      originalName,
+      mimeType,
+      size,
+      uploadedAt: new Date()
+    });
+  } catch (error) {
+    console.error('[Standalone Upload Error]:', error);
+    res.status(500).json({ error: 'Failed to upload photo: ' + error.message });
+  }
+});
+
+// Upload Photo to an Existing Job Card
 router.post('/:id/photo', auth, upload.single('photo'), async (req, res) => {
   try {
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
 
-    const photoType = req.body.photoType || 'Vehicle';
-    const fileUrl = `/uploads/${req.file.filename}`;
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).send({ error: 'No photo file provided.' });
+    }
 
-    jobCard.photos.push({
+    const photoType = req.body.photoType || 'Vehicle';
+    let fileUrl = '';
+    let publicId = '';
+    const originalName = req.file.originalname || `photo-${Date.now()}.jpg`;
+    const mimeType = req.file.mimetype || 'image/jpeg';
+    const size = req.file.size || req.file.buffer.length;
+
+    // 1. Upload to Cloudinary if configured
+    if (isCloudinaryConfigured()) {
+      try {
+        const uploadResult = await uploadToCloudinary(req.file.buffer, {
+          folder: 'mvss_jobcards',
+          resource_type: 'auto'
+        });
+        if (uploadResult && uploadResult.secure_url) {
+          fileUrl = uploadResult.secure_url;
+          publicId = uploadResult.public_id;
+        }
+      } catch (cErr) {
+        console.warn('[Cloudinary Upload Warning] Falling back to MongoDB GridFS:', cErr.message);
+      }
+    }
+
+    // 2. Persistent MongoDB GridFS storage (Primary or fallback)
+    if (!fileUrl) {
+      const fileId = await uploadPhotoFile(req.file.buffer, originalName, mimeType);
+      fileUrl = `/api/jobcards/photo/${fileId.toString()}`;
+      publicId = fileId.toString();
+    }
+
+    const newPhoto = {
       url: fileUrl,
-      photoType
-    });
-    
+      publicId: publicId,
+      photoType: photoType,
+      filename: originalName,
+      originalName: originalName,
+      mimeType: mimeType,
+      size: size,
+      uploadedAt: new Date(),
+      uploadedBy: req.user ? `${req.user.name || req.user.username || 'Staff'} (${req.user.role || 'Staff'})` : 'Workshop Staff'
+    };
+
+    jobCard.photos.push(newPhoto);
     await jobCard.save();
-    res.send({ message: 'Photo uploaded successfully.', photos: jobCard.photos });
+
+    await logAction(req.user, 'JOBCARD_PHOTO_UPLOAD', `Attached ${photoType} photo to Job Card ${jobCard.jobCardNo}`, req);
+
+    res.status(201).send({
+      message: 'Photo uploaded and persisted successfully.',
+      photo: newPhoto,
+      photos: jobCard.photos
+    });
   } catch (error) {
-    res.status(500).send({ error: 'Failed to upload photo.' });
+    console.error('[Upload Photo Error]:', error);
+    res.status(500).send({ error: 'Failed to upload photo: ' + error.message });
+  }
+});
+
+// Delete Photo from Job Card
+router.delete('/:id/photo/:photoId', auth, async (req, res) => {
+  try {
+    const jobCard = await JobCard.findById(req.params.id);
+    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    const targetId = req.params.photoId;
+    const photoIndex = jobCard.photos.findIndex(p =>
+      (p._id && p._id.toString() === targetId) ||
+      p.publicId === targetId ||
+      (p.url && p.url.includes(targetId))
+    );
+
+    if (photoIndex === -1) {
+      return res.status(404).send({ error: 'Photo not found on this Job Card.' });
+    }
+
+    const photoToDelete = jobCard.photos[photoIndex];
+
+    // Clean up from Cloudinary if stored there
+    if (isCloudinaryConfigured() && photoToDelete.publicId && photoToDelete.url?.includes('cloudinary')) {
+      try {
+        await cloudinary.uploader.destroy(photoToDelete.publicId);
+      } catch (cErr) {
+        console.warn('[Cloudinary Delete Warning]:', cErr.message);
+      }
+    }
+
+    // Clean up from GridFS if stored there
+    const gridFsMatch = photoToDelete.url?.match(/\/api\/jobcards\/photo\/([a-f\d]{24})/i);
+    const targetFileId = gridFsMatch ? gridFsMatch[1] : (mongoose.isValidObjectId(photoToDelete.publicId) ? photoToDelete.publicId : null);
+    if (targetFileId) {
+      try {
+        await deletePhotoFile(targetFileId);
+      } catch (gErr) {
+        console.warn('[GridFS Delete Warning]:', gErr.message);
+      }
+    }
+
+    jobCard.photos.splice(photoIndex, 1);
+    await jobCard.save();
+
+    await logAction(req.user, 'JOBCARD_PHOTO_DELETE', `Removed photo from Job Card ${jobCard.jobCardNo}`, req);
+
+    res.send({
+      message: 'Photo deleted successfully.',
+      photos: jobCard.photos
+    });
+  } catch (error) {
+    console.error('[Delete Photo Error]:', error);
+    res.status(500).send({ error: 'Failed to delete photo: ' + error.message });
   }
 });
 

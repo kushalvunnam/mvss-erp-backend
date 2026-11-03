@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
 import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText, Trash2, Send, Loader2, MessageSquare, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react';
-import EstimateForm from './EstimateForm';
+const EstimateForm = lazy(() => import('./EstimateForm'));
 
 export default function Estimates({ token, user, setActiveTab }) {
   const [estimates, setEstimates] = useState([]);

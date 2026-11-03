@@ -389,7 +389,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
     });
   };
 
-  const handleFilesAdded = async (fileList) => {
+  const handleFilesAdded = async (fileList, selectedType = photoType) => {
     const newPhotos = [];
     setIsCompressing(true);
     setCompressionProgress(0);
@@ -397,12 +397,17 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
     const files = Array.from(fileList);
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (file.type.startsWith('image/')) {
-        const compressed = await compressImage(file);
-        newPhotos.push(compressed);
-      } else {
-        newPhotos.push(file);
+      let processed = file;
+      if (file.type && file.type.startsWith('image/')) {
+        processed = await compressImage(file);
       }
+      const previewUrl = processed.type && processed.type.startsWith('image/') ? URL.createObjectURL(processed) : null;
+      newPhotos.push({
+        file: processed,
+        photoType: selectedType,
+        previewUrl,
+        id: Date.now() + Math.random()
+      });
       setCompressionProgress(Math.round(((i + 1) / files.length) * 100));
     }
     
@@ -611,7 +616,9 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
         if (photos.length > 0) {
           const totalPhotos = photos.length;
           for (let i = 0; i < totalPhotos; i++) {
-            const file = photos[i];
+            const photoItem = photos[i];
+            const file = photoItem.file || photoItem;
+            const itemType = photoItem.photoType || photoType || 'Vehicle';
             
             // XHR Upload with progress
             await new Promise((resolve, reject) => {
@@ -640,7 +647,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
               
               const photoForm = new FormData();
               photoForm.append('photo', file);
-              photoForm.append('photoType', photoType);
+              photoForm.append('photoType', itemType);
               
               setUploadStatusText(`Initiating upload for photo ${i + 1} of ${totalPhotos}...`);
               xhr.send(photoForm);
@@ -670,7 +677,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
   const specs = activeVehicle ? resolveVehicleSpecs(activeVehicle.make, activeVehicle.model, activeVehicle.variant, activeVehicle.fuelType) : null;
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl h-fit max-w-5xl mx-auto select-none animate-fade-in relative">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 shadow-xl h-fit max-w-5xl mx-auto select-none animate-fade-in relative">
       {isSaving && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center z-[9999] select-none animate-fade-in text-center p-6">
           <div className="glassmorphism max-w-sm w-full p-8 rounded-3xl border border-indigo-500/20 space-y-6">
@@ -878,7 +885,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Odometer Reading (KM)</label>
                   <input
@@ -1173,7 +1180,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
             {/* Accessories Checklist */}
             <div className="space-y-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-850">
               <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2">Accessories Inventory Checklist</h4>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3.5 text-xs">
                 {[
                   { key: 'serviceBook', label: 'Service Book' },
                   { key: 'toolKit', label: 'Tool Kit' },
@@ -1215,7 +1222,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
               <div className="bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-850 space-y-4">
                 <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Accessory counts</h4>
                 
-                <div className="grid grid-cols-2 gap-4 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   {[
                     { key: 'idols', label: 'Idols (Nos)' },
                     { key: 'wheelCover', label: 'Wheel Covers' },
@@ -1396,7 +1403,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                     multiple
                     onChange={(e) => {
                       if (e.target.files) {
-                        handleFilesAdded(e.target.files);
+                        handleFilesAdded(e.target.files, photoType);
                       }
                     }}
                     className="hidden"
@@ -1424,7 +1431,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                   isOpen={isCameraOpen}
                   onClose={() => setIsCameraOpen(false)}
                   onPhotoCaptured={(file) => {
-                    handleFilesAdded([file]);
+                    handleFilesAdded([file], photoType);
                   }}
                   photoType={photoType}
                 />
@@ -1456,18 +1463,21 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                     </div>
                     
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                      {photos.map((file, idx) => {
-                        const isImage = file.type.startsWith('image/');
-                        const previewUrl = isImage ? URL.createObjectURL(file) : null;
-                        const sizeKb = Math.round(file.size / 1024);
+                      {photos.map((item, idx) => {
+                        const file = item.file || item;
+                        const itemType = item.photoType || photoType || 'Vehicle';
+                        const isImage = file.type && file.type.startsWith('image/');
+                        const previewUrl = item.previewUrl || (isImage ? URL.createObjectURL(file) : null);
+                        const sizeKb = Math.round((file.size || 0) / 1024);
                         
                         return (
-                          <div key={idx} className="relative group border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-950 aspect-square flex flex-col items-center justify-center p-1 text-center shadow-xs">
+                          <div key={item.id || idx} className="relative group border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-950 aspect-square flex flex-col items-center justify-center p-1 text-center shadow-xs">
                             {isImage ? (
                               <>
                                 <img src={previewUrl} alt={file.name} className="w-full h-full object-cover rounded-lg" />
-                                <div className="absolute inset-x-0 bottom-0 bg-slate-950/60 p-1 text-[8px] font-mono text-white truncate rounded-b-lg">
-                                  {sizeKb} KB
+                                <div className="absolute inset-x-0 bottom-0 bg-slate-950/75 p-1 text-[8px] font-bold text-white truncate rounded-b-lg flex justify-between items-center">
+                                  <span className="truncate">{itemType}</span>
+                                  <span className="shrink-0">{sizeKb}KB</span>
                                 </div>
                               </>
                             ) : (
@@ -1543,7 +1553,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
 
               <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
                 <h4 className="text-xs font-bold text-slate-700 dark:text-slate-350 uppercase tracking-wider">Staff Assignment</h4>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-450 uppercase">Service Advisor</label>
                     <input

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
 import { 
   FileText, 
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import BodyShopStatusModal, { BODY_SHOP_STAGES } from '../components/BodyShopStatusModal';
 import SignaturePad from '../components/SignaturePad';
+import LiveCameraModal from '../components/LiveCameraModal';
 
 const formatStatusLabel = (status, jc) => {
   if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(status)) {
@@ -1292,10 +1293,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
       </div>
 
       {/* Main Print Container */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-sm print:shadow-none print:border-none print:p-0 space-y-8">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 shadow-sm print:shadow-none print:border-none print:p-0 space-y-6 sm:space-y-8 min-w-0">
         
         {/* Brand Header */}
-        <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b border-slate-100 dark:border-slate-800 pb-6">
           <div>
             <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-wider">MVSS AUTOMOBILES PRIVATE LIMITED</h2>
             <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold mt-1">
@@ -1303,13 +1304,13 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               PH. No. {OWNER_SUPPORT_NUMBER} | Email: accounts@auto4m.in
             </p>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right w-full sm:w-auto">
             <span className="inline-block bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100/50 text-indigo-700 dark:text-indigo-400 px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider mb-2">
               Job Card: {jc.jobCardNo}
             </span>
             <p className="text-xs text-slate-400 font-semibold">Date: {new Date(jc.date).toLocaleDateString('en-IN')}</p>
             <p className="text-xs text-slate-400 font-semibold">Time: {jc.time}</p>
-            <div className="text-xs text-slate-400 font-semibold mt-1.5 flex items-center justify-end gap-1.5 select-none">
+            <div className="text-xs text-slate-400 font-semibold mt-1.5 flex flex-wrap items-center justify-start sm:justify-end gap-1.5 select-none">
               <span>Status:</span>
               {['Super Admin', 'Admin', 'Branch Manager', 'Service Advisor', 'Workshop Manager', 'Body Shop'].includes(user?.role) ? (
                 jc.status === 'Body Shop' ? (
@@ -1622,7 +1623,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full min-w-[650px] text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 font-bold border-b border-slate-100 dark:border-slate-800">
                       <th className="p-4">Spare Part Name</th>
@@ -1725,80 +1726,185 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         </div>
 
         {/* Attached Photos / Documents Gallery */}
-        {jc.photos && jc.photos.length > 0 && (
-          <div className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-6 print:hidden animate-fade-in">
-            <h4 className="text-xs font-black text-slate-800 dark:text-slate-205 uppercase tracking-wide">
-              Attached Photos & Supporting Documents
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        <div className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-6 print:hidden animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-indigo-500" />
+                Attached Photos & Supporting Documents
+                {jc.photos && jc.photos.length > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                    {jc.photos.length}
+                  </span>
+                )}
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Capture live vehicle photos, damage inspection, repair progress, or supporting paperwork
+              </p>
+            </div>
+
+            {/* Photo Action Bar */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={photoCategory}
+                onChange={(e) => setPhotoCategory(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="Vehicle">Vehicle Photo</option>
+                <option value="Damage">Damage Detail</option>
+                <option value="Document">Supporting Doc</option>
+                <option value="Before Repair">Before Repair</option>
+                <option value="During Repair">During Repair</option>
+                <option value="After Repair">After Repair</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setIsCameraOpen(true)}
+                disabled={isUploadingPhoto}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Rear Camera</span>
+              </button>
+
+              <input
+                ref={galleryFileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) {
+                    files.forEach(f => handleUploadPhotoFile(f, photoCategory));
+                  }
+                  e.target.value = '';
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={() => galleryFileInputRef.current?.click()}
+                disabled={isUploadingPhoto}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all border border-slate-200 dark:border-slate-700 active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload Gallery</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Upload Progress / Error */}
+          {isUploadingPhoto && (
+            <div className="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl">
+              <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+              <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                Uploading photo securely to database...
+              </span>
+            </div>
+          )}
+
+          {uploadError && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-xs font-bold text-red-600">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{uploadError}</span>
+            </div>
+          )}
+
+          {/* Photos Grid or Empty State */}
+          {jc.photos && jc.photos.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
               {jc.photos.map((photo, index) => {
                 if (!photo || !photo.url) return null;
-                const isAbsolute = photo.url.startsWith('http') || photo.url.startsWith('blob:') || photo.url.startsWith('data:');
-                
-                let relativePath = photo.url;
-                if (!isAbsolute) {
-                  if (!relativePath.startsWith('/uploads/') && !relativePath.startsWith('uploads/')) {
-                    relativePath = `/uploads/${relativePath}`;
-                  } else if (relativePath.startsWith('uploads/')) {
-                    relativePath = `/${relativePath}`;
-                  }
-                }
-                const src = isAbsolute ? photo.url : `${API_BASE_URL.replace('/api', '')}${relativePath}`;
+                const photoSrc = getPhotoSrc(photo.url);
                 const isBroken = brokenImages[photo.url];
-                
+                const photoId = photo._id || photo.publicId || photo.url;
+                const isDeleting = deletingPhotoId === photoId;
+
                 return (
-                  <div key={index} className="relative group border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-950 shadow-sm transition-all hover:shadow-md">
-                    <div className="aspect-video w-full overflow-hidden bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
+                  <div key={photoId || index} className="group relative border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-900 shadow-xs hover:shadow-md transition-all flex flex-col">
+                    <div className="aspect-video w-full overflow-hidden bg-slate-100 dark:bg-slate-950 flex items-center justify-center relative">
                       {isBroken ? (
-                        <div className="flex flex-col items-center justify-center p-4 text-center">
-                          <span className="text-[10px] font-bold text-red-500">Attachment is no longer available.</span>
+                        <div className="flex flex-col items-center justify-center p-3 text-center">
+                          <AlertTriangle className="w-5 h-5 text-amber-500 mb-1" />
+                          <span className="text-[10px] font-bold text-slate-500">Preview unavailable</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBrokenImages(prev => ({ ...prev, [photo.url]: false }));
+                            }}
+                            className="text-[9px] font-bold text-indigo-600 underline mt-1"
+                          >
+                            Retry
+                          </button>
                         </div>
                       ) : (photo.url.toLowerCase().endsWith('.pdf') || photo.photoType === 'Document') ? (
                         <div className="flex flex-col items-center justify-center p-4">
                           <FileText className="w-8 h-8 text-indigo-500" />
-                          <span className="text-[10px] font-bold text-slate-500 mt-2">Document Copy</span>
+                          <span className="text-[10px] font-bold text-slate-500 mt-2 truncate max-w-[120px]">{photo.originalName || 'Document'}</span>
                         </div>
                       ) : (
                         <img 
-                          src={src} 
-                          alt={`Attachment ${index + 1}`} 
+                          src={photoSrc} 
+                          alt={photo.originalName || `Photo ${index + 1}`} 
+                          loading="lazy"
                           className="w-full h-full object-cover cursor-pointer transition-transform duration-300 group-hover:scale-105"
                           onError={() => setBrokenImages(prev => ({ ...prev, [photo.url]: true }))}
-                          onClick={() => window.open(src, '_blank')}
+                          onClick={() => window.open(photoSrc, '_blank')}
                         />
                       )}
+
+                      {/* Delete button overlay */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePhoto(photo);
+                        }}
+                        disabled={isDeleting}
+                        title="Delete photo"
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-red-600 text-white transition-colors backdrop-blur-xs opacity-90 sm:opacity-0 sm:group-hover:opacity-100"
+                      >
+                        {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
                     </div>
-                    <div className="p-2.5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800/80 flex justify-between items-center">
-                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-500">
+
+                    <div className="p-2.5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center gap-1">
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 truncate">
                         {photo.photoType || 'Photo'}
                       </span>
-                      {isBroken ? (
-                        <span className="text-[9px] font-bold text-slate-400 cursor-not-allowed uppercase">
-                          Unavailable
-                        </span>
-                      ) : (
-                        <a 
-                          href={src} 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="text-[9px] font-bold text-indigo-650 hover:text-indigo-700 uppercase"
-                          onClick={(e) => {
-                            if (isBroken) {
-                              e.preventDefault();
-                              alert('Attachment is no longer available.');
-                            }
-                          }}
-                        >
-                          View Full
-                        </a>
-                      )}
+                      <a 
+                        href={photoSrc} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="text-[9px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 uppercase shrink-0"
+                      >
+                        View Full
+                      </a>
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-900/50">
+              <Camera className="w-8 h-8 text-slate-350 dark:text-slate-600 mx-auto mb-2" />
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-400">No photos attached to this Job Card yet</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Use Rear Camera or Upload Gallery above to document vehicle condition</p>
+            </div>
+          )}
+
+          {/* Live Camera Modal */}
+          <LiveCameraModal
+            isOpen={isCameraOpen}
+            onClose={() => setIsCameraOpen(false)}
+            onPhotoCaptured={(file) => {
+              handleUploadPhotoFile(file, photoCategory);
+            }}
+            photoType={photoCategory}
+          />
+        </div>
 
         {/* Damage markings & Complaints list */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -2380,7 +2486,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           <div className="space-y-2 select-none border-t border-slate-150 dark:border-slate-800 pt-4">
             <h5 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide">Complete Payment History Log</h5>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+              <table className="w-full min-w-[550px] text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-bold text-slate-455">
                     <th className="py-2.5 px-3">Date & Time</th>

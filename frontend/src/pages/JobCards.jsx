@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { API_BASE_URL } from '../config';
-import { Search, Plus, Edit2, FileText, ChevronRight, Eye, Trash2 } from 'lucide-react';
-import JobCardForm from './JobCardForm';
-import JobCardDetails from './JobCardDetails';
+import { Search, Plus, Edit2, FileText, ChevronRight, Eye, Trash2, Loader2 } from 'lucide-react';
+const JobCardForm = lazy(() => import('./JobCardForm'));
+const JobCardDetails = lazy(() => import('./JobCardDetails'));
 
 import { getCachedData, setCachedData, invalidateCache } from '../utils/apiCache';
 import BodyShopStatusModal, { BODY_SHOP_STAGES } from '../components/BodyShopStatusModal';

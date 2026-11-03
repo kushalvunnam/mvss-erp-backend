@@ -204,7 +204,31 @@ app.get(['/uploads/estimates/:filename', '/api/uploads/estimates/:filename'], as
   }
 });
 
-// Friendly 404 error page if uploaded file is no longer available on disk
+// Dynamic fallback for Job Card photos in GridFS if missing from ephemeral disk
+app.get(['/uploads/:filename', '/api/uploads/:filename'], async (req, res, next) => {
+  try {
+    const filename = req.params.filename;
+    const { getBucket } = require('./utils/gridfs');
+    const bucket = getBucket('jobcard_photos');
+    let files = await bucket.find({ filename }).limit(1).toArray();
+    if (files.length === 0 && mongoose.isValidObjectId(filename)) {
+      files = await bucket.find({ _id: new mongoose.Types.ObjectId(filename) }).limit(1).toArray();
+    }
+    if (files.length > 0) {
+      const file = files[0];
+      res.set('Content-Type', file.contentType || 'image/jpeg');
+      res.set('Content-Length', file.length);
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      res.set('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename || filename)}"`);
+      return bucket.openDownloadStream(file._id).pipe(res);
+    }
+  } catch (err) {
+    // Pass along to next handler
+  }
+  next();
+});
+
+// Friendly 404 error page if uploaded file is no longer available on disk or database
 app.get(['/uploads/*', '/api/uploads/*'], (req, res) => {
   res.status(404).send('<html><head><title>Unavailable</title></head><body style="font-family:sans-serif; text-align:center; padding:50px; background:#f8fafc; color:#475569;"><div style="max-width:400px; margin:0 auto; background:white; padding:30px; border-radius:16px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0;"><h1 style="color:#ef4444; margin-top:0;">Attachment Unavailable</h1><p style="font-size:14px; font-weight:600;">Attachment is no longer available.</p><p style="font-size:12px; color:#94a3b8;">The uploaded file was not found on the server.</p></div></body></html>');
 });

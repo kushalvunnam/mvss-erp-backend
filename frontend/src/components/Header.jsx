@@ -390,13 +390,13 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
   };
 
   return (
-    <header ref={headerRef} className="flex flex-col md:flex-row md:h-16 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 sm:px-7 md:px-8 py-3 md:py-0 justify-between items-stretch md:items-center gap-3 select-none relative z-40">
+    <header ref={headerRef} className="flex flex-col md:flex-row md:h-16 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 sm:px-6 md:px-8 py-2.5 md:py-0 justify-between items-stretch md:items-center gap-2.5 md:gap-3 select-none relative z-40">
       
       {/* Mobile top-row container */}
-      <div className="w-full flex justify-between items-center md:contents">
+      <div className="w-full flex justify-between items-center md:contents min-w-0">
         
         {/* Left Side: Hamburger, Logo, Company Name (Shifted 24-30px right) */}
-        <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 md:order-1 shrink-0 ml-1 sm:ml-3">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 md:order-1 shrink">
           <button
             onClick={() => {
               setShowNotificationsMenu(false);
@@ -416,17 +416,17 @@ export default function Header({ user, token, currentTab, onMenuClick, onLogout,
               <img 
                 src="/logo.png" 
                 alt="MVSS Logo" 
-                className="h-7 sm:h-8.5 w-auto max-w-[75px] sm:max-w-[100px] object-contain block shrink-0"
+                className="h-6 sm:h-8.5 w-auto max-w-[60px] sm:max-w-[100px] object-contain block shrink-0"
                 decoding="async"
                 fetchPriority="high"
               />
             </div>
             
             <div className="min-w-0 flex flex-col justify-center">
-              <h1 className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white leading-tight tracking-tight whitespace-nowrap">
+              <h1 className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white leading-tight tracking-tight truncate">
                 MVSS Automobiles
               </h1>
-              <span className="text-[8px] sm:text-[9.5px] text-slate-500 dark:text-slate-400 font-bold tracking-wider uppercase leading-none mt-0.5 whitespace-nowrap block">
+              <span className="hidden sm:block text-[8px] sm:text-[9.5px] text-slate-500 dark:text-slate-400 font-bold tracking-wider uppercase leading-none mt-0.5 truncate">
                 WORKSHOP MANAGEMENT SYSTEM
               </span>
             </div>

@@ -117,11 +117,12 @@ export default function SearchableDropdown({
       const spaceAbove = rect.top;
       
       const openUpward = spaceBelow < 320 && spaceAbove > spaceBelow;
-      const minWidth = 260;
-      const widthVal = Math.max(rect.width, minWidth);
+            const maxAvailableWidth = Math.max(200, window.innerWidth - 24);
+      const minWidth = Math.min(260, maxAvailableWidth);
+      const widthVal = Math.min(Math.max(rect.width, minWidth), maxAvailableWidth);
       
       let leftVal = rect.left;
-      if (leftVal + widthVal > window.innerWidth) {
+      if (leftVal + widthVal > window.innerWidth - 12) {
         leftVal = window.innerWidth - widthVal - 12;
       }
       if (leftVal < 12) {
