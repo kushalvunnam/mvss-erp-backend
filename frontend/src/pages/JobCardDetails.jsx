@@ -1069,7 +1069,33 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   }
 
   if (!jc) {
-    return <div className="p-8 text-center text-red-500 font-semibold text-sm">Failed to load Job Card.</div>;
+    return (
+      <div className="p-6 text-center max-w-md mx-auto my-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4">
+        <div className="w-12 h-12 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-slate-800 dark:text-white">Unable to Load Job Card</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          The requested Job Card record could not be retrieved. Please check network connectivity or return to the list.
+        </p>
+        <div className="flex justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all"
+          >
+            &larr; Back to Job Cards
+          </button>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const formatKey = (str) => str.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
@@ -1482,7 +1508,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <p className="font-semibold">{jc.vehicleId?.make} {jc.vehicleId?.model} {jc.vehicleId?.variant}</p>
               <p className="font-semibold">Chassis No: <span className="font-mono">{jc.vehicleId?.chassisNumber || 'N/A'}</span></p>
               <p className="font-semibold">Engine No: <span className="font-mono">{jc.vehicleId?.engineNumber || 'N/A'}</span></p>
-              <p className="font-bold text-slate-900 dark:text-white mb-2">Odometer: {jc.odometerReading.toLocaleString()} km</p>
+              <p className="font-bold text-slate-900 dark:text-white mb-2">Odometer: {jc.odometerReading != null ? Number(jc.odometerReading).toLocaleString() : 'N/A'} km</p>
               <p className="font-semibold">Service Type(s): {jc.serviceTypes && jc.serviceTypes.length > 0 ? jc.serviceTypes.join(', ') : (jc.serviceType || 'General Servicing')}</p>
               {jc.workCategory && (
                 <p className="font-semibold">

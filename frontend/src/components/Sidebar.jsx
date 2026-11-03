@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { OWNER_SUPPORT_NUMBER } from '../config';
 import { 
   LayoutDashboard, 
@@ -9,19 +9,31 @@ import {
   Receipt, 
   Package, 
   ShieldCheck, 
-  LogOut,
-  Wrench,
-  X,
-  TrendingUp,
-  History,
-  Key,
-  ShoppingBag,
-  Wallet,
-  Clock
+  LogOut, 
+  Wrench, 
+  X, 
+  TrendingUp, 
+  History, 
+  Key, 
+  ShoppingBag, 
+  Wallet, 
+  Clock 
 } from 'lucide-react';
 
 export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isOpen, setIsOpen, isCollapsed, onChangePassword }) {
   const role = user?.role || 'Guest';
+  const [isMobileScreen, setIsMobileScreen] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // When drawer is open on mobile, it must always show full names, header and actions
+  const effectiveCollapsed = !isMobileScreen && isCollapsed;
 
   const navigationItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Service', 'Reception', 'Accounts', 'Accounts Executive'] },
@@ -64,7 +76,7 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
       {isOpen && (
         <div 
           onClick={() => setIsOpen(false)}
-          className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 md:hidden"
+          className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-50 md:hidden"
         />
       )}
 
@@ -73,12 +85,12 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
         className={`fixed md:static inset-y-0 left-0 bg-[#0F172A] text-slate-350 flex flex-col h-screen shrink-0 select-none transition-all duration-300 ease-in-out z-50 md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         } ${
-          isCollapsed ? 'w-60 md:w-16' : 'w-60'
+          effectiveCollapsed ? 'w-64 md:w-16' : 'w-64'
         } border-r border-slate-800`}
       >
         {/* Brand Header Section */}
-        <div className={`px-4.5 py-4 border-b border-slate-800 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'} relative transition-all duration-300`}>
-          {isCollapsed ? (
+        <div className={`px-4.5 py-4 border-b border-slate-800 flex items-center ${effectiveCollapsed ? 'justify-center' : 'justify-between'} relative transition-all duration-300`}>
+          {effectiveCollapsed ? (
             <div className="text-white font-black text-xs tracking-wider bg-indigo-600/80 px-2 py-1 rounded-md shadow-sm">
               MVSS
             </div>
@@ -90,40 +102,43 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
           )}
           {/* Close button on mobile */}
           <button 
+            type="button"
             onClick={() => setIsOpen(false)}
-            className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white md:hidden transition-colors"
+            className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white md:hidden transition-colors"
+            aria-label="Close Sidebar"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Menu Options List */}
-        <nav className="flex-1 px-2.5 py-4 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 px-2.5 py-3 space-y-1 overflow-y-auto">
           {filteredItems.map(item => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
+                type="button"
                 onClick={() => handleItemClick(item)}
-                title={isCollapsed ? item.name : ''}
-                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3 px-3'} py-2 rounded-lg text-xs font-medium transition-all relative ${
+                title={effectiveCollapsed ? item.name : ''}
+                className={`w-full flex items-center ${effectiveCollapsed ? 'justify-center' : 'gap-3 px-3'} min-h-[42px] sm:min-h-0 py-2.5 sm:py-2 rounded-xl text-xs font-medium transition-all relative ${
                   isActive 
                     ? 'bg-slate-800 text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-indigo-500 before:rounded-r' 
                     : 'hover:bg-slate-800/40 hover:text-slate-100 text-slate-400'
                 }`}
               >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'} ${isCollapsed ? 'mx-auto' : ''}`} />
-                {!isCollapsed && <span className="animate-fade-in whitespace-nowrap overflow-hidden">{item.name}</span>}
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'} ${effectiveCollapsed ? 'mx-auto' : ''}`} />
+                {!effectiveCollapsed && <span className="animate-fade-in whitespace-nowrap overflow-hidden">{item.name}</span>}
               </button>
             );
           })}
         </nav>
 
         {/* Help Support Widget */}
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <div className="p-3 border-t border-slate-800 animate-fade-in">
-            <div className="p-3 bg-slate-800/30 border border-slate-800/60 rounded-lg text-center">
+            <div className="p-3 bg-slate-800/30 border border-slate-800/60 rounded-xl text-center">
               <p className="font-semibold text-slate-400 text-[10px]">Need Help?</p>
               <a 
                 href={`tel:${OWNER_SUPPORT_NUMBER.replace(/\s+/g, '')}`} 
@@ -136,26 +151,28 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout, isO
         )}
 
         {/* Bottom profile / logout */}
-        <div className={`p-3 border-t border-slate-800 flex items-center ${isCollapsed ? 'justify-center' : 'gap-2.5'}`}>
-          <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center font-bold text-slate-200 text-xs shrink-0 select-none">
+        <div className={`p-3 border-t border-slate-800 flex items-center ${effectiveCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-slate-200 text-xs shrink-0 select-none">
             {user?.name?.charAt(0) || 'U'}
           </div>
-          {!isCollapsed && (
+          {!effectiveCollapsed && (
             <>
               <div className="overflow-hidden min-w-0 flex-1 animate-fade-in">
                 <h4 className="text-slate-200 font-bold text-xs truncate leading-none">{user?.name || 'User'}</h4>
                 <span className="text-[9px] text-slate-500 font-medium mt-0.5 block truncate">{user?.role}</span>
               </div>
               <button
+                type="button"
                 onClick={onChangePassword}
-                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors mr-1"
+                className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors mr-1"
                 title="Change Password"
               >
                 <Key className="w-3.5 h-3.5" />
               </button>
               <button
+                type="button"
                 onClick={onLogout}
-                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
                 title="Log Out"
               >
                 <LogOut className="w-3.5 h-3.5" />

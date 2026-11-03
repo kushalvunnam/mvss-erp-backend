@@ -257,7 +257,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
   // Sync cascading selections when vehicle is resolved/changed
   useEffect(() => {
     if (selectedVehicleId && filteredVehicles.length > 0) {
-      const activeVehicle = filteredVehicles.find(v => v._id === selectedVehicleId);
+      const activeVehicle = filteredVehicles.find(v => v._id === selectedVehicleId) || vehicles.find(v => v._id === selectedVehicleId);
       if (activeVehicle) {
         setSelectedBrand(activeVehicle.make);
         setSelectedModel(activeVehicle.model);
@@ -452,8 +452,16 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
             const jcRes = await fetch(`${API_BASE_URL}/jobcards/${editId}`, { headers });
             if (jcRes.ok) {
               const jc = await jcRes.json();
-              setSelectedCustomerId(jc.customerId._id);
-              setSelectedVehicleId(jc.vehicleId._id);
+              const custId = jc.customerId?._id || jc.customerId || '';
+              const vehId = jc.vehicleId?._id || jc.vehicleId || '';
+              setSelectedCustomerId(custId ? custId.toString() : '');
+              setSelectedVehicleId(vehId ? vehId.toString() : '');
+
+              const targetVehicle = vData.find(v => v._id === (vehId ? vehId.toString() : ''));
+              if (targetVehicle) {
+                setSelectedBrand(targetVehicle.make || '');
+                setSelectedModel(targetVehicle.model || '');
+              }
               setFormData({
                 contactPerson: jc.contactPerson || '',
                 odometerReading: jc.odometerReading !== undefined && jc.odometerReading !== null ? jc.odometerReading.toString() : '',
@@ -499,7 +507,10 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
   // Filter vehicles when customer changes
   useEffect(() => {
     if (selectedCustomerId) {
-      const filtered = vehicles.filter(v => v.customerId?._id === selectedCustomerId);
+      const filtered = vehicles.filter(v => {
+        const vCustId = v.customerId?._id || v.customerId;
+        return vCustId && vCustId.toString() === selectedCustomerId.toString();
+      });
       setFilteredVehicles(filtered);
       if (filtered.length > 0 && !editId) {
         setSelectedVehicleId(filtered[0]._id);
@@ -508,7 +519,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
     } else {
       setFilteredVehicles([]);
     }
-  }, [selectedCustomerId, vehicles]);
+  }, [selectedCustomerId, vehicles, editId]);
 
   // Auto-fill odometer when vehicle changes
   const handleVehicleChange = (vId) => {
@@ -777,6 +788,19 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
 
               <div>
                 <label className="block text-xs font-semibold text-slate-550 mb-1">Vehicle Selection</label>
+                {activeVehicle && (
+                  <div className="mb-3 p-3 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/40 rounded-xl flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">Assigned Automobile</span>
+                      <p className="text-xs font-bold text-slate-800 dark:text-white">
+                        {activeVehicle.make} {activeVehicle.model} {activeVehicle.variant || ''}
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-xs rounded-lg shadow-2xs">
+                      {activeVehicle.vehicleNumber}
+                    </span>
+                  </div>
+                )}
                 {!selectedCustomerId ? (
                   <div className="text-center py-5 text-xs font-semibold text-slate-400 bg-white dark:bg-slate-950 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
                     Select a customer first to load vehicles

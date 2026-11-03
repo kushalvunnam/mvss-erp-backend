@@ -2403,6 +2403,7 @@ function ERPShell({
               </div>
             </div>
           ) : (
+            <ErrorBoundary>
             <Suspense fallback={<PageSkeletonLoader />}>
               <Routes>
                 <Route path="/dashboard" element={<Dashboard token={token} user={user} setActiveTab={(tab) => {
@@ -2448,6 +2449,7 @@ function ERPShell({
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </Suspense>
+            </ErrorBoundary>
           )}
         </main>
 
