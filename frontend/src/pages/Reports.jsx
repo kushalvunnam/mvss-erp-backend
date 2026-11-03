@@ -1844,7 +1844,15 @@ export default function Reports({ token, user }) {
                             </span>
                           </td>
                           <td className="p-4 font-mono font-bold text-slate-700 dark:text-slate-200">{item.vehicleRegNo}</td>
-                          <td className="p-4 font-mono text-slate-600 dark:text-slate-400">{item.invoiceNo}</td>
+                          <td className="p-4 font-mono text-slate-600 dark:text-slate-400">
+                            {item.invoiceNo === 'Delivered – Invoice Pending' ? (
+                              <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                Delivered – Invoice Pending
+                              </span>
+                            ) : (
+                              item.invoiceNo || 'N/A'
+                            )}
+                          </td>
                           <td className="p-4 text-slate-500">{item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A'}</td>
                           <td className="p-4 text-slate-500">
                             {item.vehicleDeliveryDate ? (

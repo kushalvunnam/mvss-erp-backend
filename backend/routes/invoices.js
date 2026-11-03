@@ -253,13 +253,35 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Create Invoice (can link to estimate)
-router.post('/', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+router.post('/', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { jobCardId, estimateId, parts, labour, gstDetails, insuranceClaimDetails, invoiceType, billingNameOption, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     
     // Find customer & vehicle
     const jobCard = await JobCard.findById(jobCardId);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
+
+    // Duplicate invoice prevention: ensure no active invoice already exists for this Job Card
+    const existingActiveInvoice = await Invoice.findOne({ jobCardId, status: { $ne: 'Cancelled' } });
+    if (existingActiveInvoice) {
+      return res.status(400).send({
+        error: `An active invoice (${existingActiveInvoice.invoiceNo}) already exists for this Job Card.`
+      });
+    }
+
+    // Customer estimate approval check: If an estimate exists, ensure it is Approved
+    const Estimate = require('../models/Estimate');
+    let estimateObj = null;
+    if (estimateId) {
+      estimateObj = await Estimate.findById(estimateId);
+    } else {
+      estimateObj = await Estimate.findOne({ jobCardId, status: { $ne: 'Cancelled' } });
+    }
+    if (estimateObj && estimateObj.status !== 'Approved') {
+      return res.status(400).send({
+        error: `Customer estimate (${estimateObj.estimateNo}) must be Approved before invoice generation. Current status: ${estimateObj.status}`
+      });
+    }
 
     const customer = await Customer.findById(jobCard.customerId);
     const vehicle = await Vehicle.findById(jobCard.vehicleId);

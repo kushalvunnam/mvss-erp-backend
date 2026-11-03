@@ -74,11 +74,15 @@ const computeFinancials = ({
   // 5. Total Received (Advance + Final)
   const totalReceived = roundToTwo(totalAdvance + totalFinal);
 
-  // 6. Net Amount Payable (Final Bill Amount minus approved waivers)
-  const netAmountPayable = Math.max(0, roundToTwo(billAmount - totalWaived));
+  // 6. Net Amount Payable (Final Bill Amount or Estimated Amount minus approved waivers)
+  const netAmountPayable = billAmount > 0
+    ? Math.max(0, roundToTwo(billAmount - totalWaived))
+    : netEstimated;
 
   // 7. Balance Due before waiver (legacy reference)
-  const rawBalance = roundToTwo(billAmount - totalReceived);
+  const rawBalance = billAmount > 0
+    ? roundToTwo(billAmount - totalReceived)
+    : roundToTwo(estAmount - totalReceived);
   const balanceDue = rawBalance > 0 ? rawBalance : 0;
 
   // 8. Outstanding Balance after waiver deduction and total received

@@ -451,7 +451,8 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const vehReg = vehicle?.vehicleNumber || vehicle?.regNo || 'N/A';
     const vehModel = vehicle?.model || vehicle?.brand || '';
 
-    const invNo = linkedInvoice?.invoiceNo || 'N/A';
+    const isDeliveredPaymentPending = ['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(jc.status);
+    const invNo = linkedInvoice?.invoiceNo || (isDeliveredPaymentPending ? 'Delivered – Invoice Pending' : 'N/A');
     const invDate = linkedInvoice?.date || linkedInvoice?.createdAt || null;
     const deliveryDate = jc.deliveredBy?.date || null;
     const deliveryStaff = jc.deliveredBy?.name || '';
@@ -459,19 +460,28 @@ const getPendingPaymentsReportData = async (query = {}) => {
 
     const finalBillAmount = linkedInvoice
       ? (linkedInvoice.totals?.roundedGrandTotal || linkedInvoice.totals?.grandTotal || 0)
-      : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
+      : (jc.financialSummary?.finalBillAmount || 0);
 
     const estAmount = jc.financialSummary?.estimatedRepairAmount || jc.estAmt || 0;
     const totalAdvance = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const totalFinal = jc.financialSummary?.totalFinal ?? (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const totalReceived = jc.financialSummary?.totalReceived ?? roundToTwo(totalAdvance + totalFinal);
     const totalWaived = jc.financialSummary?.totalWaived ?? (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0));
-    const netPayable = jc.financialSummary?.netAmountPayable ?? Math.max(0, roundToTwo(finalBillAmount - totalWaived));
-    const balanceDue = jc.financialSummary?.outstandingBalance ?? (jc.financialSummary?.pendingAmount ?? Math.max(0, roundToTwo(netPayable - totalReceived)));
+    
+    let netPayable = 0;
+    let balanceDue = 0;
+
+    if (linkedInvoice || finalBillAmount > 0) {
+      netPayable = jc.financialSummary?.netAmountPayable ?? Math.max(0, roundToTwo(finalBillAmount - totalWaived));
+      balanceDue = jc.financialSummary?.outstandingBalance ?? (jc.financialSummary?.pendingAmount ?? Math.max(0, roundToTwo(netPayable - totalReceived)));
+    } else {
+      netPayable = jc.financialSummary?.netAmountPayable ?? Math.max(0, roundToTwo(estAmount - totalWaived));
+      balanceDue = jc.financialSummary?.outstandingBalance ?? (jc.financialSummary?.estimatedBalanceDue ?? Math.max(0, roundToTwo(netPayable - totalReceived)));
+    }
 
     const effectivePaymentStatus = jc.paymentStatus || linkedInvoice?.paymentStatus || (balanceDue <= 0.05 ? 'Fully Paid' : (totalReceived > 0.05 ? 'Partially Paid' : 'Pending'));
 
-    const creditDueDate = linkedInvoice?.creditDueDate || jc.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
+    const creditDueDate = linkedInvoice?.creditDueDate || jc.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && (invDate || deliveryDate) ? new Date(new Date(invDate || deliveryDate).getTime() + 30 * 86400000) : null);
     const creditTerms = linkedInvoice?.creditTerms || jc.creditTerms || (custType === 'Corporate' ? '30 Days' : '');
 
     rawList.push({

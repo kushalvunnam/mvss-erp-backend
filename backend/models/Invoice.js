@@ -238,7 +238,7 @@ const invoiceSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Insurance Claim', 'Split', 'Scanner Payment', 'Scanner Payment (QR)'],
+    enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Insurance Claim', 'Split', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'],
     default: 'Cash',
   },
   amountPaid: {
@@ -328,6 +328,17 @@ const invoiceSchema = new mongoose.Schema({
 });
 
 invoiceSchema.pre('validate', function(next) {
+  if (this.paymentMethod && typeof this.paymentMethod === 'string') {
+    const pm = this.paymentMethod.trim().toLowerCase();
+    if (pm === 'cash') this.paymentMethod = 'Cash';
+    else if (pm === 'upi') this.paymentMethod = 'UPI';
+    else if (pm === 'card' || pm === 'card swipe' || pm === 'debit card' || pm === 'credit card' || pm === 'pos') this.paymentMethod = 'Card';
+    else if (pm === 'bank transfer' || pm === 'bank' || pm === 'neft' || pm === 'rtgs' || pm === 'imps' || pm === 'net banking') this.paymentMethod = 'Bank Transfer';
+    else if (pm === 'cheque' || pm === 'check') this.paymentMethod = 'Cheque';
+    else if (pm.includes('qr') || pm.includes('scanner')) this.paymentMethod = 'QR / Scanner Payment';
+    else if (pm === 'online') this.paymentMethod = 'Online';
+    else if (pm === 'other' || pm === 'others') this.paymentMethod = 'Other';
+  }
   if (!this.gstDetails) {
     this.gstDetails = { companyGSTIN: '36AAJCM4778P1ZI', customerGSTIN: '', isInterstate: false };
   } else {

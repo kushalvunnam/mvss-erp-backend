@@ -52,6 +52,34 @@ const generateJobCardNo = async () => {
   return await getNextSequence('JC', 'JobCard');
 };
 
+// Helper to safely normalize payment modes case-insensitively
+const normalizePaymentMode = (mode) => {
+  if (!mode || typeof mode !== 'string') return 'Cash';
+  const m = mode.trim();
+  const lower = m.toLowerCase();
+  if (lower === 'cash') return 'Cash';
+  if (lower === 'upi') return 'UPI';
+  if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
+  if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
+  if (lower === 'cheque' || lower === 'check') return 'Cheque';
+  if (lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
+  if (lower === 'online') return 'Online';
+  if (lower === 'other' || lower === 'others') return 'Other';
+  return m;
+};
+
+// UPI Configuration endpoint
+router.get('/upi-config', auth, (req, res) => {
+  const businessVpa = process.env.BUSINESS_UPI_ID || process.env.VPA || 'auto4m@icici';
+  const businessName = process.env.BUSINESS_NAME || 'MVSS Automobiles';
+  const isConfigured = Boolean(process.env.BUSINESS_UPI_ID || process.env.VPA || 'auto4m@icici');
+  res.send({
+    businessVpa,
+    businessName,
+    isConfigured
+  });
+});
+
 // List all job cards with search & filters
 router.get('/', auth, async (req, res) => {
   try {
@@ -519,9 +547,9 @@ router.put('/:id', auth, async (req, res) => {
       const newStatus = req.body.status;
       const oldStatus = jobCard.status;
 
-      // Role check: Admin, Service Advisor, Workshop Manager, Branch Manager, Body Shop can update the status.
+      // Role check: Admin, Service Advisor, Workshop Manager, Branch Manager, Body Shop, Accounts can update the status.
       // Other roles have read-only access.
-      const allowedRoles = ['Super Admin', 'Admin', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager', 'Body Shop'];
+      const allowedRoles = ['Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Service', 'Spares', 'Branch Manager', 'Workshop Manager', 'Body Shop'];
       if (!allowedRoles.includes(req.user?.role)) {
         return res.status(403).send({ error: 'You do not have permission to update the Job Card workflow status.' });
       }
@@ -574,14 +602,12 @@ router.put('/:id', auth, async (req, res) => {
         }
       }
 
-      // Rule 1B: Delivered – Payment Pending allows delivery with outstanding payment when PDI is passed and Invoice exists.
+      // Rule 1B: Delivered – Payment Pending allows delivery with outstanding payment when PDI is passed (invoice is optional, estimate must be approved if exists).
       if (isDeliveredPaymentPending) {
         const Invoice = require('../models/Invoice');
         const invoice = await Invoice.findOne({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
-        if (!invoice) {
-          return res.status(400).send({ error: 'Delivered – Payment Pending is allowed only after the Invoice is generated.' });
-        }
 
+        // Mandatory Pre-Delivery Inspection (PDI) Pass
         const effectiveQcStatus = (req.body.qcStatus && typeof req.body.qcStatus === 'string' && req.body.qcStatus.trim())
           ? req.body.qcStatus.trim()
           : (jobCard.qcStatus || '');
@@ -589,6 +615,18 @@ router.put('/:id', auth, async (req, res) => {
           return res.status(400).send({
             error: 'Pre-Delivery Inspection (PDI) must be completed and marked as Passed before vehicle delivery.'
           });
+        }
+
+        // Customer Estimate approval check: If active estimates exist, at least one must be Approved
+        const Estimate = require('../models/Estimate');
+        const activeEstimates = await Estimate.find({ jobCardId: jobCard._id, status: { $ne: 'Cancelled' } });
+        if (activeEstimates && activeEstimates.length > 0) {
+          const hasApproved = activeEstimates.some(est => est.status === 'Approved');
+          if (!hasApproved) {
+            return res.status(400).send({
+              error: 'Customer Estimate must be approved before vehicle delivery. Please ensure an estimate is approved first.'
+            });
+          }
         }
 
         // Record delivery date, time, and staff member (preserve if already set)
@@ -618,7 +656,7 @@ router.put('/:id', auth, async (req, res) => {
           await invoice.save();
         }
 
-        // Recalculate without marking as fully paid
+        // Recalculate without marking as fully paid (handles both with and without invoice)
         await recalculateJobCardFinancials(jobCard, { invoice });
       }
 
@@ -1037,8 +1075,8 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
     if (isNaN(numAmount) || numAmount <= 0) {
       return res.status(400).send({ error: 'Valid positive advance payment amount is required.' });
     }
-    const cleanMode = (paymentMode || type || 'Cash').trim();
-    const cleanType = (type || paymentMode || 'Cash').trim();
+    const cleanMode = normalizePaymentMode(paymentMode || type || 'Cash');
+    const cleanType = normalizePaymentMode(type || paymentMode || 'Cash');
 
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
@@ -1127,8 +1165,8 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
     }
 
     if (amount !== undefined) payment.amount = Number(amount);
-    if (type !== undefined) payment.type = type;
-    if (paymentMode !== undefined) payment.paymentMode = paymentMode;
+    if (type !== undefined) payment.type = normalizePaymentMode(type);
+    if (paymentMode !== undefined) payment.paymentMode = normalizePaymentMode(paymentMode);
     if (paymentDate !== undefined) payment.paymentDate = new Date(paymentDate);
     if (transactionId !== undefined) payment.transactionId = transactionId || '';
     if (remarks !== undefined) payment.remarks = remarks || '';
@@ -1186,7 +1224,7 @@ router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Bil
     if (isNaN(numAmount) || numAmount <= 0) {
       return res.status(400).send({ error: 'Valid positive final payment amount is required.' });
     }
-    const cleanType = (paymentType || 'Cash').trim();
+    const cleanType = normalizePaymentMode(paymentType || 'Cash');
 
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });

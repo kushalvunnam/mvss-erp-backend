@@ -278,13 +278,13 @@ const JobCardSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     type: { 
       type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'], 
       default: 'Cash',
       required: true 
     },
     paymentMode: { 
       type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'], 
       default: 'Cash',
       required: true 
     },
@@ -297,7 +297,7 @@ const JobCardSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     paymentType: { 
       type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)'], 
+      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'], 
       default: 'Cash',
       required: true 
     },
@@ -479,6 +479,38 @@ const JobCardSchema = new mongoose.Schema({
   timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true }
+});
+
+const normalizePaymentModeValue = (mode) => {
+  if (!mode || typeof mode !== 'string') return 'Cash';
+  const m = mode.trim();
+  const lower = m.toLowerCase();
+  if (lower === 'cash') return 'Cash';
+  if (lower === 'upi') return 'UPI';
+  if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
+  if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
+  if (lower === 'cheque' || lower === 'check') return 'Cheque';
+  if (lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
+  if (lower === 'online') return 'Online';
+  if (lower === 'other' || lower === 'others') return 'Other';
+  return m;
+};
+
+JobCardSchema.pre('validate', function(next) {
+  if (this.advancePayments && Array.isArray(this.advancePayments)) {
+    this.advancePayments.forEach(p => {
+      if (p.paymentMode) p.paymentMode = normalizePaymentModeValue(p.paymentMode);
+      if (p.type) p.type = normalizePaymentModeValue(p.type);
+      if (!p.paymentMode && p.type) p.paymentMode = p.type;
+      if (!p.type && p.paymentMode) p.type = p.paymentMode;
+    });
+  }
+  if (this.finalPayments && Array.isArray(this.finalPayments)) {
+    this.finalPayments.forEach(p => {
+      if (p.paymentType) p.paymentType = normalizePaymentModeValue(p.paymentType);
+    });
+  }
+  next();
 });
 
 JobCardSchema.pre('save', function(next) {
