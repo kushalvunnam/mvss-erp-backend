@@ -329,8 +329,8 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    version: 'production-v1.4.0-whatsapp-stage1-delivery',
-    description: 'Stage 1 WhatsApp delivery, customer PDF attachment, strict sequencing, atomic upsert, and E11000 duplicate key elimination'
+    version: 'production-v2.0.0-all-advance-payment-modes-fixed',
+    description: 'All 7 advance payment modes (Cash, UPI, Card, Bank Transfer, Cheque, QR / Scanner Payment, Other) supported and validated without enum errors'
   });
 });
 
