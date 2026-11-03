@@ -17,9 +17,11 @@ import {
   Trash2,
   CreditCard,
   Wrench,
+  PenTool,
   X
 } from 'lucide-react';
 import BodyShopStatusModal, { BODY_SHOP_STAGES } from '../components/BodyShopStatusModal';
+import SignaturePad from '../components/SignaturePad';
 
 const formatStatusLabel = (status, jc) => {
   if (['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(status)) {
@@ -133,6 +135,59 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     isConfigured: true
   });
   const [copiedVpa, setCopiedVpa] = useState(false);
+  const [signatureModal, setSignatureModal] = useState({
+    isOpen: false,
+    type: 'customer',
+    label: 'Customer Signature',
+    dataUrl: ''
+  });
+  const [savingSignature, setSavingSignature] = useState(false);
+
+  const handleOpenSignatureModal = (type, label) => {
+    setSignatureModal({
+      isOpen: true,
+      type,
+      label,
+      dataUrl: jc?.signatures?.[type] || ''
+    });
+  };
+
+  const handleSaveSignature = async (dataUrl) => {
+    if (!dataUrl) return;
+    setSavingSignature(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          signatures: {
+            ...(jc?.signatures || {}),
+            [signatureModal.type]: dataUrl
+          }
+        })
+      });
+      if (res.ok) {
+        setJc(prev => ({
+          ...prev,
+          signatures: {
+            ...(prev?.signatures || {}),
+            [signatureModal.type]: dataUrl
+          }
+        }));
+        setSignatureModal({ isOpen: false, type: '', label: '', dataUrl: '' });
+      } else {
+        const err = await res.json();
+        alert('Failed to save signature: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Network error saving signature: ' + err.message);
+    } finally {
+      setSavingSignature(false);
+    }
+  };
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/jobcards/upi-config`, {
@@ -2425,38 +2480,71 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
         </div>
 
-        {/* Signatures Block */}
+        {/* Signatures Block with Interactive Mobile Signing */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 border-t border-slate-100 dark:border-slate-800 pt-6">
           
           {/* Customer Signature box */}
-          <div className="flex flex-col items-center justify-between border border-slate-100 dark:border-slate-800 p-4 rounded-2xl h-36">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Customer Signature</span>
+          <div className="flex flex-col items-center justify-between border border-slate-200 dark:border-slate-800 p-4 rounded-2xl h-40 bg-white dark:bg-slate-900/50 shadow-xs relative group">
+            <div className="w-full flex justify-between items-center">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Customer Signature</span>
+              <button
+                type="button"
+                onClick={() => handleOpenSignatureModal('customer', 'Customer Signature')}
+                className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+              >
+                <PenTool className="w-2.5 h-2.5" />
+                {jc.signatures?.customer ? 'Update' : 'Sign'}
+              </button>
+            </div>
+
             {jc.signatures?.customer ? (
-              <img src={jc.signatures.customer} alt="Customer Sig" className="max-h-16 w-auto object-contain" />
+              <img src={jc.signatures.customer} alt="Customer Sig" className="max-h-20 w-auto object-contain py-1" />
             ) : (
-              <span className="text-[10px] text-slate-400 italic">No signature logged</span>
+              <span className="text-[10px] text-slate-400 italic my-auto">No signature logged</span>
             )}
             <span className="w-32 border-b border-slate-200 dark:border-slate-700" />
           </div>
 
           {/* Technician Signature box */}
-          <div className="flex flex-col items-center justify-between border border-slate-100 dark:border-slate-800 p-4 rounded-2xl h-36">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Technician Signature</span>
+          <div className="flex flex-col items-center justify-between border border-slate-200 dark:border-slate-800 p-4 rounded-2xl h-40 bg-white dark:bg-slate-900/50 shadow-xs relative group">
+            <div className="w-full flex justify-between items-center">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Technician Signature</span>
+              <button
+                type="button"
+                onClick={() => handleOpenSignatureModal('technician', 'Technician Signature')}
+                className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+              >
+                <PenTool className="w-2.5 h-2.5" />
+                {jc.signatures?.technician ? 'Update' : 'Sign'}
+              </button>
+            </div>
+
             {jc.signatures?.technician ? (
-              <img src={jc.signatures.technician} alt="Technician Sig" className="max-h-16 w-auto object-contain" />
+              <img src={jc.signatures.technician} alt="Technician Sig" className="max-h-20 w-auto object-contain py-1" />
             ) : (
-              <span className="text-[10px] text-slate-400 italic">No signature logged</span>
+              <span className="text-[10px] text-slate-400 italic my-auto">No signature logged</span>
             )}
             <span className="w-32 border-b border-slate-200 dark:border-slate-700" />
           </div>
 
           {/* Advisor Signature box */}
-          <div className="flex flex-col items-center justify-between border border-slate-100 dark:border-slate-800 p-4 rounded-2xl h-36">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Service Advisor Signature</span>
+          <div className="flex flex-col items-center justify-between border border-slate-200 dark:border-slate-800 p-4 rounded-2xl h-40 bg-white dark:bg-slate-900/50 shadow-xs relative group">
+            <div className="w-full flex justify-between items-center">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Service Advisor Signature</span>
+              <button
+                type="button"
+                onClick={() => handleOpenSignatureModal('advisor', 'Service Advisor Signature')}
+                className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+              >
+                <PenTool className="w-2.5 h-2.5" />
+                {jc.signatures?.advisor ? 'Update' : 'Sign'}
+              </button>
+            </div>
+
             {jc.signatures?.advisor ? (
-              <img src={jc.signatures.advisor} alt="Advisor Sig" className="max-h-16 w-auto object-contain" />
+              <img src={jc.signatures.advisor} alt="Advisor Sig" className="max-h-20 w-auto object-contain py-1" />
             ) : (
-              <span className="text-[10px] text-slate-400 italic">No signature logged</span>
+              <span className="text-[10px] text-slate-400 italic my-auto">No signature logged</span>
             )}
             <span className="w-32 border-b border-slate-200 dark:border-slate-700" />
           </div>
@@ -2464,6 +2552,55 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         </div>
 
       </div>
+
+      {/* Signature Capture Modal with Non-Scrolling Touch Drawing */}
+      {signatureModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in print:hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40">
+              <div className="flex items-center gap-2">
+                <PenTool className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                  Record {signatureModal.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSignatureModal({ isOpen: false, type: '', label: '', dataUrl: '' })}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <SignaturePad
+                label={signatureModal.label}
+                value={signatureModal.dataUrl}
+                onChange={(sig) => setSignatureModal(prev => ({ ...prev, dataUrl: sig }))}
+              />
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSignatureModal({ isOpen: false, type: '', label: '', dataUrl: '' })}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={savingSignature || !signatureModal.dataUrl}
+                  onClick={() => handleSaveSignature(signatureModal.dataUrl)}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 disabled:opacity-50 transition-all"
+                >
+                  {savingSignature ? 'Saving Signature...' : 'Save to Job Card'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showUpdateModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in print:hidden">

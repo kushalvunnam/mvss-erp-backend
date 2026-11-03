@@ -210,6 +210,7 @@ export default function VehicleDamageCanvas({ markings = [], onChange, readOnly 
           onClick={handleCanvasClick}
           onMouseMove={handleMouseMove}
           className={`max-w-full ${readOnly ? 'cursor-default' : 'cursor-crosshair'}`}
+          style={{ touchAction: 'manipulation' }}
         />
         
         {hoveredMarking && (

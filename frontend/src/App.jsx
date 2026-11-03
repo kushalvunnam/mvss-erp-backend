@@ -2373,7 +2373,7 @@ function ERPShell({
           tabPermissions={tabPermissions}
         />
         
-        <main className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6 bg-[#F8FAFC] dark:bg-slate-950 transition-colors">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 pb-24 md:pb-6 bg-[#F8FAFC] dark:bg-slate-950 transition-colors">
           {isPathBlocked ? (
             <div className="min-h-[70vh] flex items-center justify-center p-6 animate-fade-in">
               <div className="glassmorphism max-w-md w-full p-8 rounded-3xl border border-red-500/20 text-center relative overflow-hidden space-y-6 shadow-[0_0_50px_rgba(239,68,68,0.05)]">

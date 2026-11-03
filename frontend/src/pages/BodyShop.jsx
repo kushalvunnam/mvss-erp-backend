@@ -21,6 +21,7 @@ import {
   IndianRupee,
   Plus
 } from 'lucide-react';
+import LiveCameraModal from '../components/LiveCameraModal';
 
 export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTab }) {
   const [jobCards, setJobCards] = useState([]);
@@ -29,6 +30,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
   const [selectedJc, setSelectedJc] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   
   // Form states for updates
   const [dentProgress, setDentProgress] = useState(0);
@@ -277,7 +279,7 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
   };
 
   const triggerCameraUpload = () => {
-    cameraInputRef.current.click();
+    setIsCameraOpen(true);
   };
 
   if (loading) {
@@ -560,6 +562,14 @@ export default function BodyShop({ token, user, onNavigateToJobCard, setActiveTa
                     </div>
                   )}
                 </div>
+
+                {/* Live Camera Viewfinder Modal */}
+                <LiveCameraModal
+                  isOpen={isCameraOpen}
+                  onClose={() => setIsCameraOpen(false)}
+                  onPhotoCaptured={(file) => handleFileUpload(file)}
+                  photoType={photoType}
+                />
 
                 {/* Uploaded Images Gallery sorted by photoType */}
                 <div className="grid grid-cols-3 gap-3">

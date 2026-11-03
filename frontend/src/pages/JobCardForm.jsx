@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
-import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench, Image as ImageIcon } from 'lucide-react';
 import VehicleDamageCanvas from '../components/VehicleDamageCanvas';
 import SignaturePad from '../components/SignaturePad';
 import SearchableDropdown from '../components/SearchableDropdown';
+import LiveCameraModal from '../components/LiveCameraModal';
 
 // Car silhouette components for 3D card
 const CarSilhouetteSUV = () => (
@@ -329,6 +330,7 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
 
   const [photos, setPhotos] = useState([]);
   const [photoType, setPhotoType] = useState('Vehicle');
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   // Photo capture, compression and upload states
   const [isCompressing, setIsCompressing] = useState(false);
@@ -1349,30 +1351,45 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                   </div>
                 </div>
 
-                {/* Drag and Drop Zone / Capture Buttons */}
+                {/* Primary Action Buttons: Clearly Separated Live Camera vs Gallery */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCameraOpen(true);
+                    }}
+                    className="flex justify-center items-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Capture Photo (Rear Camera)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      document.getElementById('gallery-upload-input').click();
+                    }}
+                    className="flex justify-center items-center gap-2 py-3 px-4 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-[0.98] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 shadow-xs transition-all cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4 text-indigo-500" />
+                    Upload from Gallery
+                  </button>
+                </div>
+
+                {/* Drag and Drop Zone / Quick Selector */}
                 <div 
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                   onClick={() => document.getElementById('gallery-upload-input').click()}
-                  className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer relative ${
+                  className={`border-2 border-dashed rounded-2xl p-5 text-center transition-all cursor-pointer relative ${
                     isDragging 
                       ? 'border-indigo-500 bg-indigo-50/10 dark:bg-indigo-950/10' 
-                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950/30 dark:hover:bg-slate-950/50'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 hover:bg-slate-100/50 dark:bg-slate-950/30 dark:hover:bg-slate-950/50'
                   }`}
                 >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={(e) => {
-                      if (e.target.files) {
-                        handleFilesAdded(e.target.files);
-                      }
-                    }}
-                    className="hidden"
-                    id="camera-capture-input"
-                  />
                   <input
                     type="file"
                     accept="image/*"
@@ -1386,14 +1403,14 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                     id="gallery-upload-input"
                   />
 
-                  <div className="flex flex-col items-center justify-center space-y-2">
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-2xl shadow-sm">
-                      <Camera className="w-6 h-6" />
+                  <div className="flex flex-col items-center justify-center space-y-1.5">
+                    <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-xl shadow-xs">
+                      <Camera className="w-5 h-5" />
                     </div>
                     
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                       <p className="text-xs font-black text-slate-800 dark:text-slate-200">
-                        Drag & drop images here, or <span className="text-indigo-600 hover:text-indigo-700">browse files</span>
+                        Drag & drop images here, or <span className="text-indigo-600 hover:text-indigo-700">browse gallery</span>
                       </p>
                       <p className="text-[10px] text-slate-400 font-semibold">
                         Supports multiple vehicle, damage, or document photos
@@ -1402,30 +1419,15 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                   </div>
                 </div>
 
-                {/* Mobile Direct Camera Capture Action Button */}
-                <div className="grid grid-cols-2 gap-3 sm:hidden">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      document.getElementById('camera-capture-input').click();
-                    }}
-                    className="flex justify-center items-center gap-1.5 py-3 px-4 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/10 hover:bg-indigo-700"
-                  >
-                    <Camera className="w-4 h-4" />
-                    Capture Photo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      document.getElementById('gallery-upload-input').click();
-                    }}
-                    className="flex justify-center items-center gap-1.5 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold border border-slate-200"
-                  >
-                    Choose Gallery
-                  </button>
-                </div>
+                {/* Live Camera Viewfinder Modal */}
+                <LiveCameraModal
+                  isOpen={isCameraOpen}
+                  onClose={() => setIsCameraOpen(false)}
+                  onPhotoCaptured={(file) => {
+                    handleFilesAdded([file]);
+                  }}
+                  photoType={photoType}
+                />
 
                 {/* Compression Progress Info */}
                 {isCompressing && (
