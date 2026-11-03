@@ -220,6 +220,25 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     } catch (_) {}
   };
 
+  const getEffectivePaymentMode = (payment) => {
+    if (!payment) return 'Cash';
+    const remarks = payment.remarks || '';
+    const match = remarks.match(/\[Mode:\s*([^\]]+)\]/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    const rawMode = payment.paymentMode || payment.paymentType || payment.type;
+    if (!rawMode) return 'Cash';
+    if (rawMode === 'Scanner Payment (QR)' || rawMode === 'Scanner Payment') return 'QR / Scanner Payment';
+    if (rawMode === 'Card Swipe') return 'Card';
+    return rawMode;
+  };
+
+  const getCleanPaymentRemarks = (remarks) => {
+    if (!remarks) return '';
+    return remarks.replace(/\[Mode:\s*[^\]]+\]\s*/g, '').trim();
+  };
+
   const handleAddAdvance = async (e) => {
     e.preventDefault();
     if (!advanceAmount || parseFloat(advanceAmount) <= 0) {
@@ -228,7 +247,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     }
     setAddingAdvance(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/advance-payments`, {
+      const selectedMode = paymentMode || advanceType || 'Cash';
+      const cleanRemarks = (advanceRemarks || '').trim();
+      const cleanTxnId = (transactionId || '').trim();
+
+      // First attempt with primary modern payment modes
+      let res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/advance-payments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -236,12 +260,41 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         },
         body: JSON.stringify({
           amount: parseFloat(advanceAmount),
-          type: paymentMode || advanceType || 'Cash',
-          paymentMode: paymentMode || 'Cash',
-          transactionId: (transactionId || '').trim(),
-          remarks: (advanceRemarks || '').trim()
+          type: selectedMode,
+          paymentMode: selectedMode,
+          transactionId: cleanTxnId,
+          remarks: cleanRemarks
         })
       });
+
+      // If server returned 400 (e.g. running legacy backend schema enum constraints),
+      // seamlessly retry using legacy-compatible schema values so workshop operations never stall
+      if (!res.ok && res.status === 400 && selectedMode !== 'Cash') {
+        const legacyType = (selectedMode === 'Card') ? 'Card Swipe' : 'Online';
+        const legacyMode = (selectedMode === 'Card')
+          ? 'Card Swipe'
+          : (selectedMode === 'QR / Scanner Payment' ? 'Scanner Payment (QR)' : 'Online');
+
+        const fallbackRemarks = cleanRemarks 
+          ? `[Mode: ${selectedMode}] ${cleanRemarks}`
+          : `[Mode: ${selectedMode}]`;
+
+        res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/advance-payments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            amount: parseFloat(advanceAmount),
+            type: legacyType,
+            paymentMode: legacyMode,
+            transactionId: cleanTxnId,
+            remarks: fallbackRemarks
+          })
+        });
+      }
+
       if (res.ok) {
         setAdvanceAmount('');
         setTransactionId('');
@@ -312,7 +365,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     }
     setAddingFinal(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/final-payments`, {
+      const selectedType = finalPaymentType || 'Cash';
+      const cleanRemarks = (finalRemarks || '').trim();
+      const cleanTxnId = (finalTransactionId || '').trim();
+      const cleanRef = (finalReferenceNumber || '').trim();
+
+      let res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/final-payments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -320,12 +378,40 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         },
         body: JSON.stringify({
           amount: parseFloat(finalAmount),
-          paymentType: finalPaymentType,
-          transactionId: finalTransactionId,
-          referenceNumber: finalReferenceNumber,
-          remarks: finalRemarks
+          paymentType: selectedType,
+          transactionId: cleanTxnId,
+          referenceNumber: cleanRef,
+          remarks: cleanRemarks
         })
       });
+
+      // If backend returns HTTP 400 (e.g. running legacy backend schema enum constraints),
+      // seamlessly retry using legacy-compatible schema values so workshop operations never stall
+      if (!res.ok && res.status === 400 && selectedType !== 'Cash') {
+        const legacyType = (selectedType === 'Card') 
+          ? 'Card Swipe' 
+          : (['UPI', 'QR / Scanner Payment'].includes(selectedType) ? 'Scanner Payment' : 'Online');
+
+        const fallbackRemarks = cleanRemarks 
+          ? `[Mode: ${selectedType}] ${cleanRemarks}`
+          : `[Mode: ${selectedType}]`;
+
+        res = await fetch(`${API_BASE_URL}/jobcards/${jcId}/final-payments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            amount: parseFloat(finalAmount),
+            paymentType: legacyType,
+            transactionId: cleanTxnId,
+            referenceNumber: cleanRef,
+            remarks: fallbackRemarks
+          })
+        });
+      }
+
       if (res.ok) {
         setFinalAmount('');
         setFinalTransactionId('');
@@ -582,11 +668,11 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           id: p._id,
           type: 'Advance Deposit',
           date: p.paymentDate,
-          mode: p.paymentMode || p.type,
+          mode: getEffectivePaymentMode(p),
           amount: p.amount,
           txnId: p.transactionId,
           recordedBy: p.recordedBy || 'System',
-          remarks: p.remarks,
+          remarks: getCleanPaymentRemarks(p.remarks),
           isAdvance: true
         });
       });
@@ -597,11 +683,11 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           id: p._id,
           type: 'Final Settlement',
           date: p.paymentDate,
-          mode: p.paymentType,
+          mode: getEffectivePaymentMode(p),
           amount: p.amount,
           txnId: p.transactionId || p.referenceNumber,
           recordedBy: p.recordedBy || 'System',
-          remarks: p.remarks,
+          remarks: getCleanPaymentRemarks(p.remarks),
           isAdvance: false
         });
       });
@@ -1799,7 +1885,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-black text-slate-800 dark:text-white font-mono">₹{payment.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                         <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-100/50">
-                          {payment.paymentMode}
+                          {getEffectivePaymentMode(payment)}
                         </span>
                         {payment.transactionId && (
                           <span className="text-[10px] text-slate-450 dark:text-slate-500 font-mono">
@@ -1815,10 +1901,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                             <span>Recorded by: {payment.recordedBy}</span>
                           </>
                         )}
-                        {payment.remarks && (
+                        {getCleanPaymentRemarks(payment.remarks) && (
                           <>
                             <span>•</span>
-                            <span className="italic text-slate-550">"{payment.remarks}"</span>
+                            <span className="italic text-slate-550">"{getCleanPaymentRemarks(payment.remarks)}"</span>
                           </>
                         )}
                       </div>

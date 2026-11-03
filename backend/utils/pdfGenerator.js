@@ -2074,9 +2074,18 @@ function generatePaymentReceiptPDF({ receiptNo, receiptDate, payment, jobCard, i
 
   // Table Row
   const payAmt = Number(payment?.amount || 0);
-  const payMode = payment?.paymentMode || payment?.paymentType || payment?.mode || 'Cash';
+  let payMode = payment?.paymentMode || payment?.paymentType || payment?.mode || 'Cash';
+  let payRemarks = payment?.remarks || '-';
+  if (payment?.remarks && payment.remarks.includes('[Mode: ')) {
+    const match = payment.remarks.match(/\[Mode:\s*([^\]]+)\]/);
+    if (match && match[1]) {
+      payMode = match[1].trim();
+      payRemarks = payment.remarks.replace(/\[Mode:\s*[^\]]+\]\s*/g, '').trim() || '-';
+    }
+  }
+  if (payMode === 'Scanner Payment (QR)' || payMode === 'Scanner Payment') payMode = 'QR / Scanner Payment';
+  if (payMode === 'Card Swipe') payMode = 'Card';
   const payTxn = payment?.transactionId || payment?.referenceNumber || payment?.txnId || 'N/A';
-  const payRemarks = payment?.remarks || '-';
 
   doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 25).stroke();
   doc.fillColor('#000000').font('Helvetica').fontSize(8);
