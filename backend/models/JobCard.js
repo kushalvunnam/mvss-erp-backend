@@ -1,18 +1,31 @@
 const mongoose = require('mongoose');
 
-const PAYMENT_MODES = [
+// Primary Standard Payment Modes supported by MVSS ERP
+const PRIMARY_PAYMENT_MODES = [
   'Cash',
   'UPI',
-  'QR / Scanner Payment',
+  'Card',
   'Bank Transfer',
+  'Cheque',
+  'QR / Scanner Payment',
+  'Other'
+];
+
+// All supported payment modes including historical values for 100% backward compatibility
+const ALL_SUPPORTED_PAYMENT_MODES = [
+  'Cash',
+  'UPI',
+  'Card',
+  'Bank Transfer',
+  'Cheque',
+  'QR / Scanner Payment',
+  'Other',
+  // Historical / legacy values
   'Card Swipe',
   'Online',
-  'Card',
-  'Cheque',
-  'QR',
-  'Scanner Payment',
   'Scanner Payment (QR)',
-  'Other'
+  'Scanner Payment',
+  'QR'
 ];
 
 const normalizePaymentModeValue = (mode) => {
@@ -24,7 +37,7 @@ const normalizePaymentModeValue = (mode) => {
   if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
   if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
   if (lower === 'cheque' || lower === 'check') return 'Cheque';
-  if (lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
+  if (lower === 'qr / scanner payment' || lower === 'scanner payment (qr)' || lower === 'scanner payment' || lower === 'qr' || lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
   if (lower === 'online') return 'Online';
   if (lower === 'other' || lower === 'others') return 'Other';
   return m;
@@ -38,14 +51,20 @@ const AdvancePaymentSchema = new mongoose.Schema({
   },
   type: { 
     type: String, 
-    enum: PAYMENT_MODES, 
+    enum: {
+      values: ALL_SUPPORTED_PAYMENT_MODES,
+      message: '{VALUE} is not a valid enum value for path type'
+    },
     default: 'Cash',
     set: normalizePaymentModeValue,
     required: true 
   },
   paymentMode: { 
     type: String, 
-    enum: PAYMENT_MODES, 
+    enum: {
+      values: ALL_SUPPORTED_PAYMENT_MODES,
+      message: '{VALUE} is not a valid enum value for path paymentMode'
+    },
     default: 'Cash',
     set: normalizePaymentModeValue,
     required: true 
@@ -72,7 +91,10 @@ const FinalPaymentSchema = new mongoose.Schema({
   },
   paymentType: { 
     type: String, 
-    enum: PAYMENT_MODES, 
+    enum: {
+      values: ALL_SUPPORTED_PAYMENT_MODES,
+      message: '{VALUE} is not a valid enum value for path paymentType'
+    },
     default: 'Cash',
     set: normalizePaymentModeValue,
     required: true 

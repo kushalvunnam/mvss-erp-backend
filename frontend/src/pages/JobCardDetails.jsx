@@ -1827,11 +1827,31 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">
-                      {['UPI', 'QR / Scanner Payment', 'Bank Transfer'].includes(paymentMode) ? 'Transaction ID / UTR' : 'Transaction / Reference ID'}
+                      {['UPI', 'QR / Scanner Payment', 'Bank Transfer'].includes(paymentMode)
+                        ? 'Transaction ID / UTR'
+                        : paymentMode === 'Cheque'
+                          ? 'Cheque Number'
+                          : paymentMode === 'Card'
+                            ? 'Card Reference / Auth Code'
+                            : paymentMode === 'Cash'
+                              ? 'Receipt / Voucher No (Optional)'
+                              : 'Transaction / Reference ID'}
                     </label>
                     <input
                       type="text"
-                      placeholder="Txn ID / UTR"
+                      placeholder={
+                        paymentMode === 'Cash'
+                          ? 'Receipt No (Optional)'
+                          : paymentMode === 'Cheque'
+                            ? 'Cheque No (Optional)'
+                            : paymentMode === 'Card'
+                              ? 'Card Auth / Ref No (Optional)'
+                              : paymentMode === 'UPI' || paymentMode === 'QR / Scanner Payment'
+                                ? 'UPI Txn ID / UTR'
+                                : paymentMode === 'Bank Transfer'
+                                  ? 'NEFT / RTGS / IMPS Ref'
+                                  : 'Reference ID (Optional)'
+                      }
                       value={transactionId}
                       onChange={(e) => setTransactionId(e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -2063,50 +2083,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       </div>
                     </div>
 
-                    {/* Interactive Dynamic UPI QR Code Box for Final Payment */}
-                    {['UPI', 'QR / Scanner Payment'].includes(finalPaymentType) && (
-                      <div className="bg-gradient-to-br from-emerald-50/80 to-indigo-50/60 dark:from-emerald-950/40 dark:to-indigo-950/30 border border-emerald-200/80 dark:border-emerald-800/60 rounded-xl p-3 my-2 text-center select-none shadow-xs">
-                        {upiConfig.isConfigured && upiConfig.businessVpa ? (
-                          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
-                            <div className="bg-white p-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                              <img
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getUpiUri(finalAmount || getPendingAmount() || getBalancePayable()))}`}
-                                alt="UPI QR Code"
-                                className="w-32 h-32 object-contain"
-                              />
-                            </div>
-                            <div className="text-left space-y-1 sm:max-w-[240px]">
-                              <div className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Dynamic UPI Settlement QR
-                              </div>
-                              <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
-                                <span className="font-mono">{upiConfig.businessVpa}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyVpa(upiConfig.businessVpa)}
-                                  className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 hover:bg-emerald-200 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.5 rounded font-bold transition-all"
-                                >
-                                  {copiedVpa ? '✓ Copied' : 'Copy'}
-                                </button>
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-semibold">
-                                Payee: {upiConfig.businessName}
-                              </div>
-                              <div className="text-xs font-black text-emerald-600 font-mono">
-                                QR Amount: ₹{Number(finalAmount || getPendingAmount() || getBalancePayable() || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </div>
-                              <div className="text-[9px] text-slate-400 font-medium pt-1">
-                                Scan with GPay • PhonePe • Paytm • BHIM • Cred
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="p-2 text-amber-700 dark:text-amber-400 text-xs font-semibold">
-                            ⚠️ Business UPI ID / VPA is not configured. Please set BUSINESS_UPI_ID in workshop configuration.
-                          </div>
-                        )}
-                      </div>
-                    )}
+
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>

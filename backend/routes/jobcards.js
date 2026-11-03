@@ -62,7 +62,7 @@ const normalizePaymentMode = (mode) => {
   if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
   if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
   if (lower === 'cheque' || lower === 'check') return 'Cheque';
-  if (lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
+  if (lower === 'qr / scanner payment' || lower === 'scanner payment (qr)' || lower === 'scanner payment' || lower === 'qr' || lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
   if (lower === 'online') return 'Online';
   if (lower === 'other' || lower === 'others') return 'Other';
   return m;
@@ -1165,8 +1165,11 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
     }
 
     if (amount !== undefined) payment.amount = Number(amount);
-    if (type !== undefined) payment.type = normalizePaymentMode(type);
-    if (paymentMode !== undefined) payment.paymentMode = normalizePaymentMode(paymentMode);
+    if (type !== undefined || paymentMode !== undefined) {
+      const mode = paymentMode || type;
+      payment.type = normalizePaymentMode(mode);
+      payment.paymentMode = normalizePaymentMode(mode);
+    }
     if (paymentDate !== undefined) payment.paymentDate = new Date(paymentDate);
     if (transactionId !== undefined) payment.transactionId = transactionId || '';
     if (remarks !== undefined) payment.remarks = remarks || '';
