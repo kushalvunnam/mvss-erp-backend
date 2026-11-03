@@ -181,10 +181,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         },
         body: JSON.stringify({
           amount: parseFloat(advanceAmount),
-          type: advanceType,
-          paymentMode,
-          transactionId,
-          remarks: advanceRemarks
+          type: paymentMode || advanceType || 'Cash',
+          paymentMode: paymentMode || 'Cash',
+          transactionId: (transactionId || '').trim(),
+          remarks: (advanceRemarks || '').trim()
         })
       });
       if (res.ok) {
@@ -1824,57 +1824,6 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   </div>
                 </div>
 
-                {/* Interactive Dynamic UPI QR Code Box */}
-                {['UPI', 'QR / Scanner Payment'].includes(paymentMode) && (
-                  <div className="bg-gradient-to-br from-indigo-50/80 to-purple-50/60 dark:from-indigo-950/40 dark:to-purple-950/30 border border-indigo-200/80 dark:border-indigo-800/60 rounded-xl p-3 my-2 text-center select-none shadow-xs">
-                    {upiConfig.isConfigured && upiConfig.businessVpa ? (
-                      <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
-                        <div className="bg-white p-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                          <img
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getUpiUri(advanceAmount))}`}
-                            alt="UPI QR Code"
-                            className="w-32 h-32 object-contain"
-                          />
-                        </div>
-                        <div className="text-left space-y-1 sm:max-w-[240px]">
-                          <div className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Dynamic UPI QR Code
-                          </div>
-                          <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
-                            <span className="font-mono">{upiConfig.businessVpa}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyVpa(upiConfig.businessVpa)}
-                              className="text-[10px] bg-indigo-100 dark:bg-indigo-900/60 hover:bg-indigo-200 text-indigo-800 dark:text-indigo-200 px-1.5 py-0.5 rounded font-bold transition-all"
-                            >
-                              {copiedVpa ? '✓ Copied' : 'Copy'}
-                            </button>
-                          </div>
-                          <div className="text-[10px] text-slate-500 font-semibold">
-                            Payee: {upiConfig.businessName}
-                          </div>
-                          {Number(advanceAmount) > 0 ? (
-                            <div className="text-xs font-black text-emerald-600 font-mono">
-                              QR Amount: ₹{Number(advanceAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-amber-600 dark:text-amber-400 italic">
-                              Enter amount above to generate custom QR amount
-                            </div>
-                          )}
-                          <div className="text-[9px] text-slate-400 font-medium pt-1">
-                            Scan with GPay • PhonePe • Paytm • BHIM • Cred
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-2 text-amber-700 dark:text-amber-400 text-xs font-semibold">
-                        ⚠️ Business UPI ID / VPA is not configured. Please set BUSINESS_UPI_ID in workshop configuration.
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[9px] font-bold text-slate-400 uppercase mb-0.5">
@@ -1905,7 +1854,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   disabled={addingAdvance}
                   className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50"
                 >
-                  {addingAdvance ? 'Saving...' : (['UPI', 'QR / Scanner Payment'].includes(paymentMode) ? 'Confirm Payment Received' : 'Add Advance Payment')}
+                  {addingAdvance ? 'Saving...' : 'Confirm Payment Received'}
                 </button>
               </form>
             )}

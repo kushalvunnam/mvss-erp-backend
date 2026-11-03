@@ -1,5 +1,94 @@
 const mongoose = require('mongoose');
 
+const PAYMENT_MODES = [
+  'Cash',
+  'UPI',
+  'QR / Scanner Payment',
+  'Bank Transfer',
+  'Card Swipe',
+  'Online',
+  'Card',
+  'Cheque',
+  'QR',
+  'Scanner Payment',
+  'Scanner Payment (QR)',
+  'Other'
+];
+
+const normalizePaymentModeValue = (mode) => {
+  if (!mode || typeof mode !== 'string') return 'Cash';
+  const m = mode.trim();
+  const lower = m.toLowerCase();
+  if (lower === 'cash') return 'Cash';
+  if (lower === 'upi') return 'UPI';
+  if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
+  if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
+  if (lower === 'cheque' || lower === 'check') return 'Cheque';
+  if (lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
+  if (lower === 'online') return 'Online';
+  if (lower === 'other' || lower === 'others') return 'Other';
+  return m;
+};
+
+const AdvancePaymentSchema = new mongoose.Schema({
+  amount: { 
+    type: Number, 
+    required: [true, 'Advance amount is required'],
+    min: [0.01, 'Advance amount must be greater than zero']
+  },
+  type: { 
+    type: String, 
+    enum: PAYMENT_MODES, 
+    default: 'Cash',
+    set: normalizePaymentModeValue,
+    required: true 
+  },
+  paymentMode: { 
+    type: String, 
+    enum: PAYMENT_MODES, 
+    default: 'Cash',
+    set: normalizePaymentModeValue,
+    required: true 
+  },
+  paymentDate: { type: Date, default: Date.now },
+  transactionId: { type: String, default: '', trim: true },
+  remarks: { type: String, default: '', trim: true },
+  recordedBy: { type: String, default: '', trim: true }
+}, { _id: true });
+
+AdvancePaymentSchema.pre('validate', function(next) {
+  if (this.paymentMode) this.paymentMode = normalizePaymentModeValue(this.paymentMode);
+  if (this.type) this.type = normalizePaymentModeValue(this.type);
+  if (!this.paymentMode && this.type) this.paymentMode = this.type;
+  if (!this.type && this.paymentMode) this.type = this.paymentMode;
+  next();
+});
+
+const FinalPaymentSchema = new mongoose.Schema({
+  amount: { 
+    type: Number, 
+    required: [true, 'Final payment amount is required'],
+    min: [0.01, 'Final payment amount must be greater than zero']
+  },
+  paymentType: { 
+    type: String, 
+    enum: PAYMENT_MODES, 
+    default: 'Cash',
+    set: normalizePaymentModeValue,
+    required: true 
+  },
+  transactionId: { type: String, default: '', trim: true },
+  referenceNumber: { type: String, default: '', trim: true },
+  remarks: { type: String, default: '', trim: true },
+  recordedBy: { type: String, default: '', trim: true },
+  paymentDate: { type: Date, default: Date.now }
+}, { _id: true });
+
+FinalPaymentSchema.pre('validate', function(next) {
+  if (this.paymentType) this.paymentType = normalizePaymentModeValue(this.paymentType);
+  next();
+});
+
 const JobCardSchema = new mongoose.Schema({
   jobCardNo: {
     type: String,
@@ -274,39 +363,8 @@ const JobCardSchema = new mongoose.Schema({
     remarks: { type: String, default: '' }
   }],
 
-  advancePayments: [{
-    amount: { type: Number, required: true },
-    type: { 
-      type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'], 
-      default: 'Cash',
-      required: true 
-    },
-    paymentMode: { 
-      type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'], 
-      default: 'Cash',
-      required: true 
-    },
-    paymentDate: { type: Date, default: Date.now },
-    transactionId: { type: String, default: '' },
-    remarks: { type: String, default: '' },
-    recordedBy: { type: String, default: '' }
-  }],
-  finalPayments: [{
-    amount: { type: Number, required: true },
-    paymentType: { 
-      type: String, 
-      enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'], 
-      default: 'Cash',
-      required: true 
-    },
-    transactionId: { type: String, default: '' },
-    referenceNumber: { type: String, default: '' },
-    remarks: { type: String, default: '' },
-    recordedBy: { type: String, default: '' },
-    paymentDate: { type: Date, default: Date.now }
-  }],
+  advancePayments: [AdvancePaymentSchema],
+  finalPayments: [FinalPaymentSchema],
   paymentStatus: {
     type: String,
     enum: ['Pending', 'Unpaid', 'Partially Paid', 'Paid', 'Fully Paid', 'Overpaid', 'Settled', 'Settled (Waived Off)', 'Waived', 'Waived / Fully Settled'],
@@ -480,21 +538,6 @@ const JobCardSchema = new mongoose.Schema({
   toJSON: { getters: true },
   toObject: { getters: true }
 });
-
-const normalizePaymentModeValue = (mode) => {
-  if (!mode || typeof mode !== 'string') return 'Cash';
-  const m = mode.trim();
-  const lower = m.toLowerCase();
-  if (lower === 'cash') return 'Cash';
-  if (lower === 'upi') return 'UPI';
-  if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
-  if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
-  if (lower === 'cheque' || lower === 'check') return 'Cheque';
-  if (lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
-  if (lower === 'online') return 'Online';
-  if (lower === 'other' || lower === 'others') return 'Other';
-  return m;
-};
 
 JobCardSchema.pre('validate', function(next) {
   if (this.advancePayments && Array.isArray(this.advancePayments)) {

@@ -1068,7 +1068,7 @@ const updateJobCardPaymentStatus = async (jobCard) => {
 };
 
 // Add advance payment to Job Card
-router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { amount, type, paymentMode, transactionId, remarks, paymentDate } = req.body;
     const numAmount = Number(amount);
@@ -1149,7 +1149,7 @@ router.post('/:id/advance-payments', auth, restrictTo('Super Admin', 'Admin', 'B
 });
 
 // Update/edit advance payment on Job Card
-router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { amount, type, paymentMode, transactionId, remarks, paymentDate } = req.body;
     if (amount !== undefined && (isNaN(amount) || Number(amount) <= 0)) {
@@ -1182,7 +1182,7 @@ router.put('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', '
 });
 
 // Delete advance payment from Job Card
-router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+router.delete('/:id/advance-payments/:paymentId', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const jobCard = await JobCard.findById(req.params.id);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
@@ -1217,7 +1217,7 @@ router.get('/:id/final-payments', auth, async (req, res) => {
 });
 
 // Add final payment to Job Card
-router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts'), async (req, res) => {
+router.post('/:id/final-payments', auth, restrictTo('Super Admin', 'Admin', 'Billing', 'Billing Executive', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { amount, paymentType, transactionId, referenceNumber, remarks, paymentDate } = req.body;
     const numAmount = Number(amount);

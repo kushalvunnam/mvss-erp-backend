@@ -191,7 +191,7 @@ const recalculateJobCardFinancials = async (jobCard, options = {}) => {
   }
 
   // Synchronize Estimated Repair Amount from linked Estimate if not explicitly set
-  let estAmt = Number(jobCard.estAmt) || 0;
+  let estAmt = Number(jobCard.estAmt) || Number(jobCard.financialSummary?.estimatedRepairAmount) || 0;
   if (estAmt <= 0 && jobCard._id) {
     let estimate = null;
     if (jobCard.estimateId) {
