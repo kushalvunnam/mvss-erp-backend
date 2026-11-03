@@ -243,7 +243,7 @@ if (process.env.NODE_ENV === 'production') {
 
 // Database connection health check middleware to prevent 504 gateway timeouts when offline
 app.use('/api', (req, res, next) => {
-  if (req.originalUrl.startsWith('/api/branches')) return next();
+  if (req.originalUrl.startsWith('/api/branches') || req.originalUrl.startsWith('/api/health') || req.originalUrl.startsWith('/health')) return next();
   if (!global.isInMemoryFallback && mongoose.connection.readyState !== 1) {
     console.warn(`[Database Offline] Request to ${req.originalUrl} failed: mongoose connection state is ${mongoose.connection.readyState}`);
     return res.status(503).json({ error: 'Database is currently offline. Please ensure MongoDB is running and MONGODB_URI is correct.' });
@@ -347,6 +347,35 @@ app.get('/api/debug-route', (req, res) => {
     res.send('Error: ' + err.message);
   }
 });
+
+// Health check endpoint for uptime monitors, load balancers, and external status checks
+const handleHealthCheck = (req, res) => {
+  const readyStates = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+
+  const isDbConnected = global.isInMemoryFallback || mongoose.connection.readyState === 1;
+  const dbStatus = global.isInMemoryFallback ? 'in-memory-fallback' : (readyStates[mongoose.connection.readyState] || 'unknown');
+  const isHealthy = isDbConnected;
+
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'healthy' : 'degraded',
+    server: 'running',
+    service: 'MVSS ERP Backend',
+    database: {
+      status: dbStatus,
+      connected: isDbConnected
+    },
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+};
+
+app.get('/api/health', handleHealthCheck);
+app.get('/health', handleHealthCheck);
 
 // Base API route
 app.get('/api', (req, res) => {
