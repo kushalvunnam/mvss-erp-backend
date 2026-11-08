@@ -624,6 +624,15 @@ export default function Invoices({ token, user, setActiveTab }) {
               padding-bottom: 4px;
               margin-bottom: 8px;
             }
+            .highlight-vehicle-reg, .highlight-invoice-no {
+              font-family: monospace, 'Courier New', sans-serif !important;
+              font-size: 19px !important;
+              font-weight: 900 !important;
+              line-height: 1.2 !important;
+              color: #0f172a !important;
+              letter-spacing: 0.5px;
+              text-transform: uppercase !important;
+            }
             .items-table th {
               background: #1e3a8a;
               color: #fff;
@@ -704,6 +713,11 @@ export default function Invoices({ token, user, setActiveTab }) {
               tr { page-break-inside: avoid; }
               thead { display: table-header-group; }
               .totals-table, .words, .insurance-block, .footer-section, .signature-box { page-break-inside: avoid; }
+              .highlight-vehicle-reg, .highlight-invoice-no {
+                font-size: 19px !important;
+                font-weight: 900 !important;
+                color: #0f172a !important;
+              }
             }
           </style>
         </head>
@@ -733,7 +747,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">Customer Name:</td><td style="border:none; padding:2px;">${inv.customerId?.type === 'Corporate' && inv.billingNameOption !== 'ContactPerson' && inv.customerId?.companyName ? inv.customerId.companyName : (inv.customerId?.name || 'N/A')}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Address:</td><td style="border:none; padding:2px;">${inv.customerId?.address || 'N/A'}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Mobile:</td><td style="border:none; padding:2px;">${inv.customerId?.mobile || 'N/A'}</td></tr>
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Vehicle Reg No:</td><td style="border:none; padding:2px; font-family: monospace; font-weight:bold; font-size:11px;">${inv.vehicleId?.vehicleNumber || 'N/A'}</td></tr>
+                    <tr style="border:none;"><td style="border:none; padding:4px 2px; font-weight:bold; vertical-align:middle;">Vehicle Reg No:</td><td class="highlight-vehicle-reg" style="border:none; padding:4px 2px; font-family: monospace, 'Courier New', sans-serif; font-weight:900; font-size:19px; line-height:1.2; text-transform:uppercase; color:#0f172a; letter-spacing:0.5px; vertical-align:middle;">${(inv.vehicleId?.vehicleNumber || 'N/A').toUpperCase()}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Make/Model:</td><td style="border:none; padding:2px;">${inv.vehicleId?.make || ''} ${inv.vehicleId?.model || ''}</td></tr>
                     ${inv.customerId?.gstNumber ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Customer GSTIN:</td><td style="border:none; padding:2px; font-family: monospace;">${inv.customerId.gstNumber}</td></tr>` : ''}
                     ${claimNo ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Claim No:</td><td style="border:none; padding:2px; font-family: monospace;">${claimNo}</td></tr>` : ''}
@@ -742,7 +756,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                 <td>
                   <div class="section-title">Invoice Details</div>
                   <table style="width:100%; border:none;">
-                    <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold; width:35%;">${inv.invoiceType === 'Proforma invoice' ? 'Proforma No:' : 'Invoice No:'}</td><td style="border:none; padding:2px; font-family: monospace; font-size:12px; font-weight:bold;">${inv.invoiceNo}</td></tr>
+                    <tr style="border:none;"><td style="border:none; padding:4px 2px; font-weight:bold; width:35%; vertical-align:middle;">${inv.invoiceType === 'Proforma invoice' ? 'Proforma No:' : 'Invoice No:'}</td><td class="highlight-invoice-no" style="border:none; padding:4px 2px; font-family: monospace, 'Courier New', sans-serif; font-size:19px; font-weight:900; line-height:1.2; color:#0f172a; letter-spacing:0.5px; vertical-align:middle;">${inv.invoiceNo}</td></tr>
                     ${inv.manualInvoiceRef ? `<tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Manual Ref No:</td><td style="border:none; padding:2px; font-family: monospace; font-size:12px; font-weight:bold;">${inv.manualInvoiceRef}</td></tr>` : ''}
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Date:</td><td style="border:none; padding:2px;">${dateStr}</td></tr>
                     <tr style="border:none;"><td style="border:none; padding:2px; font-weight:bold;">Status:</td><td style="border:none; padding:2px; text-transform:uppercase; font-weight:bold; color: ${inv.status === 'Finalized' ? 'green' : 'orange'}">${inv.status}</td></tr>

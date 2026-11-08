@@ -414,9 +414,27 @@ function drawCompanyHeader(doc, title, companyGstin = '36AAJCM4778P1ZI') {
 function drawMetadataGrid(doc, y, customer, vehicle, docNo, docDate, isInvoice, invoice) {
   doc.fillColor('#000000').font('Helvetica').fontSize(7.5);
   
-  // Left Column Customer Details
+  // Left Column: Customer & Vehicle Details
   let leftY = y + 5;
-  doc.font('Helvetica-Bold').text('Name:', 35, leftY);
+  const leftXLabel = 35;
+  const leftXValue = 110;
+  
+  // Right Column: Invoice / Document Details
+  let rightY = y + 5;
+  const rightXLabel = 302.5;
+  const rightXValue = 375;
+
+  // Section Header Titles
+  doc.font('Helvetica-Bold').fontSize(7).fillColor('#475569');
+  doc.text('CUSTOMER & VEHICLE DETAILS', leftXLabel, leftY);
+  const docSectionTitle = isInvoice ? 'INVOICE DETAILS' : 'ESTIMATE DETAILS';
+  doc.text(docSectionTitle, rightXLabel, rightY);
+  leftY += 10;
+  rightY += 10;
+
+  // --- LEFT COLUMN: Customer & Vehicle Details ---
+  doc.fillColor('#000000');
+  doc.font('Helvetica-Bold').fontSize(7.5).text('Customer Name:', leftXLabel, leftY);
   let nameToDisplay = customer.name || 'N/A';
   if (customer.type === 'Corporate') {
     if (invoice && invoice.billingNameOption === 'ContactPerson') {
@@ -425,110 +443,117 @@ function drawMetadataGrid(doc, y, customer, vehicle, docNo, docDate, isInvoice, 
       nameToDisplay = customer.companyName;
     }
   }
-  doc.font('Helvetica').text(nameToDisplay, 95, leftY, { width: 195 });
+  doc.font('Helvetica').fontSize(7.5).text(nameToDisplay, leftXValue, leftY, { width: 180 });
+  leftY += 11;
+  
+  doc.font('Helvetica-Bold').fontSize(7.5).text('Address:', leftXLabel, leftY);
+  doc.font('Helvetica').fontSize(7.5).text(customer.address || 'N/A', leftXValue, leftY, { width: 180, height: 20, ellipsis: true });
+  leftY += 21;
+  
+  doc.font('Helvetica-Bold').fontSize(7.5).text('Mobile:', leftXLabel, leftY);
+  let phoneStr = customer.mobile || 'N/A';
+  if (customer.alternateNumber) phoneStr += `, ${customer.alternateNumber}`;
+  doc.font('Helvetica').fontSize(7.5).text(phoneStr, leftXValue, leftY);
   leftY += 12;
-  
-  doc.font('Helvetica-Bold').text('Address:', 35, leftY);
-  doc.font('Helvetica').text(customer.address || 'N/A', 95, leftY, { width: 195, height: 24, ellipsis: true });
-  leftY += 26;
-  
+
+  // VEHICLE REGISTRATION NUMBER (14.5pt / ~19px, Bold, Uppercase)
+  const regNumber = (vehicle.vehicleNumber || 'N/A').toUpperCase();
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#0f172a').text('Vehicle Reg No:', leftXLabel, leftY + 3.5);
+  doc.font('Helvetica-Bold').fontSize(14.5).fillColor('#0f172a').text(regNumber, leftXValue, leftY);
+  leftY += 17;
+
+  doc.fillColor('#000000');
+  doc.font('Helvetica-Bold').fontSize(7.5).text('Make / Model:', leftXLabel, leftY);
+  const makeModelStr = `${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'N/A';
+  doc.font('Helvetica').fontSize(7.5).text(makeModelStr, leftXValue, leftY, { width: 180 });
+  leftY += 11;
+
   // Only show GSTIN if it exists and is not N/A
   const hasCustGst = customer.gstNumber && customer.gstNumber.trim() !== '' && customer.gstNumber.toUpperCase() !== 'N/A';
   if (hasCustGst) {
-    doc.font('Helvetica-Bold').text('GSTIN:', 35, leftY);
-    doc.font('Helvetica').text(customer.gstNumber, 95, leftY);
-    leftY += 12;
-  }
-  
-  doc.font('Helvetica-Bold').text('Phone:', 35, leftY);
-  let phoneStr = customer.mobile || 'N/A';
-  if (customer.alternateNumber) phoneStr += `, ${customer.alternateNumber}`;
-  doc.font('Helvetica').text(phoneStr, 95, leftY);
-  leftY += 12;
-
-  if (isInvoice && invoice && invoice.insuranceClaimDetails) {
-    if (invoice.insuranceClaimDetails.insuranceCompany) {
-      doc.font('Helvetica-Bold').text('Insurance Co:', 35, leftY);
-      doc.font('Helvetica').text(invoice.insuranceClaimDetails.insuranceCompany, 95, leftY, { width: 195, height: 10, ellipsis: true });
-      leftY += 12;
-    }
-    if (invoice.insuranceClaimDetails.claimNo) {
-      doc.font('Helvetica-Bold').text('Claim No:', 35, leftY);
-      doc.font('Helvetica').text(invoice.insuranceClaimDetails.claimNo, 95, leftY);
-      leftY += 12;
-    }
+    doc.font('Helvetica-Bold').fontSize(7.5).text('Customer GSTIN:', leftXLabel, leftY);
+    doc.font('Helvetica').fontSize(7.5).text(customer.gstNumber, leftXValue, leftY);
+    leftY += 11;
   }
 
-  // Right Column Vehicle & Document Details
-  let rightY = y + 5;
-  const rightXLabel = 302.5;
-  const rightXValue = 380;
-  
-  // Use Estimate No for estimates, Invoice No for invoices
-  const docTypeLabel = isInvoice ? 'Invoice No:' : 'Estimate No:';
-  doc.font('Helvetica-Bold').text(docTypeLabel, rightXLabel, rightY);
-  doc.font('Helvetica').text(docNo, rightXValue, rightY);
-  rightY += 12;
-  
+  // --- RIGHT COLUMN: Document / Invoice Details ---
+  // INVOICE NUMBER (14.5pt / ~19px, Bold)
+  const docTypeLabel = isInvoice ? (invoice?.invoiceType === 'Proforma invoice' ? 'Proforma No:' : 'Invoice No:') : 'Estimate No:';
+  doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#0f172a').text(docTypeLabel, rightXLabel, rightY + 3.5);
+  doc.font('Helvetica-Bold').fontSize(14.5).fillColor('#0f172a').text(docNo || 'N/A', rightXValue, rightY);
+  rightY += 17;
+
+  doc.fillColor('#000000');
+
   if (isInvoice && invoice && invoice.manualInvoiceRef) {
-    doc.font('Helvetica-Bold').text('Manual Ref No:', rightXLabel, rightY);
-    doc.font('Helvetica').text(invoice.manualInvoiceRef, rightXValue, rightY);
-    rightY += 12;
+    doc.font('Helvetica-Bold').fontSize(7.5).text('Manual Ref No:', rightXLabel, rightY);
+    doc.font('Helvetica').fontSize(7.5).text(invoice.manualInvoiceRef, rightXValue, rightY);
+    rightY += 11;
   }
   
   const dateLabel = isInvoice ? 'Invoice Date:' : 'Estimate Date:';
-  doc.font('Helvetica-Bold').text(dateLabel, rightXLabel, rightY);
-  doc.font('Helvetica').text(new Date(docDate).toLocaleDateString('en-IN'), rightXValue, rightY);
-  rightY += 12;
-  
-  doc.font('Helvetica-Bold').text('Reg No:', rightXLabel, rightY);
-  doc.font('Helvetica').text(vehicle.vehicleNumber || 'N/A', rightXValue, rightY);
-  rightY += 12;
-  
-  doc.font('Helvetica-Bold').text('Model & Make:', rightXLabel, rightY);
-  doc.font('Helvetica').text(`${vehicle.make || ''} ${vehicle.model || ''}`, rightXValue, rightY, { width: 180 });
-  rightY += 12;
-  
+  doc.font('Helvetica-Bold').fontSize(7.5).text(dateLabel, rightXLabel, rightY);
+  doc.font('Helvetica').fontSize(7.5).text(new Date(docDate).toLocaleDateString('en-IN'), rightXValue, rightY);
+  rightY += 11;
+
+  doc.font('Helvetica-Bold').fontSize(7.5).text('Odometer:', rightXLabel, rightY);
+  const odo = invoice?.jobCardId?.odometerReading || vehicle.odometerReading || 0;
+  doc.font('Helvetica').fontSize(7.5).text(`${odo} km`, rightXValue, rightY);
+  rightY += 11;
+
   // Only show Chassis No if it exists and is not N/A
   const hasChassis = vehicle.chassisNumber && vehicle.chassisNumber.trim() !== '' && vehicle.chassisNumber.toUpperCase() !== 'N/A';
   if (hasChassis) {
-    doc.font('Helvetica-Bold').text('Chassis No:', rightXLabel, rightY);
-    doc.font('Helvetica').text(vehicle.chassisNumber, rightXValue, rightY);
-    rightY += 12;
+    doc.font('Helvetica-Bold').fontSize(7.5).text('Chassis No:', rightXLabel, rightY);
+    doc.font('Helvetica').fontSize(7.5).text(vehicle.chassisNumber, rightXValue, rightY);
+    rightY += 11;
   }
   
   // Only show Engine No if it exists and is not N/A
   const hasEngine = vehicle.engineNumber && vehicle.engineNumber.trim() !== '' && vehicle.engineNumber.toUpperCase() !== 'N/A';
   if (hasEngine) {
-    doc.font('Helvetica-Bold').text('Engine No:', rightXLabel, rightY);
-    doc.font('Helvetica').text(vehicle.engineNumber, rightXValue, rightY);
-    rightY += 12;
+    doc.font('Helvetica-Bold').fontSize(7.5).text('Engine No:', rightXLabel, rightY);
+    doc.font('Helvetica').fontSize(7.5).text(vehicle.engineNumber, rightXValue, rightY);
+    rightY += 11;
   }
-  
-  doc.font('Helvetica-Bold').text('Odometer:', rightXLabel, rightY);
-  const odo = invoice?.jobCardId?.odometerReading || vehicle.odometerReading || 0;
-  doc.font('Helvetica').text(`${odo} km`, rightXValue, rightY);
-  rightY += 12;
 
   // Only show PO Number if it exists and is not N/A
   const hasPo = invoice?.poNumber && invoice.poNumber.trim() !== '' && invoice.poNumber.toUpperCase() !== 'N/A';
   if (hasPo) {
-    doc.font('Helvetica-Bold').text('PO Number:', rightXLabel, rightY);
+    doc.font('Helvetica-Bold').fontSize(7.5).text('PO Number:', rightXLabel, rightY);
     doc.font('Helvetica').text(invoice.poNumber, rightXValue, rightY);
-    rightY += 12;
+    rightY += 11;
   }
 
   // Only show RO Number if it exists and is not N/A
   const roNumber = invoice?.roNumber || invoice?.jobCardId?.jobCardNo;
   const hasRo = roNumber && roNumber.trim() !== '' && roNumber.toUpperCase() !== 'N/A';
   if (hasRo) {
-    doc.font('Helvetica-Bold').text('RO Number:', rightXLabel, rightY);
+    doc.font('Helvetica-Bold').fontSize(7.5).text('RO Number:', rightXLabel, rightY);
     doc.font('Helvetica').text(roNumber, rightXValue, rightY);
+    rightY += 11;
   }
+
+  if (isInvoice && invoice && invoice.insuranceClaimDetails) {
+    if (invoice.insuranceClaimDetails.insuranceCompany) {
+      doc.font('Helvetica-Bold').fontSize(7.5).text('Insurance Co:', rightXLabel, rightY);
+      doc.font('Helvetica').fontSize(7.5).text(invoice.insuranceClaimDetails.insuranceCompany, rightXValue, rightY, { width: 185, height: 10, ellipsis: true });
+      rightY += 11;
+    }
+    if (invoice.insuranceClaimDetails.claimNo) {
+      doc.font('Helvetica-Bold').fontSize(7.5).text('Claim No:', rightXLabel, rightY);
+      doc.font('Helvetica').fontSize(7.5).text(invoice.insuranceClaimDetails.claimNo, rightXValue, rightY);
+      rightY += 11;
+    }
+  }
+
+  const gridBottom = Math.max(leftY + 5, rightY + 5, y + 115);
 
   // Vertical Separator Line between metadata columns
   doc.strokeColor('#000000').lineWidth(1.5)
-     .moveTo(297.5, y).lineTo(297.5, y + 115).stroke();
+     .moveTo(297.5, y).lineTo(297.5, gridBottom).stroke();
+
+  return gridBottom;
 }
 
 function drawTableHeader(doc, y, gstMode = 'cgst_sgst') {
@@ -897,13 +922,13 @@ function generateEstimatePDF(estimate, customer, vehicle, stream, jobCard) {
   // Customer & Vehicle metadata
   const docDate = estimate.date || new Date();
   const isInvoice = false;
-  drawMetadataGrid(doc, 105, customer, vehicle, estimate.estimateNo, docDate, isInvoice, { jobCardId: jobCard });
+  const gridBottomY = drawMetadataGrid(doc, 105, customer, vehicle, estimate.estimateNo, docDate, isInvoice, { jobCardId: jobCard });
 
   const isInterstate = checkIsInterstate(customer);
   const gstMode = isInterstate ? 'igst' : 'cgst_sgst';
 
   // Table header
-  let y = 220;
+  let y = Math.max(gridBottomY || 220, 220);
   drawTableHeader(doc, y, gstMode);
   y += 25;
 
@@ -1121,10 +1146,10 @@ function generateInvoicePDF(invoice, customer, vehicle, stream) {
 
   // Customer & Vehicle metadata
   const docDate = invoice.date || new Date();
-  drawMetadataGrid(doc, 105, customer, vehicle, invoice.invoiceNo, docDate, true, invoice);
+  const gridBottomY = drawMetadataGrid(doc, 105, customer, vehicle, invoice.invoiceNo, docDate, true, invoice);
 
   // Table header
-  let y = 220;
+  let y = Math.max(gridBottomY || 220, 220);
   drawTableHeader(doc, y, gstMode);
   y += 25;
 
