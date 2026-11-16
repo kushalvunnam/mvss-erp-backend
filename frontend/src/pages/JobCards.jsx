@@ -82,13 +82,14 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
     }
   }, []);
 
-  const handleOpenDetails = (id) => {
+  const handleOpenDetails = (id, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
     setSelectedJcId(id);
     setViewMode('details');
   };
 
   const handleOpenEdit = (id, e) => {
-    e.stopPropagation();
+    if (e && e.stopPropagation) e.stopPropagation();
     setSelectedJcId(id);
     setViewMode('edit');
   };
