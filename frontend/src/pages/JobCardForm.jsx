@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
-import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench, Image as ImageIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench, Image as ImageIcon, X, Loader2, Phone, Mail, MapPin, AlertCircle, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import VehicleDamageCanvas from '../components/VehicleDamageCanvas';
 import SignaturePad from '../components/SignaturePad';
 import SearchableDropdown from '../components/SearchableDropdown';
@@ -247,6 +247,282 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
   // Cascading vehicle selector states
   const [selectedBrand, setSelectedBrand] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
+
+  // Quick Customer Creation Modal State
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [customerModalSubmitting, setCustomerModalSubmitting] = useState(false);
+  const [customerModalError, setCustomerModalError] = useState('');
+  const [customerDuplicateObj, setCustomerDuplicateObj] = useState(null);
+  const [customerFormData, setCustomerFormData] = useState({
+    name: '',
+    mobile: '',
+    alternateNumber: '',
+    email: '',
+    address: '',
+    gstNumber: '',
+    type: 'Individual',
+    companyName: ''
+  });
+
+  // Quick Vehicle Creation Modal State
+  const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
+  const [vehicleModalSubmitting, setVehicleModalSubmitting] = useState(false);
+  const [vehicleModalError, setVehicleModalError] = useState('');
+  const [vehicleExistingMatch, setVehicleExistingMatch] = useState(null);
+  const [vehicleFormData, setVehicleFormData] = useState({
+    vehicleNumber: '',
+    make: '',
+    model: '',
+    variant: '',
+    fuelType: 'Petrol',
+    transmission: 'Manual',
+    color: '',
+    odometerReading: '',
+    chassisNumber: '',
+    engineNumber: '',
+    insuranceCompany: '',
+    insurancePolicyNumber: '',
+    insuranceExpiryDate: ''
+  });
+
+  const handleOpenAddCustomerModal = () => {
+    setCustomerFormData({
+      name: '',
+      mobile: '',
+      alternateNumber: '',
+      email: '',
+      address: '',
+      gstNumber: '',
+      type: 'Individual',
+      companyName: ''
+    });
+    setCustomerModalError('');
+    setCustomerDuplicateObj(null);
+    setShowAddCustomerModal(true);
+  };
+
+  const handleSaveCustomer = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (customerModalSubmitting) return;
+
+    if (!customerFormData.name || !customerFormData.name.trim()) {
+      setCustomerModalError('Customer Full Name is required.');
+      return;
+    }
+
+    const rawMobile = customerFormData.mobile ? customerFormData.mobile.trim() : '';
+    if (!rawMobile) {
+      setCustomerModalError('Mobile number is required.');
+      return;
+    }
+    const cleanDigits = rawMobile.replace(/\D/g, '');
+    if (cleanDigits.length < 8 || cleanDigits.length > 15) {
+      setCustomerModalError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    if (customerFormData.gstNumber) {
+      const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+      if (!gstRegex.test(customerFormData.gstNumber.trim().toUpperCase())) {
+        setCustomerModalError('Please enter a valid 15-character Indian GSTIN number (e.g. 29ABCDE1234F1Z5).');
+        return;
+      }
+    }
+
+    setCustomerModalSubmitting(true);
+    setCustomerModalError('');
+    setCustomerDuplicateObj(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/customers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...customerFormData,
+          name: customerFormData.name.trim(),
+          mobile: rawMobile,
+          gstNumber: customerFormData.gstNumber ? customerFormData.gstNumber.trim().toUpperCase() : ''
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.status === 201 || res.status === 200) {
+        const createdCustomer = data;
+        setCustomers(prev => [createdCustomer, ...prev.filter(c => c._id !== createdCustomer._id)]);
+        setSelectedCustomerId(createdCustomer._id);
+        setShowAddCustomerModal(false);
+      } else if (res.status === 409) {
+        setCustomerModalError(data.error || 'A customer with this mobile number is already registered.');
+        if (data.customer) {
+          setCustomerDuplicateObj(data.customer);
+        }
+      } else {
+        setCustomerModalError(data.error || 'Failed to create customer. Please check the details.');
+      }
+    } catch (err) {
+      console.error('Failed to create customer:', err);
+      setCustomerModalError('Network error connecting to customer service. Please try again.');
+    } finally {
+      setCustomerModalSubmitting(false);
+    }
+  };
+
+  const handleOpenAddVehicleModal = () => {
+    if (!selectedCustomerId) {
+      alert('Please select or create a customer first before registering a vehicle.');
+      return;
+    }
+    setVehicleFormData({
+      vehicleNumber: '',
+      make: '',
+      model: '',
+      variant: '',
+      fuelType: 'Petrol',
+      transmission: 'Manual',
+      color: '',
+      odometerReading: formData.odometerReading || '',
+      chassisNumber: '',
+      engineNumber: '',
+      insuranceCompany: formData.insuranceName || '',
+      insurancePolicyNumber: formData.claimNo || '',
+      insuranceExpiryDate: ''
+    });
+    setVehicleModalError('');
+    setVehicleExistingMatch(null);
+    setShowAddVehicleModal(true);
+  };
+
+  const handleSaveVehicle = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (vehicleModalSubmitting) return;
+
+    const rawVehNumber = vehicleFormData.vehicleNumber ? vehicleFormData.vehicleNumber.trim().toUpperCase().replace(/\s/g, '') : '';
+    if (!rawVehNumber) {
+      setVehicleModalError('Vehicle Registration Number is required.');
+      return;
+    }
+
+    if (!selectedCustomerId) {
+      setVehicleModalError('Customer / Owner must be selected.');
+      return;
+    }
+
+    if (!vehicleFormData.make || !vehicleFormData.make.trim()) {
+      setVehicleModalError('Vehicle Make is required.');
+      return;
+    }
+
+    if (!vehicleFormData.model || !vehicleFormData.model.trim()) {
+      setVehicleModalError('Vehicle Model is required.');
+      return;
+    }
+
+    setVehicleModalSubmitting(true);
+    setVehicleModalError('');
+    setVehicleExistingMatch(null);
+
+    try {
+      const payload = {
+        ...vehicleFormData,
+        vehicleNumber: rawVehNumber,
+        customerId: selectedCustomerId,
+        make: vehicleFormData.make.trim(),
+        model: vehicleFormData.model.trim(),
+        variant: vehicleFormData.variant ? vehicleFormData.variant.trim() : '',
+        odometerReading: Number(vehicleFormData.odometerReading) || 0
+      };
+
+      const res = await fetch(`${API_BASE_URL}/vehicles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (res.status === 201 || res.status === 200) {
+        const createdVehicle = data;
+        setVehicles(prev => [createdVehicle, ...prev.filter(v => v._id !== createdVehicle._id)]);
+        setFilteredVehicles(prev => [createdVehicle, ...prev.filter(v => v._id !== createdVehicle._id)]);
+        setSelectedVehicleId(createdVehicle._id);
+        setSelectedBrand(createdVehicle.make);
+        setSelectedModel(createdVehicle.model);
+        if (createdVehicle.odometerReading !== undefined && createdVehicle.odometerReading !== null) {
+          setFormData(prev => ({ 
+            ...prev, 
+            odometerReading: createdVehicle.odometerReading.toString(),
+            color: createdVehicle.color || prev.color,
+            insuranceName: createdVehicle.insuranceCompany || prev.insuranceName
+          }));
+        }
+        setShowAddVehicleModal(false);
+      } else {
+        setVehicleModalError(data.error || 'Failed to register vehicle.');
+        const match = vehicles.find(v => (v.vehicleNumber || '').toUpperCase().replace(/\s/g, '') === rawVehNumber);
+        if (match) {
+          setVehicleExistingMatch(match);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to create vehicle:', err);
+      setVehicleModalError('Network error connecting to vehicle service. Please try again.');
+    } finally {
+      setVehicleModalSubmitting(false);
+    }
+  };
+
+  const handleReassignExistingVehicle = async (existingVeh) => {
+    if (!existingVeh || !selectedCustomerId) return;
+    setVehicleModalSubmitting(true);
+    setVehicleModalError('');
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/vehicles/${existingVeh._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          customerId: selectedCustomerId,
+          odometerReading: Number(vehicleFormData.odometerReading) || existingVeh.odometerReading || 0
+        })
+      });
+
+      if (res.ok) {
+        const updatedVeh = await res.json();
+        setVehicles(prev => [updatedVeh, ...prev.filter(v => v._id !== updatedVeh._id)]);
+        setFilteredVehicles(prev => [updatedVeh, ...prev.filter(v => v._id !== updatedVeh._id)]);
+        setSelectedVehicleId(updatedVeh._id);
+        setSelectedBrand(updatedVeh.make);
+        setSelectedModel(updatedVeh.model);
+        if (updatedVeh.odometerReading !== undefined && updatedVeh.odometerReading !== null) {
+          setFormData(prev => ({
+            ...prev,
+            odometerReading: updatedVeh.odometerReading.toString(),
+            color: updatedVeh.color || prev.color,
+            insuranceName: updatedVeh.insuranceCompany || prev.insuranceName
+          }));
+        }
+        setShowAddVehicleModal(false);
+      } else {
+        const errData = await res.json();
+        setVehicleModalError(errData.error || 'Failed to re-assign existing vehicle.');
+      }
+    } catch (err) {
+      console.error('Error re-assigning vehicle:', err);
+      setVehicleModalError('Network error re-assigning vehicle.');
+    } finally {
+      setVehicleModalSubmitting(false);
+    }
+  };
 
   // Mouse tilt tracking state for 3D card
   const [cardTilt, setCardTilt] = useState({ x: 0, y: 0 });
@@ -512,12 +788,23 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
         return vCustId && vCustId.toString() === selectedCustomerId.toString();
       });
       setFilteredVehicles(filtered);
-      if (filtered.length > 0 && !editId) {
-        setSelectedVehicleId(filtered[0]._id);
-        setFormData(prev => ({ ...prev, odometerReading: filtered[0].odometerReading !== undefined && filtered[0].odometerReading !== null ? filtered[0].odometerReading.toString() : '' }));
+
+      // Preserve currently selected vehicle if it still belongs to this customer
+      const currentStillValid = filtered.some(v => v._id === selectedVehicleId);
+      if (!currentStillValid) {
+        if (filtered.length > 0 && !editId) {
+          setSelectedVehicleId(filtered[0]._id);
+          setFormData(prev => ({ 
+            ...prev, 
+            odometerReading: filtered[0].odometerReading !== undefined && filtered[0].odometerReading !== null ? filtered[0].odometerReading.toString() : '' 
+          }));
+        } else {
+          setSelectedVehicleId('');
+        }
       }
     } else {
       setFilteredVehicles([]);
+      setSelectedVehicleId('');
     }
   }, [selectedCustomerId, vehicles, editId]);
 
@@ -684,7 +971,8 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
     }
   };
 
-  const activeVehicle = filteredVehicles.find(v => v._id === selectedVehicleId);
+  const selectedCustomerObj = customers.find(c => c._id === selectedCustomerId);
+  const activeVehicle = filteredVehicles.find(v => v._id === selectedVehicleId) || vehicles.find(v => v._id === selectedVehicleId);
   const specs = activeVehicle ? resolveVehicleSpecs(activeVehicle.make, activeVehicle.model, activeVehicle.variant, activeVehicle.fuelType) : null;
 
   return (
@@ -752,9 +1040,19 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-850">
-              <div className="flex items-center gap-2 mb-2">
-                <User className="w-5 h-5 text-indigo-500" />
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Select Owner / Customer</h4>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-indigo-500" />
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Select Owner / Customer</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenAddCustomerModal}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add New Customer</span>
+                </button>
               </div>
 
               <div>
@@ -770,6 +1068,47 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                 />
               </div>
 
+              {/* Customer Quick Summary Card */}
+              {selectedCustomerObj && (
+                <div className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs space-y-1.5 animate-fade-in shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-indigo-500" />
+                      {selectedCustomerObj.name}
+                      {selectedCustomerObj.companyName && (
+                        <span className="text-[10px] text-slate-400 font-normal">({selectedCustomerObj.companyName})</span>
+                      )}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 uppercase">
+                      {selectedCustomerObj.type || 'Individual'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      {selectedCustomerObj.mobile}
+                    </span>
+                    {selectedCustomerObj.email && (
+                      <span className="flex items-center gap-1">
+                        <Mail className="w-3 h-3 text-slate-400" />
+                        {selectedCustomerObj.email}
+                      </span>
+                    )}
+                    {selectedCustomerObj.gstNumber && (
+                      <span className="font-mono text-[10px] text-slate-600 dark:text-slate-300">
+                        GST: {selectedCustomerObj.gstNumber}
+                      </span>
+                    )}
+                  </div>
+                  {selectedCustomerObj.address && (
+                    <p className="text-[10px] text-slate-400 truncate flex items-center gap-1 pt-0.5">
+                      <MapPin className="w-3 h-3 shrink-0 text-slate-400" />
+                      {selectedCustomerObj.address}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Contact Person</label>
                 <input
@@ -780,10 +1119,24 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-500"
                 />
               </div>
-            </div>            <div className="space-y-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-850">
-              <div className="flex items-center gap-2 mb-2">
-                <Car className="w-5 h-5 text-indigo-500" />
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Select Automobile</h4>
+            </div>
+
+            <div className="space-y-4 bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-850">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Car className="w-5 h-5 text-indigo-500" />
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Select Automobile</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenAddVehicleModal}
+                  disabled={!selectedCustomerId}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+                  title={!selectedCustomerId ? 'Please select a customer first' : 'Register vehicle for this customer'}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add New Vehicle</span>
+                </button>
               </div>
 
               <div>
@@ -802,12 +1155,22 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
                   </div>
                 )}
                 {!selectedCustomerId ? (
-                  <div className="text-center py-5 text-xs font-semibold text-slate-400 bg-white dark:bg-slate-950 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                    Select a customer first to load vehicles
+                  <div className="text-center py-6 px-4 text-xs font-semibold text-slate-400 bg-white dark:bg-slate-950 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                    <p>Select or create a customer first to load and register vehicles</p>
                   </div>
                 ) : filteredVehicles.length === 0 ? (
-                  <div className="text-center py-5 text-xs font-bold text-amber-550 bg-amber-500/5 rounded-xl border border-dashed border-amber-500/25">
-                    No vehicles registered for this customer
+                  <div className="text-center py-6 px-4 text-xs bg-amber-500/5 rounded-xl border border-dashed border-amber-500/25 space-y-3">
+                    <p className="font-bold text-amber-600 dark:text-amber-400">
+                      No vehicles registered for {selectedCustomerObj?.name || 'this customer'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleOpenAddVehicleModal}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Register Vehicle For {selectedCustomerObj?.name || 'Customer'}</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-3.5 bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200/60 dark:border-slate-850">
@@ -1711,6 +2074,467 @@ export default function JobCardForm({ token, onSaved, onCancel, editId = null })
         )}
       </div>
 
+      {/* MODAL 1: CREATE NEW CUSTOMER DIRECTLY */}
+      {showAddCustomerModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] animate-fade-in select-text">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    Add New Customer
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Create customer profile directly without leaving Job Card
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!customerModalSubmitting) setShowAddCustomerModal(false);
+                }}
+                disabled={customerModalSubmitting}
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveCustomer} className="space-y-4">
+              {customerModalError && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-800 rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{customerModalError}</span>
+                </div>
+              )}
+
+              {/* Duplicate Customer Quick Action */}
+              {customerDuplicateObj && (
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center justify-between gap-3 text-xs animate-fade-in">
+                  <div>
+                    <span className="font-bold text-amber-900 dark:text-amber-300 block">Existing customer record found:</span>
+                    <span className="text-amber-700 dark:text-amber-400 font-semibold">{customerDuplicateObj.name} ({customerDuplicateObj.mobile})</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomers(prev => [customerDuplicateObj, ...prev.filter(c => c._id !== customerDuplicateObj._id)]);
+                      setSelectedCustomerId(customerDuplicateObj._id);
+                      setShowAddCustomerModal(false);
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer shadow-xs"
+                  >
+                    Select This Customer
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Customer Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerFormData.name}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, name: e.target.value })}
+                    placeholder="e.g. Rahul Sharma"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Primary Mobile Number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={customerFormData.mobile}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, mobile: e.target.value })}
+                    placeholder="e.g. 9876543210"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Alternate Mobile / Phone
+                  </label>
+                  <input
+                    type="tel"
+                    value={customerFormData.alternateNumber}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, alternateNumber: e.target.value })}
+                    placeholder="Optional phone number"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={customerFormData.email}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, email: e.target.value })}
+                    placeholder="e.g. customer@gmail.com"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Customer Type
+                  </label>
+                  <select
+                    value={customerFormData.type}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, type: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Individual">Individual</option>
+                    <option value="Corporate">Corporate / Fleet</option>
+                    <option value="Insurance">Insurance Company</option>
+                  </select>
+                </div>
+
+                {customerFormData.type === 'Corporate' && (
+                  <div className="sm:col-span-2">
+                    <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                      Company Name
+                    </label>
+                    <input
+                      type="text"
+                      value={customerFormData.companyName}
+                      onChange={(e) => setCustomerFormData({ ...customerFormData, companyName: e.target.value })}
+                      placeholder="e.g. TechPro Logistics Pvt Ltd"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                )}
+
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    GSTIN Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={15}
+                    value={customerFormData.gstNumber}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, gstNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15) })}
+                    placeholder="e.g. 36AABCU9603R1ZM"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 uppercase"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Billing / Communication Address
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={customerFormData.address}
+                    onChange={(e) => setCustomerFormData({ ...customerFormData, address: e.target.value })}
+                    placeholder="Street address, locality, area, city, pincode"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomerModal(false)}
+                  disabled={customerModalSubmitting}
+                  className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={customerModalSubmitting}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:opacity-50 cursor-pointer"
+                >
+                  {customerModalSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Creating Customer...</span>
+                    </>
+                  ) : (
+                    <>
+                      <User className="w-4 h-4" />
+                      <span>Save & Select Customer</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: REGISTER NEW VEHICLE DIRECTLY */}
+      {showAddVehicleModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] animate-fade-in select-text">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
+                  <Car className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    Register New Automobile
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Assigning vehicle to <span className="font-bold text-slate-800 dark:text-slate-200">{selectedCustomerObj?.name || 'Customer'}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!vehicleModalSubmitting) setShowAddVehicleModal(false);
+                }}
+                disabled={vehicleModalSubmitting}
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveVehicle} className="space-y-4">
+              {vehicleModalError && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-800 rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{vehicleModalError}</span>
+                </div>
+              )}
+
+              {/* If existing vehicle registration was found */}
+              {vehicleExistingMatch && (
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl space-y-2 text-xs animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-amber-900 dark:text-amber-300 block">Existing vehicle record found in database:</span>
+                      <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                        {vehicleExistingMatch.vehicleNumber} ({vehicleExistingMatch.make} {vehicleExistingMatch.model})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleReassignExistingVehicle(vehicleExistingMatch)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    >
+                      Assign To Current Customer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedVehicleId(vehicleExistingMatch._id);
+                        setSelectedBrand(vehicleExistingMatch.make);
+                        setSelectedModel(vehicleExistingMatch.model);
+                        setShowAddVehicleModal(false);
+                      }}
+                      className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 dark:bg-slate-800 dark:text-slate-200 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Use Vehicle As Is
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Registration Number *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.vehicleNumber}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, vehicleNumber: e.target.value.toUpperCase().replace(/\s/g, '') })}
+                    placeholder="e.g. TS09AB1234"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-black text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Current Odometer (KM) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={vehicleFormData.odometerReading}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, odometerReading: e.target.value })}
+                    placeholder="e.g. 24500"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Vehicle Make / Manufacturer *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.make}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, make: e.target.value })}
+                    placeholder="e.g. Maruti Suzuki, Hyundai, Tata, Honda"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {/* Quick Make Suggestion Pills */}
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {['Maruti Suzuki', 'Hyundai', 'Tata', 'Mahindra', 'Toyota', 'Honda', 'Kia', 'Volkswagen'].map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setVehicleFormData({ ...vehicleFormData, make: m })}
+                        className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+                          vehicleFormData.make === m
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Vehicle Model *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.model}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, model: e.target.value })}
+                    placeholder="e.g. Swift, Creta, Nexon, City"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Variant
+                  </label>
+                  <input
+                    type="text"
+                    value={vehicleFormData.variant}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, variant: e.target.value })}
+                    placeholder="e.g. VXI, SX, XZ+"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Fuel Type *
+                  </label>
+                  <select
+                    value={vehicleFormData.fuelType}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, fuelType: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Petrol">Petrol</option>
+                    <option value="Diesel">Diesel</option>
+                    <option value="CNG">CNG</option>
+                    <option value="Electric">Electric (EV)</option>
+                    <option value="Hybrid">Hybrid</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Transmission
+                  </label>
+                  <select
+                    value={vehicleFormData.transmission}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, transmission: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Manual">Manual</option>
+                    <option value="Automatic">Automatic</option>
+                    <option value="AMT">AMT</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Vehicle Color
+                  </label>
+                  <input
+                    type="text"
+                    value={vehicleFormData.color}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, color: e.target.value })}
+                    placeholder="e.g. White, Silver, Black"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                    Chassis Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={vehicleFormData.chassisNumber}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, chassisNumber: e.target.value.toUpperCase() })}
+                    placeholder="VIN / Chassis No."
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-semibold text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddVehicleModal(false)}
+                  disabled={vehicleModalSubmitting}
+                  className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={vehicleModalSubmitting}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:opacity-50 cursor-pointer"
+                >
+                  {vehicleModalSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Registering Vehicle...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Car className="w-4 h-4" />
+                      <span>Save & Select Automobile</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
