@@ -181,9 +181,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         }
         setSelectedPhotoIds(new Set());
       } else {
+        const errMessage = data.error || (data.failedCount > 0 ? `Failed to send ${data.failedCount} photo(s).` : (res.status === 404 ? 'Backend endpoint not found (404). Please trigger "Manual Deploy" in Render dashboard to deploy the latest commit.' : 'Failed to dispatch photos on WhatsApp.'));
         setWhatsAppSendStatus({
           success: false,
-          message: data.error || (data.failedCount > 0 ? `Failed to send ${data.failedCount} photo(s).` : 'Failed to dispatch photos on WhatsApp.'),
+          message: errMessage,
           results: data.results || []
         });
       }
