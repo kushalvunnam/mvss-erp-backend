@@ -23,7 +23,11 @@ import {
   Upload,
   Loader2,
   Edit2,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Send,
+  MessageCircle,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import BodyShopStatusModal, { BODY_SHOP_STAGES } from '../components/BodyShopStatusModal';
 import SignaturePad from '../components/SignaturePad';
@@ -93,6 +97,106 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [deletingPhotoId, setDeletingPhotoId] = useState(null);
+
+  // WhatsApp Photo Sharing State
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState(new Set());
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+  const [whatsAppCustomMessage, setWhatsAppCustomMessage] = useState('');
+  const [whatsAppRecipientPhone, setWhatsAppRecipientPhone] = useState('');
+  const [whatsAppSendStatus, setWhatsAppSendStatus] = useState(null);
+
+  const togglePhotoSelection = (photoId) => {
+    setSelectedPhotoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(photoId)) {
+        next.delete(photoId);
+      } else {
+        next.add(photoId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllPhotos = () => {
+    if (!jc?.photos) return;
+    const allIds = jc.photos
+      .filter(p => p && p.url && !p.url.toLowerCase().endsWith('.pdf') && p.photoType !== 'Document')
+      .map(p => p._id || p.publicId || p.url);
+    setSelectedPhotoIds(new Set(allIds));
+  };
+
+  const handleDeselectAllPhotos = () => {
+    setSelectedPhotoIds(new Set());
+  };
+
+  const handleOpenWhatsAppModal = () => {
+    if (selectedPhotoIds.size === 0) {
+      alert('Please select at least one photo to share on WhatsApp.');
+      return;
+    }
+    const customerPhone = jc.customerMobile || jc.customerId?.mobile || jc.customerId?.phone || jc.customerDetails?.mobile || '';
+    const customerName = jc.customerName || jc.customerId?.name || jc.customerDetails?.name || 'Customer';
+    const jcNo = jc.jobCardNo || jc.jobCardNumber || 'Job Card';
+
+    setWhatsAppRecipientPhone(customerPhone);
+    setWhatsAppCustomMessage(`Hello ${customerName}, please find the vehicle photos for your Job Card ${jcNo} at MVSS Automobiles.`);
+    setWhatsAppSendStatus(null);
+    setIsWhatsAppModalOpen(true);
+  };
+
+  const handleSendWhatsAppPhotos = async () => {
+    if (selectedPhotoIds.size === 0) return;
+    if (!whatsAppRecipientPhone || !whatsAppRecipientPhone.trim()) {
+      alert('Customer WhatsApp / mobile number is required.');
+      return;
+    }
+
+    setIsSendingWhatsApp(true);
+    setWhatsAppSendStatus(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/send-whatsapp-photos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          photoIds: Array.from(selectedPhotoIds),
+          phone: whatsAppRecipientPhone.trim(),
+          customMessage: whatsAppCustomMessage.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setWhatsAppSendStatus({
+          success: true,
+          message: `Successfully sent ${data.sentCount} photo(s) to ${data.recipientPhone} on WhatsApp!`,
+          results: data.results || []
+        });
+        if (data.whatsappHistory) {
+          setJc(prev => ({ ...prev, whatsappHistory: data.whatsappHistory }));
+        }
+        setSelectedPhotoIds(new Set());
+      } else {
+        setWhatsAppSendStatus({
+          success: false,
+          message: data.error || (data.failedCount > 0 ? `Failed to send ${data.failedCount} photo(s).` : 'Failed to dispatch photos on WhatsApp.'),
+          results: data.results || []
+        });
+      }
+    } catch (err) {
+      console.error('Error sending WhatsApp photos:', err);
+      setWhatsAppSendStatus({
+        success: false,
+        message: 'Network error communicating with WhatsApp dispatch service.'
+      });
+    } finally {
+      setIsSendingWhatsApp(false);
+    }
+  };
 
   const getPhotoSrc = (url) => {
     if (!url) return '';
@@ -1994,6 +2098,28 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 return (
                   <div key={photoId || index} className="group relative border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden bg-slate-50 dark:bg-slate-900 shadow-xs hover:shadow-md transition-all flex flex-col">
                     <div className="aspect-video w-full overflow-hidden bg-slate-100 dark:bg-slate-950 flex items-center justify-center relative">
+                      {/* WhatsApp Photo Select Checkbox */}
+                      {(!photo.url.toLowerCase().endsWith('.pdf') && photo.photoType !== 'Document') && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePhotoSelection(photoId);
+                          }}
+                          className={`absolute top-2 left-2 p-1.5 rounded-lg backdrop-blur-xs transition-all z-20 cursor-pointer ${
+                            selectedPhotoIds.has(photoId)
+                              ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-300'
+                              : 'bg-black/50 text-white/90 hover:bg-black/75'
+                          }`}
+                          title={selectedPhotoIds.has(photoId) ? 'Deselect photo' : 'Select photo for WhatsApp'}
+                        >
+                          {selectedPhotoIds.has(photoId) ? (
+                            <CheckSquare className="w-4 h-4 text-white" />
+                          ) : (
+                            <Square className="w-4 h-4 text-white/90" />
+                          )}
+                        </button>
+                      )}
                       {isBroken ? (
                         <div className="flex flex-col items-center justify-center p-3 text-center">
                           <AlertTriangle className="w-5 h-5 text-amber-500 mb-1" />
@@ -2061,6 +2187,95 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               <Camera className="w-8 h-8 text-slate-350 dark:text-slate-600 mx-auto mb-2" />
               <p className="text-xs font-bold text-slate-600 dark:text-slate-400">No photos attached to this Job Card yet</p>
               <p className="text-[11px] text-slate-400 mt-0.5">Use Rear Camera or Upload Gallery above to document vehicle condition</p>
+            </div>
+          )}
+
+          {/* Action Bar Directly Below Photos Gallery: SEND PHOTOS ON WHATSAPP */}
+          {jc.photos && jc.photos.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-4 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h5 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+                      Share Photos With Customer via WhatsApp
+                    </h5>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      selectedPhotoIds.size > 0 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}>
+                      {selectedPhotoIds.size} / {jc.photos.filter(p => !p.url?.toLowerCase().endsWith('.pdf') && p.photoType !== 'Document').length} Selected
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Customer: <span className="font-bold text-slate-700 dark:text-slate-300">{jc.customerName || jc.customerId?.name || 'Customer'}</span> • WhatsApp: <span className="font-bold text-slate-700 dark:text-slate-300">{jc.customerMobile || jc.customerId?.mobile || jc.customerId?.phone || 'Not available'}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const eligiblePhotos = jc.photos.filter(p => !p.url?.toLowerCase().endsWith('.pdf') && p.photoType !== 'Document');
+                    if (selectedPhotoIds.size === eligiblePhotos.length) {
+                      handleDeselectAllPhotos();
+                    } else {
+                      handleSelectAllPhotos();
+                    }
+                  }}
+                  className="px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                >
+                  {selectedPhotoIds.size > 0 && selectedPhotoIds.size === jc.photos.filter(p => !p.url?.toLowerCase().endsWith('.pdf') && p.photoType !== 'Document').length ? 'Deselect All' : 'Select All'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenWhatsAppModal}
+                  disabled={selectedPhotoIds.size === 0}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>SEND PHOTOS ON WHATSAPP</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* WhatsApp Photo Sharing History */}
+          {jc.whatsappHistory && jc.whatsappHistory.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
+              <h5 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2 mb-3">
+                <MessageCircle className="w-4 h-4 text-emerald-600" />
+                WhatsApp Photo Sharing History
+              </h5>
+              <div className="space-y-2">
+                {jc.whatsappHistory.map((hist, hIdx) => (
+                  <div key={hIdx} className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 text-xs gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                        hist.status === 'sent' || hist.status === 'delivered' || hist.status === 'read'
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-300/40'
+                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border border-rose-300/40'
+                      }`}>
+                        {hist.status}
+                      </span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">
+                        {hist.photoCount || (hist.photoUrls ? hist.photoUrls.length : 1)} vehicle photo(s)
+                      </span>
+                      <span className="text-slate-400">to</span>
+                      <span className="font-mono text-slate-600 dark:text-slate-300">{hist.recipientPhone}</span>
+                      {hist.sentBy && <span className="text-[10px] text-slate-400">(by {hist.sentBy})</span>}
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {hist.sentAt ? new Date(hist.sentAt).toLocaleString('en-IN') : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -3478,6 +3693,165 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           fetchDetails();
         }}
       />
+
+      {/* WhatsApp Send Photos Confirmation Modal */}
+      {isWhatsAppModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-600/20">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    Send Photos On WhatsApp
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Confirm details before dispatching vehicle media to customer
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSendingWhatsApp) setIsWhatsAppModalOpen(false);
+                }}
+                disabled={isSendingWhatsApp}
+                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Job Card & Customer Overview */}
+            <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-xs">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Job Card No</span>
+                <span className="font-black text-indigo-600 dark:text-indigo-400 font-mono text-sm">
+                  {jc.jobCardNo || jc.jobCardNumber || 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Vehicle Reg No</span>
+                <span className="font-black text-slate-800 dark:text-slate-200 uppercase font-mono text-sm">
+                  {jc.vehicleNumber || jc.vehicleId?.vehicleNumber || 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Customer Name</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {jc.customerName || jc.customerId?.name || 'Customer'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Selected Photos</span>
+                <span className="font-black text-emerald-600 dark:text-emerald-400">
+                  {selectedPhotoIds.size} photo(s)
+                </span>
+              </div>
+            </div>
+
+            {/* Selected Photos Thumbnails Preview */}
+            <div>
+              <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2">
+                Selected Photos to Send ({selectedPhotoIds.size})
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-40 overflow-y-auto p-1">
+                {jc.photos
+                  ?.filter(p => selectedPhotoIds.has(p._id || p.publicId || p.url))
+                  .map((photo, pIdx) => {
+                    const src = getPhotoSrc(photo.url);
+                    return (
+                      <div key={pIdx} className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-2xs">
+                        <img src={src} alt="Selected" className="w-full h-full object-cover" />
+                        <span className="absolute bottom-1 left-1 right-1 px-1 py-0.5 rounded bg-black/60 text-white text-[8px] font-extrabold truncate uppercase text-center backdrop-blur-2xs">
+                          {photo.photoType || 'Photo'}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Recipient WhatsApp Phone */}
+            <div>
+              <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                Customer WhatsApp / Mobile Number *
+              </label>
+              <input
+                type="text"
+                value={whatsAppRecipientPhone}
+                onChange={(e) => setWhatsAppRecipientPhone(e.target.value)}
+                placeholder="e.g. 9876543210"
+                disabled={isSendingWhatsApp}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                WhatsApp messages will be sent using MVSS Automobiles official WhatsApp Cloud API.
+              </p>
+            </div>
+
+            {/* Configurable Message */}
+            <div>
+              <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+                Accompanying Message / Caption
+              </label>
+              <textarea
+                rows="2"
+                value={whatsAppCustomMessage}
+                onChange={(e) => setWhatsAppCustomMessage(e.target.value)}
+                disabled={isSendingWhatsApp}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+              />
+            </div>
+
+            {/* Result / Status Notice */}
+            {whatsAppSendStatus && (
+              <div className={`p-3.5 rounded-2xl border text-xs font-bold ${
+                whatsAppSendStatus.success
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+              }`}>
+                {whatsAppSendStatus.message}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsWhatsAppModalOpen(false)}
+                disabled={isSendingWhatsApp}
+                className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                {whatsAppSendStatus?.success ? 'Close' : 'Cancel'}
+              </button>
+              {!whatsAppSendStatus?.success && (
+                <button
+                  type="button"
+                  onClick={handleSendWhatsAppPhotos}
+                  disabled={isSendingWhatsApp || !whatsAppRecipientPhone.trim() || selectedPhotoIds.size === 0}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {isSendingWhatsApp ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending to WhatsApp...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Send {selectedPhotoIds.size} Photo(s)</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

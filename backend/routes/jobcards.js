@@ -730,6 +730,163 @@ router.delete('/:id/photo/:photoId', auth, async (req, res) => {
   }
 });
 
+// Send selected Job Card photos to customer via WhatsApp Cloud API
+router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid Job Card ID format.' });
+    }
+
+    const jobCard = await JobCard.findById(id).populate('customerId').populate('vehicleId');
+    if (!jobCard) {
+      return res.status(404).json({ error: 'Job Card not found.' });
+    }
+
+    const customerRecord = jobCard.customerId || {};
+    const vehicleRecord = jobCard.vehicleId || {};
+    const recipientPhone = req.body.phone || customerRecord.mobile || customerRecord.phone || jobCard.customerDetails?.mobile;
+    const customerName = customerRecord.name || jobCard.customerDetails?.name || 'Valued Customer';
+    const jobCardNumber = jobCard.jobCardNo || 'Job Card';
+    const vehicleNumber = vehicleRecord.vehicleNumber || jobCard.vehicleDetails?.vehicleNumber || 'Vehicle';
+
+    // 1. Validate customer contact eligibility
+    const { validateCustomerContact, sendImageMessage } = require('../services/whatsappService');
+    const contactCheck = validateCustomerContact(customerRecord, recipientPhone);
+    if (!contactCheck.valid) {
+      return res.status(400).json({
+        error: contactCheck.reason || 'Customer contact number is missing, invalid, or customer has opted out of WhatsApp.'
+      });
+    }
+
+    // 2. Identify selected photos
+    const { photoIds, customMessage } = req.body;
+    let selectedPhotos = [];
+    if (photoIds && Array.isArray(photoIds) && photoIds.length > 0) {
+      selectedPhotos = (jobCard.photos || []).filter(p => {
+        const pId = String(p._id || p.publicId || p.url);
+        return photoIds.includes(pId) || (p._id && photoIds.includes(String(p._id)));
+      });
+    } else {
+      selectedPhotos = jobCard.photos || [];
+    }
+
+    if (selectedPhotos.length === 0) {
+      return res.status(400).json({ error: 'No photos selected to send.' });
+    }
+
+    const defaultCaption = customMessage || `Hello ${customerName}, please find the vehicle photos for your Job Card ${jobCardNumber} at MVSS Automobiles.`;
+    const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || 'https://mvss-erp-backend.onrender.com';
+    const results = [];
+    let successCount = 0;
+
+    for (let i = 0; i < selectedPhotos.length; i++) {
+      const photo = selectedPhotos[i];
+      const photoId = String(photo._id || photo.publicId || `photo_${i}`);
+      const captionText = selectedPhotos.length > 1
+        ? `${defaultCaption} [${i + 1}/${selectedPhotos.length}]`
+        : defaultCaption;
+
+      let photoBuffer = null;
+      let finalImageUrl = photo.url;
+
+      if (photo.url) {
+        if (photo.url.startsWith('http://') || photo.url.startsWith('https://')) {
+          finalImageUrl = photo.url;
+        } else if (photo.url.includes('/api/jobcards/photo/')) {
+          const fileId = photo.url.split('/api/jobcards/photo/')[1].split('?')[0];
+          finalImageUrl = `${serverBase}/api/jobcards/photo/${fileId}`;
+          if (mongoose.isValidObjectId(fileId)) {
+            try {
+              const stream = downloadPhotoStream(fileId);
+              photoBuffer = await new Promise((resolve, reject) => {
+                const chunks = [];
+                stream.on('data', chunk => chunks.push(chunk));
+                stream.on('end', () => resolve(Buffer.concat(chunks)));
+                stream.on('error', err => reject(err));
+              });
+            } catch (bufErr) {
+              console.warn(`[WhatsApp Photo Stream] Could not read GridFS buffer for ${fileId}:`, bufErr.message);
+            }
+          }
+        } else {
+          finalImageUrl = `${serverBase}${photo.url.startsWith('/') ? '' : '/'}${photo.url}`;
+        }
+      }
+
+      const idempotencyKey = `wa_jc_photo_${jobCard._id}_${photoId}_${Date.now()}`;
+
+      try {
+        const sendRes = await sendImageMessage({
+          to: contactCheck.phone,
+          imageUrl: finalImageUrl,
+          imageBuffer: photoBuffer,
+          filename: photo.originalName || `vehicle_photo_${i + 1}.jpg`,
+          caption: captionText,
+          recipientName: customerName,
+          relatedEntity: jobCard._id,
+          onModel: 'JobCard',
+          idempotencyKey
+        });
+
+        results.push({
+          photoId,
+          url: photo.url,
+          status: 'sent',
+          messageId: sendRes.messageId
+        });
+        successCount++;
+      } catch (sendErr) {
+        console.error(`[WhatsApp Photo Send Error] Photo ${photoId}:`, sendErr.message || sendErr);
+        results.push({
+          photoId,
+          url: photo.url,
+          status: 'failed',
+          error: sendErr.message || 'Meta WhatsApp dispatch failed'
+        });
+      }
+    }
+
+    // 3. Record audit entry in jobCard.whatsappHistory
+    if (!jobCard.whatsappHistory) jobCard.whatsappHistory = [];
+    const historyEntry = {
+      messageId: results.find(r => r.messageId)?.messageId || `batch_${Date.now()}`,
+      stage: 'VEHICLE_PHOTOS',
+      photoUrls: selectedPhotos.map(p => p.url),
+      photoCount: selectedPhotos.length,
+      recipientPhone: contactCheck.phone,
+      recipientName: customerName,
+      status: successCount > 0 ? 'sent' : 'failed',
+      sentAt: new Date(),
+      error: successCount === 0 ? results.map(r => r.error).filter(Boolean).join('; ') : null,
+      sentBy: req.user ? req.user.name : 'Staff'
+    };
+    jobCard.whatsappHistory.push(historyEntry);
+    await jobCard.save();
+
+    await logAction(
+      req.user,
+      'JOBCARD_WHATSAPP_PHOTOS_SENT',
+      `Sent ${successCount}/${selectedPhotos.length} vehicle photo(s) on WhatsApp for Job Card ${jobCardNumber} to ${contactCheck.masked}`,
+      req
+    );
+
+    return res.status(200).json({
+      success: successCount > 0,
+      total: selectedPhotos.length,
+      sentCount: successCount,
+      failedCount: selectedPhotos.length - successCount,
+      recipientPhone: contactCheck.masked,
+      results,
+      whatsappHistory: jobCard.whatsappHistory
+    });
+
+  } catch (error) {
+    console.error('[Send WhatsApp Photos Error]:', error);
+    res.status(500).json({ error: 'Failed to dispatch photos on WhatsApp: ' + error.message });
+  }
+});
+
 // Update digital job card
 router.put('/:id', auth, async (req, res) => {
   try {

@@ -1169,6 +1169,218 @@ const sendDocumentMessage = async ({
 };
 
 /**
+ * Send an image attachment message via Meta WhatsApp Cloud API
+ */
+const sendImageMessage = async ({
+    to,
+    imageUrl,
+    imageBuffer,
+    filename = 'vehicle_photo.jpg',
+    caption = '',
+    recipientName = 'Unknown',
+    relatedEntity,
+    onModel = 'JobCard',
+    idempotencyKey
+}, customAxios = axios) => {
+    const maskedTo = to ? to.substring(0, 3) + '****' + to.slice(-3) : 'unknown';
+
+    try {
+        const token = process.env.META_WA_ACCESS_TOKEN;
+        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+
+        if (!token || !phoneNumberId) {
+            const err = 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID). Skipping image message.';
+            console.warn(`[WhatsApp] ${err}`);
+            throw new Error(err);
+        }
+
+        const normalizedPhone = normalizePhoneNumber(to);
+        if (!normalizedPhone || normalizedPhone.length < 10) {
+            const err = `Invalid phone number: ${to}`;
+            console.warn(`[WhatsApp] ${err}`);
+            throw new Error(err);
+        }
+
+        if (!imageUrl && !imageBuffer) {
+            const err = 'Either imageUrl or imageBuffer must be provided to send a WhatsApp image message.';
+            console.error(`[WhatsApp] ${err}`);
+            throw new Error(err);
+        }
+
+        // Idempotency Check: Prevent duplicate messages for the same event
+        if (idempotencyKey) {
+            try {
+                const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
+                if (existingLog && ['sent', 'delivered', 'read'].includes(existingLog.status)) {
+                    console.log(`[WhatsApp] Duplicate image skipped for key: ${idempotencyKey}`);
+                    return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped', alreadySent: true };
+                }
+            } catch (dbReadErr) {
+                console.warn(`[WhatsApp] Warning: Failed to query existing WhatsAppLog for idempotencyKey '${idempotencyKey}':`, dbReadErr.message || dbReadErr);
+            }
+        }
+
+        // Create or update pending log entry using atomic upsert (prevents E11000 duplicate key error)
+        if (idempotencyKey) {
+            try {
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $setOnInsert: {
+                            recipientName,
+                            recipientPhone: normalizedPhone,
+                            templateName: 'image_attachment',
+                            messageType: 'image',
+                            direction: 'outbound',
+                            imageUrl: imageUrl || '',
+                            caption: caption || '',
+                            relatedEntity,
+                            onModel,
+                            idempotencyKey,
+                            createdAt: new Date()
+                        },
+                        $set: {
+                            lastAttemptAt: new Date(),
+                            status: 'pending',
+                            errorMessage: null,
+                            metaErrorCode: null
+                        },
+                        $inc: { attempts: 1 }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+            } catch (logSaveErr) {
+                if (logSaveErr.code === 11000) {
+                    console.warn(`[WhatsApp] Concurrency conflict (E11000) on image idempotencyKey '${idempotencyKey}'. Skipping duplicate image dispatch.`);
+                    try {
+                        const existingLog = await WhatsAppLog.findOne({ idempotencyKey });
+                        if (existingLog && ['sent', 'delivered', 'read'].includes(existingLog.status)) {
+                            return { success: true, messageId: existingLog.messageId, status: 'duplicate_skipped', alreadySent: true };
+                        }
+                    } catch (readErr) {}
+                    return { success: true, status: 'in_flight_skipped', alreadySent: false };
+                }
+                console.error(`[WhatsApp] Warning: Failed to upsert initial pending WhatsAppLog:`, logSaveErr.message || logSaveErr);
+            }
+        }
+
+        // Construct Meta Image Message Payload
+        const imagePayload = {};
+        if (caption) {
+            imagePayload.caption = String(caption);
+        }
+
+        // Try direct Meta media upload if buffer is available
+        if (imageBuffer) {
+            const uploadRes = await uploadMediaToMeta({
+                buffer: imageBuffer,
+                filename: filename || 'vehicle_photo.jpg',
+                mimeType: 'image/jpeg'
+            }, customAxios);
+            if (uploadRes.success && uploadRes.mediaId) {
+                imagePayload.id = uploadRes.mediaId;
+            }
+        }
+
+        // If media ID wasn't set, use publicly accessible link
+        if (!imagePayload.id && imageUrl) {
+            imagePayload.link = imageUrl;
+        }
+
+        const payload = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedPhone,
+            type: 'image',
+            image: imagePayload
+        };
+
+        const url = `${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`;
+        console.log(`[WhatsApp] Sending image message to Meta Graph API (${GRAPH_API_VERSION}) to ${maskedTo} [Filename: ${filename}]`);
+
+        const response = await customAxios.post(url, payload, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const messageId = response.data.messages?.[0]?.id;
+        const httpStatus = response.status;
+
+        // Update Log entry with sent status and message ID atomically
+        if (idempotencyKey) {
+            try {
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $set: {
+                            status: 'sent',
+                            messageId,
+                            imageUrl: imageUrl || '',
+                            caption: caption || '',
+                            lastAttemptAt: new Date()
+                        }
+                    },
+                    { new: true }
+                );
+            } catch (updateLogErr) {
+                console.error(`[WhatsApp] Warning: Failed to persist sent status in WhatsAppLog:`, updateLogErr.message || updateLogErr);
+            }
+        }
+
+        console.log(`[WhatsApp] Successfully sent image to ${maskedTo} | Version: ${GRAPH_API_VERSION} | HTTP: ${httpStatus} | wamid: ${messageId}`);
+        return { success: true, messageId, data: response.data, imageUrl };
+
+    } catch (error) {
+        const errDetails = getMetaErrorDetails(error);
+
+        if (errDetails.status) {
+            console.error(`[WhatsApp] Meta API Image Error -> To: ${maskedTo} | Version: ${GRAPH_API_VERSION} | ${errDetails.formatted}`);
+        } else {
+            console.error(`[WhatsApp] Internal/Network Image Error -> To: ${maskedTo} | Msg: ${errDetails.message}`);
+        }
+
+        // Mark log as failed atomically
+        if (idempotencyKey) {
+            try {
+                await WhatsAppLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $set: {
+                            status: 'failed',
+                            errorMessage: errDetails.formatted,
+                            metaErrorCode: String(errDetails.code || ''),
+                            lastAttemptAt: new Date()
+                        },
+                        $setOnInsert: {
+                            recipientName,
+                            recipientPhone: to ? normalizePhoneNumber(to) || to : 'Unknown',
+                            templateName: 'image_attachment',
+                            messageType: 'image',
+                            direction: 'outbound',
+                            imageUrl: imageUrl || '',
+                            caption: caption || '',
+                            relatedEntity,
+                            onModel,
+                            idempotencyKey,
+                            createdAt: new Date()
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+            } catch (logErr) {
+                console.error('[WhatsApp] Failed to save image error log via atomic upsert:', logErr.message);
+            }
+        }
+
+        const cleanError = new Error(errDetails.formatted);
+        cleanError.metaError = errDetails;
+        throw cleanError;
+    }
+};
+
+/**
  * Create/register the Customer Estimate Document Template with Meta Graph API
  */
 const createDocumentTemplate = async (customAxios = axios) => {
@@ -1284,6 +1496,7 @@ const createDocumentTemplate = async (customAxios = axios) => {
 module.exports = {
     sendTemplateMessage,
     sendDocumentMessage,
+    sendImageMessage,
     uploadMediaToMeta,
     normalizePhoneNumber,
     maskPhoneNumber,

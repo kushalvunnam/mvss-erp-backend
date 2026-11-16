@@ -23,10 +23,25 @@ const upload = multer({
 
 // Middleware helper to handle multer errors gracefully
 const handleUpload = (req, res, next) => {
-  upload.single('attachment')(req, res, (err) => {
+  upload.any()(req, res, (err) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ success: false, error: 'File size exceeds maximum limit of 10MB.' });
+      }
+      return res.status(400).json({ success: false, error: err.message || 'File upload error.' });
+    }
+    if (req.files && req.files.length > 0 && !req.file) {
+      req.file = req.files[0];
+    }
+    next();
+  });
+};
+
+const handleMultipleUpload = (req, res, next) => {
+  upload.any()(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ success: false, error: 'One or more files exceed the maximum limit of 10MB.' });
       }
       return res.status(400).json({ success: false, error: err.message || 'File upload error.' });
     }
@@ -47,40 +62,110 @@ const generatePurchaseNo = async () => {
 };
 router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'));
 
-// Upload attachment
+// Upload single or multiple attachments
 router.post('/upload-attachment', handleUpload, async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).send({ error: 'No file uploaded.' });
+    const files = req.files && req.files.length > 0 ? req.files : (req.file ? [req.file] : []);
+    if (files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No file uploaded.' });
     }
     
-    // Validate MIME type
     const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!allowedMimeTypes.includes(req.file.mimetype)) {
-      return res.status(400).send({ error: 'Invalid file type. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.' });
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+
+    const uploadedList = [];
+    for (const f of files) {
+      const ext = path.extname(f.originalname).toLowerCase().replace('.', '');
+      const mime = allowedMimeTypes.includes(f.mimetype)
+        ? f.mimetype
+        : (ext === 'pdf' ? 'application/pdf' : (allowedExtensions.includes(ext) ? `image/${ext === 'jpg' ? 'jpeg' : ext}` : null));
+
+      if (!mime) {
+        return res.status(400).json({ success: false, error: `Invalid file type for "${f.originalname}". Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.` });
+      }
+
+      const fileId = await uploadFile(f.buffer, f.originalname, mime);
+      const fileKey = fileId.toString();
+      uploadedList.push({
+        key: fileKey,
+        url: `/api/purchases/attachment/${fileKey}`,
+        attachmentUrl: `/api/purchases/attachment/${fileKey}`,
+        originalName: f.originalname,
+        name: f.originalname,
+        filename: f.originalname,
+        attachmentName: f.originalname,
+        mimeType: mime,
+        type: mime,
+        attachmentType: mime,
+        size: f.size,
+        uploadedAt: new Date()
+      });
     }
 
-    // Upload buffer to GridFS
-    const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
-    const fileKey = fileId.toString();
-
-    res.status(200).send({
+    const first = uploadedList[0];
+    res.status(200).json({
       success: true,
-      message: 'File uploaded successfully',
-      key: fileKey,
-      url: `/api/purchases/attachment/${fileKey}`,
-      attachmentUrl: `/api/purchases/attachment/${fileKey}`,
-      originalName: req.file.originalname,
-      name: req.file.originalname,
-      filename: req.file.originalname,
-      attachmentName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      type: req.file.mimetype,
-      attachmentType: req.file.mimetype,
-      size: req.file.size
+      message: `${uploadedList.length} file(s) uploaded successfully`,
+      ...first,
+      attachments: uploadedList
     });
   } catch (error) {
-    res.status(500).send({ success: false, error: 'Upload failed: ' + error.message });
+    res.status(500).json({ success: false, error: 'Upload failed: ' + error.message });
+  }
+});
+
+// Dedicated multiple-file upload endpoint
+router.post('/upload-attachments', handleMultipleUpload, async (req, res) => {
+  try {
+    const files = req.files || (req.file ? [req.file] : []);
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files uploaded.' });
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+    const uploadedAttachments = [];
+
+    for (const file of files) {
+      const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+      const mime = allowedMimeTypes.includes(file.mimetype)
+        ? file.mimetype
+        : (ext === 'pdf' ? 'application/pdf' : (allowedExtensions.includes(ext) ? `image/${ext === 'jpg' ? 'jpeg' : ext}` : null));
+
+      if (!mime) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid file type for "${file.originalname}". Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.`
+        });
+      }
+
+      const fileId = await uploadFile(file.buffer, file.originalname, mime);
+      const fileKey = fileId.toString();
+
+      uploadedAttachments.push({
+        key: fileKey,
+        url: `/api/purchases/attachment/${fileKey}`,
+        attachmentUrl: `/api/purchases/attachment/${fileKey}`,
+        originalName: file.originalname,
+        name: file.originalname,
+        filename: file.originalname,
+        attachmentName: file.originalname,
+        mimeType: mime,
+        type: mime,
+        attachmentType: mime,
+        size: file.size,
+        uploadedAt: new Date()
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `${uploadedAttachments.length} file(s) uploaded successfully`,
+      attachments: uploadedAttachments,
+      ...(uploadedAttachments.length === 1 ? uploadedAttachments[0] : {})
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Upload failed: ' + error.message });
   }
 });
 
@@ -262,19 +347,6 @@ router.post('/:id/reupload-attachment', handleUpload, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid file type. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.' });
     }
 
-    // Safely delete previous GridFS attachment if replacing to prevent orphaned storage
-    if (purchase.attachments && Array.isArray(purchase.attachments) && purchase.attachments.length > 0) {
-      for (const oldAtt of purchase.attachments) {
-        if (oldAtt && oldAtt.key && mongoose.isValidObjectId(oldAtt.key)) {
-          try {
-            await deleteFile(oldAtt.key);
-          } catch (delErr) {
-            console.warn(`[Attachment Cleanup] Could not delete old file ${oldAtt.key}:`, delErr.message);
-          }
-        }
-      }
-    }
-
     // Upload buffer to persistent GridFS
     const fileId = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     const fileKey = fileId.toString();
@@ -290,8 +362,25 @@ router.post('/:id/reupload-attachment', handleUpload, async (req, res) => {
       uploadedAt: new Date()
     };
 
-    // Replace attachment reference without duplicating purchase entries or attachments
-    purchase.attachments = [attachmentObj];
+    const isReplace = req.query.replace === 'true' || req.body.replace === 'true';
+    if (isReplace) {
+      if (purchase.attachments && Array.isArray(purchase.attachments) && purchase.attachments.length > 0) {
+        for (const oldAtt of purchase.attachments) {
+          if (oldAtt && oldAtt.key && mongoose.isValidObjectId(oldAtt.key)) {
+            try {
+              await deleteFile(oldAtt.key);
+            } catch (delErr) {
+              console.warn(`[Attachment Cleanup] Could not delete old file ${oldAtt.key}:`, delErr.message);
+            }
+          }
+        }
+      }
+      purchase.attachments = [attachmentObj];
+    } else {
+      if (!purchase.attachments) purchase.attachments = [];
+      purchase.attachments.push(attachmentObj);
+    }
+
     purchase.attachmentUrl = persistentUrl;
     purchase.attachmentName = req.file.originalname;
     purchase.attachmentType = req.file.mimetype;
@@ -443,12 +532,23 @@ router.post('/', async (req, res) => {
       
       const discountType = item.discountType || 'Percent';
       const discountValue = Number(item.discountValue) || 0;
+      let discountPerUnit = item.discountPerUnit !== undefined && item.discountPerUnit !== null ? Number(item.discountPerUnit) : 0;
 
       let discountAmount = 0;
       if (discountType === 'Percent') {
         discountAmount = roundToTwo((grossItemValue * discountValue) / 100);
+        discountPerUnit = qty > 0 ? roundToTwo(discountAmount / qty) : 0;
       } else {
-        discountAmount = roundToTwo(discountValue);
+        // Flat Amount discount: Line Discount = Flat Discount Per Unit * Quantity
+        if (discountPerUnit > 0) {
+          discountAmount = roundToTwo(discountPerUnit * qty);
+        } else if (item.discountAmount !== undefined && Number(item.discountAmount) > 0) {
+          discountAmount = roundToTwo(Number(item.discountAmount));
+          discountPerUnit = qty > 0 ? roundToTwo(discountAmount / qty) : discountAmount;
+        } else {
+          discountPerUnit = discountValue;
+          discountAmount = roundToTwo(discountPerUnit * qty);
+        }
       }
       discountAmount = Math.max(0, Math.min(grossItemValue, discountAmount));
       
@@ -554,6 +654,7 @@ router.post('/', async (req, res) => {
         mrp,
         discountType,
         discountValue,
+        discountPerUnit,
         discountPercent,
         discountAmount,
         gstPercent,
@@ -857,12 +958,23 @@ router.put('/:id', async (req, res) => {
       
       const discountType = item.discountType || 'Percent';
       const discountValue = Number(item.discountValue) || 0;
+      let discountPerUnit = item.discountPerUnit !== undefined && item.discountPerUnit !== null ? Number(item.discountPerUnit) : 0;
 
       let discountAmount = 0;
       if (discountType === 'Percent') {
         discountAmount = roundToTwo((grossItemValue * discountValue) / 100);
+        discountPerUnit = qty > 0 ? roundToTwo(discountAmount / qty) : 0;
       } else {
-        discountAmount = roundToTwo(discountValue);
+        // Flat Amount discount: Line Discount = Flat Discount Per Unit * Quantity
+        if (discountPerUnit > 0) {
+          discountAmount = roundToTwo(discountPerUnit * qty);
+        } else if (item.discountAmount !== undefined && Number(item.discountAmount) > 0) {
+          discountAmount = roundToTwo(Number(item.discountAmount));
+          discountPerUnit = qty > 0 ? roundToTwo(discountAmount / qty) : discountAmount;
+        } else {
+          discountPerUnit = discountValue;
+          discountAmount = roundToTwo(discountPerUnit * qty);
+        }
       }
       discountAmount = Math.max(0, Math.min(grossItemValue, discountAmount));
       
@@ -962,6 +1074,7 @@ router.put('/:id', async (req, res) => {
         mrp,
         discountType,
         discountValue,
+        discountPerUnit,
         discountPercent,
         discountAmount,
         gstPercent,

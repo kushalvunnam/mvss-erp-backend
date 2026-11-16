@@ -262,6 +262,7 @@ export default function PurchaseReport({ token, user }) {
     discountType: 'Percent',
     discountPercent: 0,
     discountAmount: 0,
+    discountPerUnit: 0,
     taxable: '',
     discountValue: 0,
     gstPercent: 18,
@@ -298,6 +299,7 @@ export default function PurchaseReport({ token, user }) {
   const invoiceNoRef = useRef(null);
 
   const [attachments, setAttachments] = useState([]);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   const formatFileSize = (bytes) => {
     if (!bytes) return '0 Bytes';
@@ -308,27 +310,52 @@ export default function PurchaseReport({ token, user }) {
   };
 
   const handleFilesUpload = async (filesList) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
-    const validFiles = Array.from(filesList).filter(file => {
-      if (!allowedTypes.includes(file.type)) {
+    if (!filesList || filesList.length === 0) return;
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
+
+    const filesArray = Array.from(filesList);
+    const validFiles = [];
+
+    for (const file of filesArray) {
+      const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
+      const isMimeValid = file.type && allowedMimeTypes.includes(file.type.toLowerCase());
+      const isExtValid = allowedExtensions.includes(ext);
+
+      if (!isMimeValid && !isExtValid) {
         alert(`File "${file.name}" ignored. Only JPG, JPEG, PNG, WEBP, and PDF files are allowed.`);
-        return false;
+        continue;
       }
-      return true;
-    });
+
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`File "${file.name}" (${formatFileSize(file.size)}) exceeds the maximum allowed size of 10MB.`);
+        continue;
+      }
+
+      // Check for duplicate in existing attachments
+      const isDuplicate = attachments.some(a => a.name === file.name && a.size === file.size);
+      if (isDuplicate) {
+        alert(`File "${file.name}" is already attached.`);
+        continue;
+      }
+
+      validFiles.push(file);
+    }
 
     if (validFiles.length === 0) return;
 
     const newAttachments = validFiles.map(file => ({
-      id: Math.random().toString(36).substring(7),
+      id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
       file,
       name: file.name,
       size: file.size,
-      type: file.type,
+      type: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
       status: 'uploading',
       url: ''
     }));
 
+    // Append to previous attachments without losing existing ones
     setAttachments(prev => [...prev, ...newAttachments]);
 
     for (const att of newAttachments) {
@@ -371,23 +398,25 @@ export default function PurchaseReport({ token, user }) {
                 : item
             ));
           } else {
+            const errData = await res.json().catch(() => ({}));
             setAttachments(prev => prev.map(item => 
-              item.id === att.id ? { ...item, status: 'error' } : item
+              item.id === att.id ? { ...item, status: 'error', error: errData.error || 'Upload failed' } : item
             ));
           }
         }
       } catch (err) {
         console.error(err);
         setAttachments(prev => prev.map(item => 
-          item.id === att.id ? { ...item, status: 'error' } : item
+          item.id === att.id ? { ...item, status: 'error', error: 'Network error' } : item
         ));
       }
     }
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files.length > 0) {
       handleFilesUpload(e.target.files);
+      e.target.value = ''; // Reset input to allow selecting more files or re-selecting
     }
   };
 
@@ -635,8 +664,17 @@ export default function PurchaseReport({ token, user }) {
     }
 
     // Calculate Unit Basic Value (purchasePrice/sellingPrice) from MRP
-    let unitBasic = mrpVal / (1 + gstP / 100);
-    if (changedField !== 'purchasePrice') {
+    let unitBasic = mrpVal > 0 ? (mrpVal / (1 + gstP / 100)) : (Number(updatedRow.purchasePrice) || 0);
+    if (changedField === 'purchasePrice') {
+      const newBasic = parseFloat(newValue) || 0;
+      mrpVal = newBasic * (1 + gstP / 100);
+      updatedRow.mrp = mrpVal.toFixed(2);
+      unitBasic = newBasic;
+    } else if (changedField === 'mrp') {
+      mrpVal = parseFloat(newValue) || 0;
+      unitBasic = mrpVal / (1 + gstP / 100);
+      updatedRow.purchasePrice = unitBasic.toFixed(2);
+    } else {
       updatedRow.purchasePrice = unitBasic.toFixed(2);
     }
     updatedRow.sellingPrice = unitBasic.toFixed(2);
@@ -646,11 +684,38 @@ export default function PurchaseReport({ token, user }) {
 
     let discPercent = parseFloat(updatedRow.discountPercent) || 0;
     let discAmt = parseFloat(updatedRow.discountAmount) || 0;
+    let perUnit = updatedRow.discountPerUnit !== undefined && updatedRow.discountPerUnit !== null
+      ? Number(updatedRow.discountPerUnit)
+      : (qty > 0 ? discAmt / qty : discAmt);
     let taxVal = updatedRow.taxable !== undefined && updatedRow.taxable !== '' ? parseFloat(updatedRow.taxable) : null;
 
-    if (changedField === 'taxable') {
+    if (changedField === 'discountType') {
+      if (newValue === 'Flat') {
+        let currentAmt = parseFloat(updatedRow.discountAmount) || 0;
+        if (!currentAmt && discPercent > 0) {
+          currentAmt = gross * (discPercent / 100);
+        }
+        perUnit = qty > 0 ? currentAmt / qty : currentAmt;
+        updatedRow.discountPerUnit = perUnit;
+        discAmt = Math.max(0, Math.min(gross, perUnit * qty));
+        discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
+      } else {
+        // Percent
+        discPercent = gross > 0 ? (discAmt / gross) * 100 : discPercent;
+        discPercent = Math.max(0, Math.min(100, discPercent));
+        discAmt = gross * (discPercent / 100);
+        perUnit = qty > 0 ? discAmt / qty : 0;
+        updatedRow.discountPerUnit = perUnit;
+      }
+      taxVal = gross - discAmt;
+      updatedRow.discountAmount = discAmt.toFixed(2);
+      updatedRow.discountPercent = discPercent.toFixed(2);
+      updatedRow.taxable = taxVal.toFixed(2);
+    } else if (changedField === 'taxable') {
       taxVal = Math.max(0, Math.min(gross, parseFloat(newValue) || 0));
       discAmt = gross - taxVal;
+      perUnit = qty > 0 ? discAmt / qty : 0;
+      updatedRow.discountPerUnit = perUnit;
       discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
       updatedRow.taxable = newValue;
       updatedRow.discountAmount = discAmt.toFixed(2);
@@ -658,52 +723,32 @@ export default function PurchaseReport({ token, user }) {
     } else if (changedField === 'discountPercent') {
       discPercent = Math.max(0, Math.min(100, parseFloat(newValue) || 0));
       discAmt = gross * (discPercent / 100);
+      perUnit = qty > 0 ? discAmt / qty : 0;
+      updatedRow.discountPerUnit = perUnit;
       taxVal = gross - discAmt;
       updatedRow.discountPercent = newValue;
       updatedRow.discountAmount = discAmt.toFixed(2);
       updatedRow.taxable = taxVal.toFixed(2);
     } else if (changedField === 'discountAmount') {
       discAmt = Math.max(0, Math.min(gross, parseFloat(newValue) || 0));
+      perUnit = qty > 0 ? discAmt / qty : discAmt;
+      updatedRow.discountPerUnit = perUnit;
       discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
       taxVal = gross - discAmt;
       updatedRow.discountAmount = newValue;
       updatedRow.discountPercent = discPercent.toFixed(2);
       updatedRow.taxable = taxVal.toFixed(2);
-    } else if (changedField === 'gstPercent') {
-      unitBasic = mrpVal / (1 + gstP / 100);
-      updatedRow.purchasePrice = unitBasic.toFixed(2);
-      const newGross = qty * unitBasic;
-      if (type === 'Percent') {
-        discAmt = newGross * (discPercent / 100);
-      } else {
-        discAmt = Math.max(0, Math.min(newGross, discAmt));
-        discPercent = newGross > 0 ? (discAmt / newGross) * 100 : 0;
-      }
-      taxVal = newGross - discAmt;
-      updatedRow.discountAmount = discAmt.toFixed(2);
-      updatedRow.discountPercent = discPercent.toFixed(2);
-      updatedRow.taxable = taxVal.toFixed(2);
-    } else if (changedField === 'purchasePrice') {
-      const newBasic = parseFloat(newValue) || 0;
-      mrpVal = newBasic * (1 + gstP / 100);
-      updatedRow.mrp = mrpVal.toFixed(2);
-      const newGross = qty * newBasic;
-      if (type === 'Percent') {
-        discAmt = newGross * (discPercent / 100);
-      } else {
-        discAmt = Math.max(0, Math.min(newGross, discAmt));
-        discPercent = newGross > 0 ? (discAmt / newGross) * 100 : 0;
-      }
-      taxVal = newGross - discAmt;
-      updatedRow.discountAmount = discAmt.toFixed(2);
-      updatedRow.discountPercent = discPercent.toFixed(2);
-      updatedRow.taxable = taxVal.toFixed(2);
     } else {
+      // Changed field is qty, purchasePrice, mrp, gstPercent, or initial calculation
       if (type === 'Percent') {
         discAmt = gross * (discPercent / 100);
+        perUnit = qty > 0 ? discAmt / qty : 0;
+        updatedRow.discountPerUnit = perUnit;
       } else {
-        discAmt = Math.max(0, Math.min(gross, discAmt));
+        // Flat discount: line discount scales with quantity: perUnit * qty!
+        discAmt = Math.max(0, Math.min(gross, perUnit * qty));
         discPercent = gross > 0 ? (discAmt / gross) * 100 : 0;
+        updatedRow.discountPerUnit = perUnit;
       }
       taxVal = gross - discAmt;
       updatedRow.discountAmount = discAmt.toFixed(2);
@@ -786,11 +831,22 @@ export default function PurchaseReport({ token, user }) {
     const qty = Number(row.qty) || 0;
     const gstP = Number(row.gstPercent) || 0;
     const mrpVal = Number(row.mrp) || 0;
-    const unitBasic = mrpVal / (1 + gstP / 100);
+    const unitBasic = mrpVal > 0 ? (mrpVal / (1 + gstP / 100)) : (Number(row.purchasePrice) || 0);
     const gross = qty * unitBasic;
 
+    const type = row.discountType || 'Percent';
     let discountPercent = Number(row.discountPercent) || 0;
-    let discountAmount = Number(row.discountAmount) || 0;
+    let discountAmount = 0;
+
+    if (type === 'Percent') {
+      discountAmount = gross * (discountPercent / 100);
+    } else {
+      const perUnit = row.discountPerUnit !== undefined && row.discountPerUnit !== null
+        ? Number(row.discountPerUnit)
+        : (qty > 0 ? (Number(row.discountAmount) || 0) / qty : (Number(row.discountAmount) || 0));
+      discountAmount = Math.max(0, Math.min(gross, perUnit * qty));
+      discountPercent = gross > 0 ? (discountAmount / gross) * 100 : 0;
+    }
 
     const taxable = Math.max(0, gross - discountAmount);
 
@@ -980,6 +1036,11 @@ export default function PurchaseReport({ token, user }) {
         discountValue: item.discountValue !== undefined ? item.discountValue : (item.discountPercent !== undefined ? item.discountPercent : 0),
         discountPercent: item.discountPercent !== undefined ? item.discountPercent : 0,
         discountAmount: item.discountAmount !== undefined ? item.discountAmount : 0,
+        discountPerUnit: item.discountPerUnit !== undefined ? item.discountPerUnit : (
+          item.discountType === 'Flat' && (item.qty || 1) > 0
+            ? (Number(item.discountAmount) || 0) / (Number(item.qty) || 1)
+            : 0
+        ),
         taxable: item.taxableAmount !== undefined ? item.taxableAmount.toString() : '',
         gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
         igstPercent: itemIgstPercent,
@@ -1115,6 +1176,7 @@ export default function PurchaseReport({ token, user }) {
         discountValue: Number(row.discountValue) || 0,
         discountPercent: Number(row.discountPercent) || 0,
         discountAmount: Number(row.discountAmount) || 0,
+        discountPerUnit: Number(row.discountPerUnit) || (Number(row.qty) > 0 ? (Number(row.discountAmount) || 0) / Number(row.qty) : 0),
         gstPercent: Number(row.gstPercent) !== undefined ? Number(row.gstPercent) : 18,
         igstPercent: row.igstPercent !== undefined && row.igstPercent !== '' ? Number(row.igstPercent) : undefined,
         warehouse: row.warehouse || 'Main Store',
@@ -2299,9 +2361,19 @@ export default function PurchaseReport({ token, user }) {
                 Attach Invoice / Bill (Multiple Files Allowed)
               </span>
               <div 
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files) handleFilesUpload(e.dataTransfer.files); }}
-                className="border-2 border-dashed border-slate-350 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-2xl p-8 text-center bg-slate-50 dark:bg-slate-800/40 cursor-pointer transition-colors relative"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFile(true); }}
+                onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFile(false); }}
+                onDrop={(e) => { 
+                  e.preventDefault(); 
+                  e.stopPropagation(); 
+                  setIsDraggingFile(false); 
+                  if (e.dataTransfer.files) handleFilesUpload(e.dataTransfer.files); 
+                }}
+                className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all relative ${
+                  isDraggingFile 
+                    ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 ring-4 ring-indigo-500/20' 
+                    : 'border-slate-350 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-slate-50 dark:bg-slate-800/40'
+                }`}
               >
                 <input 
                   type="file" 
