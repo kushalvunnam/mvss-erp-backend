@@ -12,8 +12,14 @@ const {
   maskPhoneNumber,
   validateCustomerContact,
   TEMPLATE_CONFIG,
-  dynamicTemplateMap
+  dynamicTemplateMap,
+  setAutomationEnabled
 } = require('../services/whatsappService');
+
+// Enable all templates in this unit test suite so Meta WABA specifications can be verified
+setAutomationEnabled('work_started', true);
+setAutomationEnabled('invoice_generated', true);
+setAutomationEnabled('inspection_completed', true);
 
 console.log('--- Starting All WhatsApp Automations Comprehensive Test Suite ---');
 

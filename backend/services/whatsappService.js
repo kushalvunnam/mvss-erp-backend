@@ -194,6 +194,101 @@ const TEMPLATE_CONFIG = {
 const dynamicTemplateMap = new Map();
 
 /**
+ * Central Automation Kill-Switches & Feature Flags
+ * Per client requirements, the following 3 automations are explicitly DISABLED by default:
+ * 1. Inspection Completed (mvss_inspection_completed)
+ * 2. Invoice Generated (mvss_invoice_generated)
+ * 3. Work Started (mvss_work_started)
+ * 
+ * All other approved automations (Welcome, Delivery, Feedback, Estimates, Payments, etc.) remain ENABLED.
+ * Flags can be toggled via environment variables or runtime configuration methods.
+ */
+const AUTOMATION_FLAGS = {
+    // Disabled per client directive (can be re-enabled by setting env to 'true')
+    inspection_completed: process.env.WA_ENABLE_INSPECTION_COMPLETED === 'true',
+    invoice_generated: process.env.WA_ENABLE_INVOICE_GENERATED === 'true',
+    work_started: process.env.WA_ENABLE_WORK_STARTED === 'true',
+
+    // Preserved active automations (default true unless explicitly set to 'false')
+    welcome: process.env.WA_ENABLE_WELCOME !== 'false',
+    estimate_created: process.env.WA_ENABLE_ESTIMATE_CREATED !== 'false',
+    estimate_approved: process.env.WA_ENABLE_ESTIMATE_APPROVED !== 'false',
+    vehicle_ready: process.env.WA_ENABLE_VEHICLE_READY !== 'false',
+    vehicle_delivered: process.env.WA_ENABLE_VEHICLE_DELIVERED !== 'false',
+    vehicle_received: process.env.WA_ENABLE_VEHICLE_RECEIVED !== 'false',
+    job_completed: process.env.WA_ENABLE_JOB_COMPLETED !== 'false',
+    gate_pass: process.env.WA_ENABLE_GATE_PASS !== 'false',
+    payment_received: process.env.WA_ENABLE_PAYMENT_RECEIVED !== 'false',
+    payment_due: process.env.WA_ENABLE_PAYMENT_DUE !== 'false',
+    feedback_request: process.env.WA_ENABLE_FEEDBACK_REQUEST !== 'false',
+    service_delay: process.env.WA_ENABLE_SERVICE_DELAY !== 'false',
+    insurance_claim: process.env.WA_ENABLE_INSURANCE_CLAIM !== 'false',
+    booking_confirmation: process.env.WA_ENABLE_BOOKING_CONFIRMATION !== 'false'
+};
+
+/**
+ * Resolves an automation feature flag key from a template name or alias.
+ */
+const getAutomationKey = (name) => {
+    if (!name) return null;
+    const clean = String(name).toLowerCase().replace(/^mvss_/, '').trim();
+    if (clean === 'inspection_completed') return 'inspection_completed';
+    if (clean === 'invoice_generated') return 'invoice_generated';
+    if (clean === 'work_started') return 'work_started';
+    if (clean === 'welcome_customer' || clean === 'welcome') return 'welcome';
+    if (clean === 'vehicle_ready') return 'vehicle_ready';
+    if (clean === 'vehicle_delivered') return 'vehicle_delivered';
+    if (clean === 'vehicle_received') return 'vehicle_received';
+    if (clean === 'job_completed') return 'job_completed';
+    if (clean === 'gate_pass_generated' || clean === 'gate_pass') return 'gate_pass';
+    if (clean === 'payment_received') return 'payment_received';
+    if (clean === 'payment_due') return 'payment_due';
+    if (clean === 'feedback_request') return 'feedback_request';
+    if (clean === 'service_delay') return 'service_delay';
+    if (clean === 'insurance_claim_update' || clean === 'insurance_claim') return 'insurance_claim';
+    if (clean === 'booking_confirmation' || clean === 'service_booking_confirmation') return 'booking_confirmation';
+    if (clean.includes('estimate')) return clean.includes('approved') ? 'estimate_approved' : 'estimate_created';
+    return clean;
+};
+
+/**
+ * Checks whether a specific WhatsApp automation is currently enabled.
+ * @param {string} name - Template name or automation key
+ * @returns {boolean}
+ */
+const isAutomationEnabled = (name) => {
+    const key = getAutomationKey(name);
+    if (!key) return true;
+    if (Object.prototype.hasOwnProperty.call(AUTOMATION_FLAGS, key)) {
+        return Boolean(AUTOMATION_FLAGS[key]);
+    }
+    return true; // Any unlisted automation remains enabled by default
+};
+
+/**
+ * Toggles an automation flag at runtime.
+ * @param {string} name - Template name or automation key
+ * @param {boolean} enabled - True to enable, false to disable
+ * @returns {boolean} Whether the key was recognized and updated
+ */
+const setAutomationEnabled = (name, enabled) => {
+    const key = getAutomationKey(name);
+    if (key && Object.prototype.hasOwnProperty.call(AUTOMATION_FLAGS, key)) {
+        AUTOMATION_FLAGS[key] = Boolean(enabled);
+        console.log('[WhatsApp Automation Config] ' + key + ' status set to: ' + (AUTOMATION_FLAGS[key] ? 'ENABLED' : 'DISABLED'));
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Returns a clone of the current automation flags for auditing and monitoring.
+ */
+const getAutomationStatus = () => {
+    return { ...AUTOMATION_FLAGS };
+};
+
+/**
  * Resolves a template specification from dynamicTemplateMap (or fallback TEMPLATE_CONFIG),
  * supporting exact names, alias variations (with/without mvss_ prefix, underscores/hyphens).
  */
@@ -649,6 +744,21 @@ const sendTemplateMessage = async ({
     const maskedTo = to ? to.substring(0, 3) + '****' + to.slice(-3) : 'unknown';
     let finalTemplateName = templateName;
     let initialLanguage = languageCode || 'en';
+
+    // Central Automation Kill-Switch Check
+    if (!isAutomationEnabled(templateName)) {
+        const autoKey = getAutomationKey(templateName);
+        console.log('[WhatsApp] Automation ' + templateName + ' (' + autoKey + ') is currently DISABLED by configuration. Skipping dispatch to ' + maskedTo + '.');
+        return {
+            success: false,
+            skipped: true,
+            disabled: true,
+            status: 'disabled',
+            reason: 'Automation ' + templateName + ' is disabled per client configuration.',
+            templateName,
+            recipient: maskedTo
+        };
+    }
 
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
@@ -1510,5 +1620,10 @@ module.exports = {
     dynamicTemplateMap,
     isCustomerSessionActive,
     GRAPH_API_VERSION,
-    GRAPH_API_BASE_URL
+    GRAPH_API_BASE_URL,
+    AUTOMATION_FLAGS,
+    getAutomationKey,
+    isAutomationEnabled,
+    setAutomationEnabled,
+    getAutomationStatus
 };

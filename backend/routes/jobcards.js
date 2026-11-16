@@ -405,7 +405,7 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
 
       const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
-      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+      const { sendTemplateMessage, validateCustomerContact, isAutomationEnabled } = require('../services/whatsappService');
 
       const custId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
       const vehId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
@@ -1128,7 +1128,7 @@ router.put('/:id', auth, async (req, res) => {
       try {
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
-        const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+        const { sendTemplateMessage, validateCustomerContact, isAutomationEnabled } = require('../services/whatsappService');
 
         const custId = (jobCard.customerId && jobCard.customerId._id) ? jobCard.customerId._id : jobCard.customerId;
         const vehId = (jobCard.vehicleId && jobCard.vehicleId._id) ? jobCard.vehicleId._id : jobCard.vehicleId;
@@ -1167,19 +1167,27 @@ router.put('/:id', auth, async (req, res) => {
             { type: 'text', text: jobCardNumber }
           ];
         } else if (jobCard.status === 'Work in Progress' || jobCard.status === 'Work In Progress') {
-          templateName = 'mvss_work_started';
-          parameters = [
-            { type: 'text', text: customerName },
-            { type: 'text', text: vehicleNumber },
-            { type: 'text', text: jobCardNumber }
-          ];
-        } else if (['Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'QC Pass', 'Inspection Completed'].includes(jobCard.status) || (req.body.qcStatus === 'Pass')) {
-          templateName = 'mvss_inspection_completed';
-          parameters = [
-            { type: 'text', text: customerName },
-            { type: 'text', text: vehicleNumber },
-            { type: 'text', text: jobCardNumber }
-          ];
+          if (!isAutomationEnabled('mvss_work_started')) {
+            console.log(`[JobCard Automation] 'mvss_work_started' is DISABLED by client configuration. Skipping WhatsApp notification for JobCard ${jobCardNumber}.`);
+          } else {
+            templateName = 'mvss_work_started';
+            parameters = [
+              { type: 'text', text: customerName },
+              { type: 'text', text: vehicleNumber },
+              { type: 'text', text: jobCardNumber }
+            ];
+          }
+        } else if (['Quality Check', 'Quality Test', 'Final Quality Inspection', 'Pre-Delivery Inspection', 'QC Pass', 'Inspection Completed'].includes(jobCard.status) || (req.body.qcStatus === 'Pass' && !['Delivered', 'Ready for Delivery', 'Vehicle Ready', 'Job Completed', 'Repair Completed', 'Closed'].includes(jobCard.status))) {
+          if (!isAutomationEnabled('mvss_inspection_completed')) {
+            console.log(`[JobCard Automation] 'mvss_inspection_completed' is DISABLED by client configuration. Skipping WhatsApp notification for JobCard ${jobCardNumber}.`);
+          } else {
+            templateName = 'mvss_inspection_completed';
+            parameters = [
+              { type: 'text', text: customerName },
+              { type: 'text', text: vehicleNumber },
+              { type: 'text', text: jobCardNumber }
+            ];
+          }
         } else if (['Job Completed', 'Repair Completed', 'Closed'].includes(jobCard.status) || (req.body.jobProgress === 100)) {
           templateName = 'mvss_job_completed';
           parameters = [

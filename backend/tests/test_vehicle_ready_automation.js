@@ -278,10 +278,9 @@ async function runVehicleReadyTests() {
     });
 
     assert.strictEqual(res5.status, 200);
-    assert.strictEqual(capturedDispatches.length, 1);
-    assert.strictEqual(capturedDispatches[0].data.template.name, 'mvss_work_started');
-    assert.notStrictEqual(capturedDispatches[0].data.template.name, 'mvss_vehicle_ready');
-    console.log('✔ Test 5 Passed: Other status transitions cleanly isolated, mvss_vehicle_ready not triggered.');
+    // Work in Progress automation is DISABLED per client directive: zero WhatsApp messages should be dispatched
+    assert.strictEqual(capturedDispatches.length, 0);
+    console.log('✔ Test 5 Passed: Status transition to Work in Progress succeeds, mvss_work_started correctly skipped per client directive.');
 
     // -------------------------------------------------------------
     // Test 6: Safe Delivery & Error Isolation (Meta API failure does not break DB update)

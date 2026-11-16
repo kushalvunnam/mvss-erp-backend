@@ -3,7 +3,7 @@ const router = express.Router();
 const WhatsAppLog = require('../models/WhatsAppLog');
 const Customer = require('../models/Customer');
 const { auth, restrictTo } = require('../middleware/auth');
-const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber, createDocumentTemplate } = require('../services/whatsappService');
+const { sendTemplateMessage, syncMetaTemplates, maskPhoneNumber, createDocumentTemplate, getAutomationStatus, setAutomationEnabled, isAutomationEnabled } = require('../services/whatsappService');
 const { handleInboundFeedbackReply } = require('../services/feedbackReminderService');
 const { handleInboundEstimateReply } = require('../services/estimateApprovalService');
 
@@ -544,6 +544,55 @@ router.post('/setup-document-template', auth, restrictTo('Admin', 'Super Admin')
         console.error('[WhatsApp] setup-document-template error:', err);
         return res.status(500).json({ error: err.message || 'Failed to setup document template' });
     }
+});
+
+// =========================================================================
+// PHASE 17: AUTOMATION CONFIGURATION & AUDIT ENDPOINTS
+// =========================================================================
+router.get('/automations', auth, restrictTo('Admin', 'Super Admin'), (req, res) => {
+    return res.json({
+        success: true,
+        automations: getAutomationStatus(),
+        disabledByClientDirective: ['inspection_completed', 'invoice_generated', 'work_started'],
+        activeApprovedAutomations: [
+            'welcome',
+            'estimate_created',
+            'estimate_approved',
+            'vehicle_ready',
+            'vehicle_delivered',
+            'vehicle_received',
+            'job_completed',
+            'gate_pass',
+            'payment_received',
+            'payment_due',
+            'feedback_request',
+            'service_delay',
+            'insurance_claim',
+            'booking_confirmation'
+        ]
+    });
+});
+
+router.patch('/automations', auth, restrictTo('Admin', 'Super Admin'), (req, res) => {
+    const { updates } = req.body;
+    if (!updates || typeof updates !== 'object') {
+        return res.status(400).json({ error: 'Request body must contain an "updates" object, e.g. { "inspection_completed": true }' });
+    }
+
+    const applied = {};
+    for (const [key, value] of Object.entries(updates)) {
+        const success = setAutomationEnabled(key, value);
+        if (success) {
+            applied[key] = value;
+        }
+    }
+
+    return res.json({
+        success: true,
+        message: 'Automation flags updated successfully.',
+        applied,
+        automations: getAutomationStatus()
+    });
 });
 
 module.exports = router;

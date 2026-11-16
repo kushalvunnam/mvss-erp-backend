@@ -578,7 +578,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
         const Customer = require('../models/Customer');
         const VehicleModel = require('../models/Vehicle');
         const JobCard = require('../models/JobCard');
-        const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+        const { sendTemplateMessage, validateCustomerContact, isAutomationEnabled } = require('../services/whatsappService');
 
         const custId = (invoice.customerId && invoice.customerId._id) ? invoice.customerId._id : invoice.customerId;
         const vehId = (invoice.vehicleId && invoice.vehicleId._id) ? invoice.vehicleId._id : invoice.vehicleId;
@@ -600,17 +600,20 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
         const jobCardNumber = String(jc?.jobCardNo || invoice.jobCardId?.toString() || 'N/A').trim();
         const grandTotal = String(invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || '0').trim();
 
-        const contactCheck = validateCustomerContact(customer, rawPhone);
         const templateName = 'mvss_invoice_generated';
-        const correlationKey = `invoice_generated_${invoice._id}_rev${invoice.revisionHistory?.length || 0}`;
+        if (!isAutomationEnabled(templateName)) {
+          console.log(`[Invoice Automation] '${templateName}' is DISABLED by client configuration. Skipping WhatsApp notification for Invoice ${invoiceNumber}.`);
+        } else {
+          const contactCheck = validateCustomerContact(customer, rawPhone);
+          const correlationKey = `invoice_generated_${invoice._id}_rev${invoice.revisionHistory?.length || 0}`;
 
-        // [Stage 3] Automation event triggered
-        console.log(`[Invoice Automation] [Stage 3] Automation event triggered: Event="Invoice Finalized", InvoiceNo=${invoiceNumber}, JobCardNo=${jobCardNumber}`);
+          // [Stage 3] Automation event triggered
+          console.log(`[Invoice Automation] [Stage 3] Automation event triggered: Event="Invoice Finalized", InvoiceNo=${invoiceNumber}, JobCardNo=${jobCardNumber}`);
 
-        // [Stage 4] Customer contact/template validation result
-        console.log(`[Invoice Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
+          // [Stage 4] Customer contact/template validation result
+          console.log(`[Invoice Automation] [Stage 4] Contact/template validation result: Customer="${customerName}", Phone="${contactCheck.masked}", Valid=${contactCheck.valid}, Template="${templateName}"${!contactCheck.valid ? `, Reason="${contactCheck.reason}"` : ''}`);
 
-        if (contactCheck.valid) {
+          if (contactCheck.valid) {
           // [Stage 5] WhatsApp send attempted
           console.log(`[Invoice Automation] [Stage 5] WhatsApp send attempted: To=${contactCheck.masked}, Template=${templateName}, CorrelationKey=${correlationKey}`);
 
@@ -645,6 +648,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
         } else {
           console.warn(`[Invoice Automation] [Stage 4] Skipping WhatsApp dispatch: ${contactCheck.reason}`);
         }
+      }
       } catch (waError) {
         console.error('[Invoice Automation] Unexpected error in WhatsApp invoice generated hook:', waError.message || waError);
       }
@@ -742,7 +746,7 @@ router.put('/:id/finalize', auth, restrictTo('Admin', 'Accounts', 'Accounts Exec
       const Customer = require('../models/Customer');
       const VehicleModel = require('../models/Vehicle');
       const JobCard = require('../models/JobCard');
-      const { sendTemplateMessage, validateCustomerContact } = require('../services/whatsappService');
+      const { sendTemplateMessage, validateCustomerContact, isAutomationEnabled } = require('../services/whatsappService');
 
       const custId = (invoice.customerId && invoice.customerId._id) ? invoice.customerId._id : invoice.customerId;
       const vehId = (invoice.vehicleId && invoice.vehicleId._id) ? invoice.vehicleId._id : invoice.vehicleId;
@@ -764,11 +768,14 @@ router.put('/:id/finalize', auth, restrictTo('Admin', 'Accounts', 'Accounts Exec
       const jobCardNumber = String(jc?.jobCardNo || invoice.jobCardId?.toString() || 'N/A').trim();
       const grandTotal = String(invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || '0').trim();
 
-      const contactCheck = validateCustomerContact(customer, rawPhone);
       const templateName = 'mvss_invoice_generated';
-      const correlationKey = `invoice_generated_${invoice._id}_rev${invoice.revisionHistory?.length || 0}`;
+      if (!isAutomationEnabled(templateName)) {
+        console.log(`[Invoice Automation] '${templateName}' is DISABLED by client configuration. Skipping WhatsApp notification for Invoice ${invoiceNumber}.`);
+      } else {
+        const contactCheck = validateCustomerContact(customer, rawPhone);
+        const correlationKey = `invoice_generated_${invoice._id}_rev${invoice.revisionHistory?.length || 0}`;
 
-      if (contactCheck.valid) {
+        if (contactCheck.valid) {
         try {
           await sendTemplateMessage({
             to: contactCheck.phone,
@@ -793,6 +800,7 @@ router.put('/:id/finalize', auth, restrictTo('Admin', 'Accounts', 'Accounts Exec
         } catch (waSendErr) {
           console.error(`[Invoice Automation] Meta response failed: Invoice=${invoiceNumber}, Error=${waSendErr.message || waSendErr}`);
         }
+      }
       }
     } catch (waError) {
       console.error('[Invoice Automation] Unexpected error in WhatsApp invoice finalize hook:', waError.message || waError);
