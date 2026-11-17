@@ -14,8 +14,8 @@ console.log('--- Starting Job Card Creation & Automation Focused Tests ---');
 
 // Setup environment for testing
 process.env.META_WA_ACCESS_TOKEN = 'mock_valid_token_abc';
-process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '1070579342641923';
+process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
 
 // Ensure template is set to APPROVED in dynamicTemplateMap
 dynamicTemplateMap.set('mvss_job_card_created', {
@@ -133,7 +133,7 @@ async function runTest2() {
     assert.strictEqual(waResult.messageId, 'wamid.HBgTEST_SUCCESS_001');
 
     // Verify exact Meta request structure
-    assert.strictEqual(capturedRequest.url, 'https://graph.facebook.com/v25.0/1391083524077434/messages');
+    assert.strictEqual(capturedRequest.url, 'https://graph.facebook.com/v25.0/1446113211917959/messages');
     assert.strictEqual(capturedRequest.payload.to, '918008092742');
     assert.strictEqual(capturedRequest.payload.template.name, 'mvss_job_card_created');
     assert.strictEqual(capturedRequest.payload.template.language.code, 'en');

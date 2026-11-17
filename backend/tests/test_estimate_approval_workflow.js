@@ -10,8 +10,8 @@ const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 process.env.META_WA_ACCESS_TOKEN = process.env.META_WA_ACCESS_TOKEN || 'mock_valid_token_test';
-process.env.META_WA_PHONE_NUMBER_ID = process.env.META_WA_PHONE_NUMBER_ID || '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = process.env.META_WA_BUSINESS_ACCOUNT_ID || '1070579342641923';
+process.env.META_WA_PHONE_NUMBER_ID = process.env.META_WA_PHONE_NUMBER_ID || '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = process.env.META_WA_BUSINESS_ACCOUNT_ID || '2021254895254703';
 
 const Customer = require('../models/Customer');
 const Vehicle = require('../models/Vehicle');
@@ -214,14 +214,14 @@ async function runTestSuite() {
       object: 'whatsapp_business_account',
       entry: [
         {
-          id: '1070579342641923',
+          id: '2021254895254703',
           changes: [
             {
               value: {
                 messaging_product: 'whatsapp',
                 metadata: {
-                  display_phone_number: '1391083524077434',
-                  phone_number_id: '1391083524077434'
+                  display_phone_number: '1446113211917959',
+                  phone_number_id: '1446113211917959'
                 },
                 contacts: [
                   {
@@ -329,14 +329,14 @@ async function runTestSuite() {
       object: 'whatsapp_business_account',
       entry: [
         {
-          id: '1070579342641923',
+          id: '2021254895254703',
           changes: [
             {
               value: {
                 messaging_product: 'whatsapp',
                 metadata: {
-                  display_phone_number: '1391083524077434',
-                  phone_number_id: '1391083524077434'
+                  display_phone_number: '1446113211917959',
+                  phone_number_id: '1446113211917959'
                 },
                 contacts: [
                   {

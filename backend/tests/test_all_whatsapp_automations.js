@@ -3,8 +3,8 @@ const path = require('path');
 
 // Setup environment for testing
 process.env.META_WA_ACCESS_TOKEN = 'mock_valid_token_abc';
-process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '1070579342641923';
+process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
 
 const {
   sendTemplateMessage,
@@ -44,8 +44,20 @@ WhatsAppLog.create = async function(doc) {
   }
   return doc;
 };
+WhatsAppLog.findOneAndUpdate = async function(query, update) {
+  const key = query.idempotencyKey;
+  let doc = key ? inMemoryLogs.get(key) : null;
+  if (!doc) {
+    doc = { ...(update.$setOnInsert || {}) };
+    if (key) inMemoryLogs.set(key, doc);
+  }
+  if (update.$set) {
+    Object.assign(doc, update.$set);
+  }
+  return doc;
+};
 
-// Populate mock dynamicTemplateMap matching production Meta WABA 1070579342641923
+// Populate mock dynamicTemplateMap matching production Meta WABA 2021254895254703
 dynamicTemplateMap.set('mvss_job_card_created', { name: 'mvss_job_card_created', language: 'en', status: 'APPROVED', paramCount: 4 });
 dynamicTemplateMap.set('mvss_estimate_created', { name: 'mvss_estimate_created', language: 'en', status: 'APPROVED', paramCount: 5 });
 dynamicTemplateMap.set('mvss_estimate_approved', { name: 'mvss_estimate_approved', language: 'en', status: 'APPROVED', paramCount: 5 });

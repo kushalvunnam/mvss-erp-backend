@@ -17,6 +17,26 @@ const dotenv = require('dotenv');
 // Load env vars
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+// Official WhatsApp Automation Sender Configuration
+// Active Sender: +91 91771 77509 | Phone Number ID: 1446113211917959 | WABA ID: 2021254895254703
+const OLD_PHONE_NUMBER_ID = '1391083524077434';
+const OLD_WABA_IDS = ['10705793426461923', '1070579342641923'];
+const OLD_SENDER_PHONE = '917674819765';
+
+const NEW_PHONE_NUMBER_ID = '1446113211917959';
+const NEW_WABA_ID = '2021254895254703';
+const NEW_SENDER_PHONE = '919177177509';
+
+if (!process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_PHONE_NUMBER_ID === OLD_PHONE_NUMBER_ID) {
+  process.env.META_WA_PHONE_NUMBER_ID = NEW_PHONE_NUMBER_ID;
+}
+if (!process.env.META_WA_BUSINESS_ACCOUNT_ID || OLD_WABA_IDS.includes(process.env.META_WA_BUSINESS_ACCOUNT_ID)) {
+  process.env.META_WA_BUSINESS_ACCOUNT_ID = NEW_WABA_ID;
+}
+if (!process.env.WHATSAPP_BUSINESS_PHONE || process.env.WHATSAPP_BUSINESS_PHONE.includes(OLD_SENDER_PHONE)) {
+  process.env.WHATSAPP_BUSINESS_PHONE = NEW_SENDER_PHONE;
+}
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {

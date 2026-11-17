@@ -9,8 +9,9 @@ const {
 console.log('--- Starting Meta Account Lookup & Audit Focused Tests ---');
 
 process.env.META_WA_ACCESS_TOKEN = 'mock_token_for_tests';
-process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '10705793426461923'; // Portfolio ID
+process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
+process.env.WHATSAPP_BUSINESS_PHONE = '919177177509';
 
 // Scenario 1: Account discovery via /me/businesses -> /{business_id}/owned_whatsapp_business_accounts
 // Verifies that ONLY valid fields are requested on Phone Number node, true WABA ID is discovered,
@@ -34,13 +35,13 @@ async function testBusinessFlowDiscovery() {
                 };
             }
             // Check Phone Number node: Must NOT contain 'whatsapp_business_account'
-            if (url.includes('/1391083524077434') && !url.includes('/phone_numbers')) {
+            if (url.includes('/1446113211917959') && !url.includes('/phone_numbers')) {
                 requestedPhoneUrls.push(url);
                 assert(!url.includes('whatsapp_business_account'), 'Must NOT request invalid whatsapp_business_account field');
                 return {
                     data: {
-                        id: '1391083524077434',
-                        display_phone_number: '+91 76748 19765',
+                        id: '1446113211917959',
+                        display_phone_number: '+91 91771 77509',
                         verified_name: 'MVSS Automobiles',
                         code_verification_status: 'VERIFIED',
                         quality_rating: 'GREEN'
@@ -52,29 +53,29 @@ async function testBusinessFlowDiscovery() {
                 return {
                     data: {
                         data: [
-                            { id: '10705793426461923', name: 'MVSS Automobiles Portfolio' }
+                            { id: '2021254895254703', name: 'MVSS Automobiles Portfolio' }
                         ]
                     }
                 };
             }
             // Business Portfolio owned WABAs returns the actual WABA ID
-            if (url.includes('/10705793426461923/owned_whatsapp_business_accounts')) {
+            if (url.includes('/2021254895254703/owned_whatsapp_business_accounts')) {
                 return {
                     data: {
                         data: [
-                            { id: '2847592019485721', name: 'MVSS Automobiles Official WABA' }
+                            { id: '2021254895254703', name: 'MVSS Automobiles Official WABA' }
                         ]
                     }
                 };
             }
             // WABA phone_numbers returns the phone number ID
-            if (url.includes('/2847592019485721/phone_numbers')) {
+            if (url.includes('/2021254895254703/phone_numbers')) {
                 return {
                     data: {
                         data: [
                             {
-                                id: '1391083524077434',
-                                display_phone_number: '+91 76748 19765',
+                                id: '1446113211917959',
+                                display_phone_number: '+91 91771 77509',
                                 verified_name: 'MVSS Automobiles',
                                 quality_rating: 'GREEN'
                             }
@@ -83,7 +84,7 @@ async function testBusinessFlowDiscovery() {
                 };
             }
             // WABA message_templates returns templates
-            if (url.includes('/2847592019485721/message_templates')) {
+            if (url.includes('/2021254895254703/message_templates')) {
                 return {
                     data: {
                         data: [
@@ -105,12 +106,12 @@ async function testBusinessFlowDiscovery() {
     const report = await syncMetaTemplates(mockAxios);
     assert.strictEqual(report.phoneVerification.verified, true);
     assert.strictEqual(report.wabaVerification.verified, true);
-    assert.strictEqual(report.wabaVerification.resolvedWabaId, '2847592019485721', 'Must resolve true WABA ID');
+    assert.strictEqual(report.wabaVerification.resolvedWabaId, '2021254895254703', 'Must resolve true WABA ID');
     assert.strictEqual(report.templatesAudit.success, true);
     assert.strictEqual(report.fallbackConfigActive, false);
     assert.strictEqual(dynamicTemplateMap.get('mvss_job_card_created')?.language, 'en');
     assert(requestedPhoneUrls.length > 0);
-    console.log('✔ Scenario 1 Passed: Discovered true WABA ID 2847592019485721 via Business Portfolio and loaded templates.');
+    console.log('✔ Scenario 1 Passed: Discovered true WABA ID 2021254895254703 via Business Portfolio and loaded templates.');
 }
 
 // Scenario 2: Verification Failure when WABA does not own the phone number ID
@@ -131,19 +132,19 @@ async function testVerificationFailureMismatch() {
                     }
                 };
             }
-            if (url.includes('/1391083524077434') && !url.includes('/phone_numbers')) {
+            if (url.includes('/1446113211917959') && !url.includes('/phone_numbers')) {
                 return {
                     data: {
-                        id: '1391083524077434',
-                        display_phone_number: '+91 76748 19765',
+                        id: '1446113211917959',
+                        display_phone_number: '+91 91771 77509',
                         verified_name: 'MVSS Automobiles'
                     }
                 };
             }
             if (url.includes('/me/businesses')) {
-                return { data: { data: [{ id: '10705793426461923', name: 'Other Portfolio' }] } };
+                return { data: { data: [{ id: '2021254895254703', name: 'Other Portfolio' }] } };
             }
-            if (url.includes('/10705793426461923/owned_whatsapp_business_accounts')) {
+            if (url.includes('/2021254895254703/owned_whatsapp_business_accounts')) {
                 return { data: { data: [{ id: '9999999999999999', name: 'Unrelated WABA' }] } };
             }
             // Unrelated WABA has a DIFFERENT phone number
@@ -176,8 +177,8 @@ async function testMissingPermission() {
                     }
                 };
             }
-            if (url.includes('/1391083524077434')) {
-                return { data: { id: '1391083524077434', display_phone_number: '+91 76748 19765' } };
+            if (url.includes('/1446113211917959')) {
+                return { data: { id: '1446113211917959', display_phone_number: '+91 91771 77509' } };
             }
             // Graph API returns 403 on business endpoints without whatsapp_business_management
             const err = new Error('Requires whatsapp_business_management permission');

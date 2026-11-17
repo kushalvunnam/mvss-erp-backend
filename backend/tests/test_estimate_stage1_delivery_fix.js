@@ -4,8 +4,8 @@ const axios = require('axios');
 
 // Set environment for testing
 process.env.META_WA_ACCESS_TOKEN = 'mock_valid_token_test';
-process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '1070579342641923';
+process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
 
 const WhatsAppLog = require('../models/WhatsAppLog');
 const {

@@ -2,8 +2,8 @@ const assert = require('assert');
 const path = require('path');
 
 process.env.META_WA_ACCESS_TOKEN = 'mock_valid_token_abc';
-process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '1070579342641923';
+process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
 
 const { dynamicTemplateMap } = require('../services/whatsappService');
 dynamicTemplateMap.set('mvss_feedback_request', { name: 'mvss_feedback_request', language: 'en', status: 'APPROVED', paramCount: 2 });

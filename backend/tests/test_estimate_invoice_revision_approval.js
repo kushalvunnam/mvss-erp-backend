@@ -3,8 +3,8 @@ const mongoose = require('mongoose');
 
 // Setup mock environment variables for test execution
 process.env.META_WA_ACCESS_TOKEN = 'mock_valid_token_test';
-process.env.META_WA_PHONE_NUMBER_ID = '1391083524077434';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '1070579342641923';
+process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
 process.env.JWT_SECRET = 'autoworkshop_secret_key_123';
 
 const Estimate = require('../models/Estimate');

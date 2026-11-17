@@ -1,6 +1,36 @@
 const axios = require('axios');
 const WhatsAppLog = require('../models/WhatsAppLog');
 
+// Official Meta WhatsApp Business Account & Sender configuration
+// Sender: +91 91771 77509 | Phone Number ID: 1446113211917959 | WABA ID: 2021254895254703
+const OFFICIAL_PHONE_NUMBER_ID = '1446113211917959';
+const OFFICIAL_WABA_ID = '2021254895254703';
+const OFFICIAL_SENDER_PHONE = '919177177509';
+
+const getEffectivePhoneNumberId = () => {
+    const envId = process.env.META_WA_PHONE_NUMBER_ID;
+    if (!envId || envId === '1391083524077434') {
+        return OFFICIAL_PHONE_NUMBER_ID;
+    }
+    return envId;
+};
+
+const getEffectiveWabaId = () => {
+    const envWaba = process.env.META_WA_BUSINESS_ACCOUNT_ID;
+    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923') {
+        return OFFICIAL_WABA_ID;
+    }
+    return envWaba;
+};
+
+const getEffectiveSenderPhone = () => {
+    const envPhone = process.env.WHATSAPP_BUSINESS_PHONE;
+    if (!envPhone || envPhone.includes('7674819765')) {
+        return OFFICIAL_SENDER_PHONE;
+    }
+    return envPhone;
+};
+
 // Centralized Graph API version configuration (default: v25.0)
 const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v25.0';
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -202,7 +232,7 @@ const getCustomerSessionStatus = async (phone) => {
     }
 };
 
-// Static fallback baseline configuration matching Meta WABA 1070579342641923
+// Static fallback baseline configuration matching Meta WABA 2021254895254703
 const TEMPLATE_CONFIG = {
     'mvss_welcome_customer': { lang: 'en', paramCount: 2 },
     'mvss_job_card_created': { lang: 'en', paramCount: 4 },
@@ -547,8 +577,8 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
  */
 const syncMetaTemplates = async (customAxios = axios) => {
     const token = process.env.META_WA_ACCESS_TOKEN;
-    const configuredWabaId = process.env.META_WA_BUSINESS_ACCOUNT_ID;
-    const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+    const configuredWabaId = getEffectiveWabaId();
+    const phoneNumberId = getEffectivePhoneNumberId();
 
     if (!token) {
         console.warn('[WhatsApp Meta Audit] META_WA_ACCESS_TOKEN is missing in environment.');
@@ -604,7 +634,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
             verifiedPhoneData = phoneRes.data;
             console.log(`[WhatsApp Meta Audit] Phone Number ID ${phoneNumberId} verified on Meta: Display=${phoneRes.data.display_phone_number || 'N/A'} | Verified Name=${phoneRes.data.verified_name || 'N/A'} | Status=${phoneRes.data.code_verification_status || 'VERIFIED'} | Quality=${phoneRes.data.quality_rating || 'N/A'}`);
             
-            const expectedPhone = process.env.WHATSAPP_BUSINESS_PHONE;
+            const expectedPhone = getEffectiveSenderPhone();
             if (expectedPhone && phoneRes.data.display_phone_number) {
                 const cleanDisplay = phoneRes.data.display_phone_number.replace(/\D/g, '');
                 const cleanExpected = expectedPhone.replace(/\D/g, '');
@@ -806,7 +836,7 @@ const sendTemplateMessage = async ({
 
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
-        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+        const phoneNumberId = getEffectivePhoneNumberId();
 
         if (!token || !phoneNumberId) {
             const err = 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID). Skipping message.';
@@ -1050,7 +1080,7 @@ const uploadMediaToMeta = async ({
 }, customAxios = axios) => {
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
-        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+        const phoneNumberId = getEffectivePhoneNumberId();
 
         if (!token || !phoneNumberId) {
             return { success: false, error: 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID)' };
@@ -1123,7 +1153,7 @@ const sendDocumentMessage = async ({
 
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
-        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+        const phoneNumberId = getEffectivePhoneNumberId();
 
         if (!token || !phoneNumberId) {
             const err = 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID). Skipping document message.';
@@ -1340,7 +1370,7 @@ const sendImageMessage = async ({
 
     try {
         const token = process.env.META_WA_ACCESS_TOKEN;
-        const phoneNumberId = process.env.META_WA_PHONE_NUMBER_ID;
+        const phoneNumberId = getEffectivePhoneNumberId();
 
         if (!token || !phoneNumberId) {
             const err = 'API credentials missing (META_WA_ACCESS_TOKEN or META_WA_PHONE_NUMBER_ID). Skipping image message.';
@@ -1539,7 +1569,7 @@ const sendImageMessage = async ({
  */
 const createDocumentTemplate = async (customAxios = axios) => {
     const token = process.env.META_WA_ACCESS_TOKEN;
-    const wabaId = process.env.META_WA_BUSINESS_ACCOUNT_ID;
+    const wabaId = getEffectiveWabaId();
     if (!token || !wabaId) {
         return { success: false, error: 'Meta credentials missing (META_WA_ACCESS_TOKEN or META_WA_BUSINESS_ACCOUNT_ID)' };
     }
@@ -1670,5 +1700,11 @@ module.exports = {
     getAutomationKey,
     isAutomationEnabled,
     setAutomationEnabled,
-    getAutomationStatus
+    getAutomationStatus,
+    getEffectivePhoneNumberId,
+    getEffectiveWabaId,
+    getEffectiveSenderPhone,
+    OFFICIAL_PHONE_NUMBER_ID,
+    OFFICIAL_WABA_ID,
+    OFFICIAL_SENDER_PHONE
 };
