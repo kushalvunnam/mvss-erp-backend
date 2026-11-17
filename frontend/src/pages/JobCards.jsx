@@ -316,7 +316,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
       </div>
 
       {/* Grid List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
         {loading && jobCards.length === 0 ? (
           Array.from({ length: 6 }).map((_, idx) => (
             <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl space-y-4 animate-pulse">
@@ -355,19 +355,19 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
               <div
                 key={jc._id}
                 onClick={() => handleOpenDetails(jc._id)}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-500/20 cursor-pointer transition-all flex flex-col justify-between group"
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 sm:p-5 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-500/20 cursor-pointer transition-all flex flex-col justify-between group min-w-0 w-full overflow-hidden"
               >
                 <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">{jc.jobCardNo}</span>
-                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 mb-3 min-w-0">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase font-mono shrink-0">{jc.jobCardNo}</span>
+                    <div className="relative max-w-full min-w-0 shrink" onClick={(e) => e.stopPropagation()}>
                       {isAuthorizedToEdit ? (
                         jc.status === 'Body Shop' ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 max-w-full min-w-0">
                             <select
                               value={`BS:${jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'}`}
                               onChange={(e) => handleStatusChange(jc._id, e.target.value)}
-                              className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-fuchsia-500 border ${statusColor}`}
+                              className={`px-2 py-1 rounded text-[9px] font-extrabold uppercase cursor-pointer focus:outline-none focus:ring-1 focus:ring-fuchsia-500 border ${statusColor} max-w-[calc(100%-28px)] truncate block`}
                               title="Body Shop Stage - Click to change"
                             >
                               <optgroup label="Body Shop Stages (13 Stages)">
@@ -406,7 +406,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                           <select
                             value={jc.status}
                             onChange={(e) => handleStatusChange(jc._id, e.target.value)}
-                            className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 border ${statusColor}`}
+                            className={`px-2 py-1 rounded text-[9px] font-extrabold uppercase cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 border ${statusColor} max-w-full truncate block`}
                           >
                             <option value="Created">⚪ Created</option>
                             <option value="Inspect Stage">🔍 Inspect Stage</option>
@@ -428,7 +428,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                           </select>
                         )
                       ) : (
-                        <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${statusColor}`}>
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${statusColor} max-w-full inline-block truncate`} title={jc.status === 'Body Shop' ? (jc.bodyShopStatus || jc.bodyShopStage) : jc.status}>
                           {jc.status === 'Body Shop'
                             ? `🚗 ${jc.bodyShopStatus || jc.bodyShopStage || 'Vehicle Reported'}`
                             : ['Quality Test', 'Quality Check', 'Final Quality Inspection', 'Pre-Delivery Inspection'].includes(jc.status)
@@ -439,10 +439,10 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                     </div>
                   </div>
                   
-                  <h3 className="text-sm font-extrabold text-slate-800 dark:text-white font-mono tracking-wide">
-                    {jc.vehicleId?.vehicleNumber}
+                  <h3 className="text-sm font-extrabold text-slate-800 dark:text-white font-mono tracking-wide truncate">
+                    {jc.vehicleId?.vehicleNumber || 'N/A'}
                   </h3>
-                  <p className="text-xs text-slate-550 dark:text-slate-350 font-bold mt-0.5">
+                  <p className="text-xs text-slate-550 dark:text-slate-350 font-bold mt-0.5 truncate">
                     {jc.vehicleId?.make} {jc.vehicleId?.model}
                   </p>
                   
@@ -453,12 +453,12 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
                   </div>
                 </div>
 
-                <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex justify-between items-center">
-                  <span className="text-[9px] text-slate-400 font-semibold">
+                <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap justify-between items-center gap-2 min-w-0">
+                  <span className="text-[9px] text-slate-400 font-semibold shrink-0">
                     {new Date(jc.date).toLocaleDateString('en-IN')}
                   </span>
                   
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {isAdvisorOrAdmin && jc.status !== 'Delivered' && (
                       <button
                         onClick={(e) => handleOpenEdit(jc._id, e)}

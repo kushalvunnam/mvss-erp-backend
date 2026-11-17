@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
-import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench, Image as ImageIcon, X, Loader2, Phone, Mail, MapPin, AlertCircle, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, User, Car, CheckSquare, Plus, Trash2, Camera, Settings, Gauge, Calendar, Flame, Wrench, Image as ImageIcon, X, Loader2, Phone, Mail, MapPin, AlertCircle, CheckCircle2, ShieldCheck, Sparkles, FileText } from 'lucide-react';
 import VehicleDamageCanvas from '../components/VehicleDamageCanvas';
 import SignaturePad from '../components/SignaturePad';
 import SearchableDropdown from '../components/SearchableDropdown';

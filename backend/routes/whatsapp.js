@@ -16,6 +16,34 @@ if (process.env.META_WA_ACCESS_TOKEN && (process.env.META_WA_PHONE_NUMBER_ID || 
     }, 2000);
 }
 
+// Standalone check for customer 24-hour WhatsApp service window
+router.get('/session-status', auth, async (req, res) => {
+    try {
+        const rawPhone = req.query.phone;
+        if (!rawPhone) {
+            return res.status(400).json({ error: 'Phone query parameter is required.' });
+        }
+        const { getCustomerSessionStatus, validateCustomerContact } = require('../services/whatsappService');
+        const contactCheck = validateCustomerContact({}, rawPhone);
+        if (!contactCheck.valid) {
+            return res.json({
+                valid: false,
+                active: false,
+                reason: contactCheck.reason
+            });
+        }
+        const session = await getCustomerSessionStatus(contactCheck.phone);
+        return res.json({
+            valid: true,
+            phone: contactCheck.phone,
+            maskedPhone: contactCheck.masked,
+            ...session
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // =========================================================================
 // PHASE 10: WEBHOOK VERIFICATION (GET)
 // =========================================================================

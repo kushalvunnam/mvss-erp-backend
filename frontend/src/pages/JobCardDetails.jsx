@@ -10,6 +10,7 @@ import {
   CheckCircle2, 
   CheckCircle,
   AlertTriangle,
+  AlertCircle,
   ChevronRight,
   FileCheck,
   Users,
@@ -135,59 +136,89 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const checkCustomerSession = async (phoneToCheck) => {
-    if (!jc?._id || !phoneToCheck) return;
+    if (!phoneToCheck) return;
+    const targetId = jc?._id || jcId;
     setIsCheckingSession(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/whatsapp-session?phone=${encodeURIComponent(phoneToCheck)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setSessionInfo(data);
+      let data = null;
+      if (targetId) {
+        const res = await fetch(`${API_BASE_URL}/jobcards/${targetId}/whatsapp-session?phone=${encodeURIComponent(phoneToCheck)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+
+      // Fallback to standalone whatsapp session check if jobcard route was unavailable or failed
+      if (!data) {
+        const fbRes = await fetch(`${API_BASE_URL}/whatsapp/session-status?phone=${encodeURIComponent(phoneToCheck)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (fbRes.ok) {
+          data = await fbRes.json();
+        }
+      }
+
+      if (data && typeof data.active === 'boolean') {
+        setSessionInfo(data);
+      } else {
+        setSessionInfo({
+          active: false,
+          reason: 'Customer WhatsApp session has expired. Please use an approved WhatsApp template to contact the customer.'
+        });
+      }
     } catch (err) {
       console.warn('Could not determine WhatsApp session:', err.message);
-      setSessionInfo({ active: false, reason: 'Could not connect to session service.' });
+      setSessionInfo({
+        active: false,
+        reason: 'Customer WhatsApp session has expired. Please use an approved WhatsApp template to contact the customer.'
+      });
     } finally {
       setIsCheckingSession(false);
     }
   };
 
   const pollPhotoDeliveryStatus = (attempt = 1) => {
-    if (!jc?._id || attempt > 6) {
+    const targetId = jc?._id || jcId;
+    if (!targetId || attempt > 6) {
       setIsPollingStatus(false);
       return;
     }
     setIsPollingStatus(true);
     setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/whatsapp-photos-status`, {
+        const res = await fetch(`${API_BASE_URL}/jobcards/${targetId}/whatsapp-photos-status`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        const data = await res.json();
-        if (data.latest) {
-          const s = data.latest.status;
-          if (data.history) {
-            setJc(prev => ({ ...prev, whatsappHistory: data.history }));
-          }
-          if (s === 'delivered' || s === 'read') {
-            setLiveDeliveryStatus(s);
-            setWhatsAppSendStatus({
-              success: true,
-              status: s,
-              message: 'Photo successfully delivered to customer.',
-              details: data.latest
-            });
-            setIsPollingStatus(false);
-            return;
-          } else if (s === 'failed') {
-            setLiveDeliveryStatus('failed');
-            setWhatsAppSendStatus({
-              success: false,
-              status: 'failed',
-              message: data.latest.errorMessage || data.latest.error || 'Delivery failed per WhatsApp confirmation.',
-              details: data.latest
-            });
-            setIsPollingStatus(false);
-            return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.latest) {
+            const s = data.latest.status;
+            if (data.history) {
+              setJc(prev => ({ ...prev, whatsappHistory: data.history }));
+            }
+            if (s === 'delivered' || s === 'read') {
+              setLiveDeliveryStatus(s);
+              setWhatsAppSendStatus({
+                success: true,
+                status: s,
+                message: 'Photo successfully delivered to customer.',
+                details: data.latest
+              });
+              setIsPollingStatus(false);
+              return;
+            } else if (s === 'failed') {
+              setLiveDeliveryStatus('failed');
+              setWhatsAppSendStatus({
+                success: false,
+                status: 'failed',
+                message: data.latest.errorMessage || data.latest.error || 'Delivery failed per WhatsApp confirmation.',
+                details: data.latest
+              });
+              setIsPollingStatus(false);
+              return;
+            }
           }
         }
         // Continue polling if still accepted or sent
@@ -228,8 +259,9 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     setWhatsAppSendStatus(null);
     setLiveDeliveryStatus('idle');
 
+    const targetId = jc?._id || jcId;
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/send-whatsapp-photos`, {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${targetId}/send-whatsapp-photos`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

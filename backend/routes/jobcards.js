@@ -733,11 +733,28 @@ router.delete('/:id/photo/:photoId', auth, async (req, res) => {
 // Check 24-hour customer service window status for a Job Card
 router.get('/:id/whatsapp-session', auth, async (req, res) => {
   try {
-    const jobCard = await JobCard.findById(req.params.id).populate('customerId');
-    if (!jobCard) return res.status(404).json({ error: 'Job Card not found' });
-    const rawPhone = req.query.phone || jobCard.customerId?.mobile || jobCard.customerId?.phone || jobCard.customerDetails?.mobile;
+    const rawId = req.params.id;
+    const isObjectId = mongoose.Types.ObjectId.isValid(rawId);
+    let jobCard = null;
+    if (isObjectId) {
+      jobCard = await JobCard.findById(rawId).populate('customerId');
+    }
+    if (!jobCard) {
+      jobCard = await JobCard.findOne({ jobCardNo: rawId }).populate('customerId');
+    }
+
     const { getCustomerSessionStatus, validateCustomerContact } = require('../services/whatsappService');
-    const contactCheck = validateCustomerContact(jobCard.customerId, rawPhone);
+    const rawPhone = req.query.phone || jobCard?.customerId?.mobile || jobCard?.customerId?.phone || jobCard?.customerDetails?.mobile;
+
+    if (!rawPhone) {
+      return res.json({
+        valid: false,
+        active: false,
+        reason: 'Customer contact phone number is missing.'
+      });
+    }
+
+    const contactCheck = validateCustomerContact(jobCard?.customerId || {}, rawPhone);
     if (!contactCheck.valid) {
       return res.json({
         valid: false,
@@ -760,8 +777,22 @@ router.get('/:id/whatsapp-session', auth, async (req, res) => {
 // Check real-time WhatsApp photo delivery status
 router.get('/:id/whatsapp-photos-status', auth, async (req, res) => {
   try {
-    const jobCard = await JobCard.findById(req.params.id, 'whatsappHistory').lean();
-    if (!jobCard) return res.status(404).json({ error: 'Job Card not found' });
+    const rawId = req.params.id;
+    const isObjectId = mongoose.Types.ObjectId.isValid(rawId);
+    let jobCard = null;
+    if (isObjectId) {
+      jobCard = await JobCard.findById(rawId, 'whatsappHistory').lean();
+    }
+    if (!jobCard) {
+      jobCard = await JobCard.findOne({ jobCardNo: rawId }, 'whatsappHistory').lean();
+    }
+    if (!jobCard) {
+      return res.json({
+        success: true,
+        latest: null,
+        history: []
+      });
+    }
     const photoHistory = (jobCard.whatsappHistory || []).filter(h => h.stage === 'VEHICLE_PHOTOS');
     const latest = photoHistory.length > 0 ? photoHistory[photoHistory.length - 1] : null;
     return res.json({
@@ -777,12 +808,15 @@ router.get('/:id/whatsapp-photos-status', auth, async (req, res) => {
 // Send selected Job Card photos to customer via WhatsApp Cloud API
 router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ error: 'Invalid Job Card ID format.' });
+    const rawId = req.params.id;
+    const isObjectId = mongoose.Types.ObjectId.isValid(rawId);
+    let jobCard = null;
+    if (isObjectId) {
+      jobCard = await JobCard.findById(rawId).populate('customerId').populate('vehicleId');
     }
-
-    const jobCard = await JobCard.findById(id).populate('customerId').populate('vehicleId');
+    if (!jobCard) {
+      jobCard = await JobCard.findOne({ jobCardNo: rawId }).populate('customerId').populate('vehicleId');
+    }
     if (!jobCard) {
       return res.status(404).json({ error: 'Job Card not found.' });
     }
