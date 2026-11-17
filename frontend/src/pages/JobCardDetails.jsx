@@ -105,6 +105,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   const [whatsAppCustomMessage, setWhatsAppCustomMessage] = useState('');
   const [whatsAppRecipientPhone, setWhatsAppRecipientPhone] = useState('');
   const [whatsAppSendStatus, setWhatsAppSendStatus] = useState(null);
+  const [sessionInfo, setSessionInfo] = useState(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(false);
+  const [liveDeliveryStatus, setLiveDeliveryStatus] = useState('idle');
+  const [isPollingStatus, setIsPollingStatus] = useState(false);
 
   const togglePhotoSelection = (photoId) => {
     setSelectedPhotoIds(prev => {
@@ -130,8 +134,74 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     setSelectedPhotoIds(new Set());
   };
 
-  const handleOpenWhatsAppModal = () => {
-    if (selectedPhotoIds.size === 0) {
+  const checkCustomerSession = async (phoneToCheck) => {
+    if (!jc?._id || !phoneToCheck) return;
+    setIsCheckingSession(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/whatsapp-session?phone=${encodeURIComponent(phoneToCheck)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setSessionInfo(data);
+    } catch (err) {
+      console.warn('Could not determine WhatsApp session:', err.message);
+      setSessionInfo({ active: false, reason: 'Could not connect to session service.' });
+    } finally {
+      setIsCheckingSession(false);
+    }
+  };
+
+  const pollPhotoDeliveryStatus = (attempt = 1) => {
+    if (!jc?._id || attempt > 6) {
+      setIsPollingStatus(false);
+      return;
+    }
+    setIsPollingStatus(true);
+    setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/whatsapp-photos-status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.latest) {
+          const s = data.latest.status;
+          if (data.history) {
+            setJc(prev => ({ ...prev, whatsappHistory: data.history }));
+          }
+          if (s === 'delivered' || s === 'read') {
+            setLiveDeliveryStatus(s);
+            setWhatsAppSendStatus({
+              success: true,
+              status: s,
+              message: 'Photo successfully delivered to customer.',
+              details: data.latest
+            });
+            setIsPollingStatus(false);
+            return;
+          } else if (s === 'failed') {
+            setLiveDeliveryStatus('failed');
+            setWhatsAppSendStatus({
+              success: false,
+              status: 'failed',
+              message: data.latest.errorMessage || data.latest.error || 'Delivery failed per WhatsApp confirmation.',
+              details: data.latest
+            });
+            setIsPollingStatus(false);
+            return;
+          }
+        }
+        // Continue polling if still accepted or sent
+        pollPhotoDeliveryStatus(attempt + 1);
+      } catch (pollErr) {
+        setIsPollingStatus(false);
+      }
+    }, 2500);
+  };
+
+  const handleOpenWhatsAppModal = (overridePhotoIds = null) => {
+    if (overridePhotoIds && Array.isArray(overridePhotoIds) && overridePhotoIds.length > 0) {
+      setSelectedPhotoIds(new Set(overridePhotoIds));
+    } else if (selectedPhotoIds.size === 0) {
       alert('Please select at least one photo to share on WhatsApp.');
       return;
     }
@@ -142,10 +212,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     setWhatsAppRecipientPhone(customerPhone);
     setWhatsAppCustomMessage(`Hello ${customerName}, please find the vehicle photos for your Job Card ${jcNo} at MVSS Automobiles.`);
     setWhatsAppSendStatus(null);
+    setLiveDeliveryStatus('idle');
     setIsWhatsAppModalOpen(true);
+    checkCustomerSession(customerPhone);
   };
 
-  const handleSendWhatsAppPhotos = async () => {
+  const handleSendWhatsAppPhotos = async (queueReengagement = false) => {
     if (selectedPhotoIds.size === 0) return;
     if (!whatsAppRecipientPhone || !whatsAppRecipientPhone.trim()) {
       alert('Customer WhatsApp / mobile number is required.');
@@ -154,6 +226,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
     setIsSendingWhatsApp(true);
     setWhatsAppSendStatus(null);
+    setLiveDeliveryStatus('idle');
 
     try {
       const res = await fetch(`${API_BASE_URL}/jobcards/${jc._id}/send-whatsapp-photos`, {
@@ -165,33 +238,57 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         body: JSON.stringify({
           photoIds: Array.from(selectedPhotoIds),
           phone: whatsAppRecipientPhone.trim(),
-          customMessage: whatsAppCustomMessage.trim()
+          customMessage: whatsAppCustomMessage.trim(),
+          action: queueReengagement ? 'send_template_and_queue' : 'direct'
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setWhatsAppSendStatus({
-          success: true,
-          message: `Successfully sent ${data.sentCount} photo(s) to ${data.recipientPhone} on WhatsApp!`,
-          results: data.results || []
-        });
+        if (data.status === 'pending_session') {
+          setLiveDeliveryStatus('pending_session');
+          setWhatsAppSendStatus({
+            success: true,
+            status: 'pending_session',
+            message: data.message || 'Approved template dispatched. Photos queued for automatic delivery once customer replies.'
+          });
+        } else {
+          // Standard accepted response
+          setLiveDeliveryStatus('accepted');
+          setWhatsAppSendStatus({
+            success: true,
+            status: 'accepted',
+            message: 'Message accepted by WhatsApp. Waiting for delivery confirmation.'
+          });
+          // Start live delivery confirmation polling
+          pollPhotoDeliveryStatus(1);
+        }
+
         if (data.whatsappHistory) {
           setJc(prev => ({ ...prev, whatsappHistory: data.whatsappHistory }));
         }
         setSelectedPhotoIds(new Set());
       } else {
-        const errMessage = data.error || (data.failedCount > 0 ? `Failed to send ${data.failedCount} photo(s).` : (res.status === 404 ? 'Backend endpoint not found (404). Please trigger "Manual Deploy" in Render dashboard to deploy the latest commit.' : 'Failed to dispatch photos on WhatsApp.'));
+        const isSessionExpired = res.status === 409 || data.sessionExpired;
+        const errMessage = isSessionExpired
+          ? 'Customer WhatsApp session has expired. Please use an approved WhatsApp template to contact the customer.'
+          : (data.error || 'Failed to dispatch photos on WhatsApp.');
+        
+        setLiveDeliveryStatus('failed');
         setWhatsAppSendStatus({
           success: false,
+          status: 'failed',
+          sessionExpired: isSessionExpired,
           message: errMessage,
           results: data.results || []
         });
       }
     } catch (err) {
       console.error('Error sending WhatsApp photos:', err);
+      setLiveDeliveryStatus('failed');
       setWhatsAppSendStatus({
         success: false,
+        status: 'failed',
         message: 'Network error communicating with WhatsApp dispatch service.'
       });
     } finally {
@@ -2249,33 +2346,99 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           {/* WhatsApp Photo Sharing History */}
           {jc.whatsappHistory && jc.whatsappHistory.length > 0 && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-              <h5 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2 mb-3">
-                <MessageCircle className="w-4 h-4 text-emerald-600" />
-                WhatsApp Photo Sharing History
-              </h5>
-              <div className="space-y-2">
-                {jc.whatsappHistory.map((hist, hIdx) => (
-                  <div key={hIdx} className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 text-xs gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                        hist.status === 'sent' || hist.status === 'delivered' || hist.status === 'read'
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-300/40'
-                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border border-rose-300/40'
-                      }`}>
-                        {hist.status}
-                      </span>
-                      <span className="font-bold text-slate-700 dark:text-slate-200">
-                        {hist.photoCount || (hist.photoUrls ? hist.photoUrls.length : 1)} vehicle photo(s)
-                      </span>
-                      <span className="text-slate-400">to</span>
-                      <span className="font-mono text-slate-600 dark:text-slate-300">{hist.recipientPhone}</span>
-                      {hist.sentBy && <span className="text-[10px] text-slate-400">(by {hist.sentBy})</span>}
+              <div className="flex items-center justify-between mb-3">
+                <h5 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+                  <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  WhatsApp Photo Sharing History
+                </h5>
+                <span className="text-[10px] font-bold text-slate-400">Live Meta Delivery Tracking</span>
+              </div>
+              <div className="space-y-2.5">
+                {jc.whatsappHistory.map((hist, hIdx) => {
+                  const isAccepted = hist.status === 'accepted';
+                  const isDelivered = hist.status === 'delivered';
+                  const isRead = hist.status === 'read';
+                  const isSent = hist.status === 'sent';
+                  const isPending = hist.status === 'pending_session';
+                  const isFailed = hist.status === 'failed';
+
+                  let badgeClass = 'bg-slate-100 text-slate-600 border-slate-300';
+                  let statusLabel = 'Accepted by WhatsApp';
+
+                  if (isDelivered) {
+                    badgeClass = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300';
+                    statusLabel = 'Delivered to Customer';
+                  } else if (isRead) {
+                    badgeClass = 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300';
+                    statusLabel = 'Read by Customer';
+                  } else if (isSent) {
+                    badgeClass = 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-300';
+                    statusLabel = 'Sent to Meta';
+                  } else if (isAccepted) {
+                    badgeClass = 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300';
+                    statusLabel = 'Accepted (Waiting Delivery)';
+                  } else if (isPending) {
+                    badgeClass = 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300 border-orange-300';
+                    statusLabel = 'Queued (Awaiting Reply)';
+                  } else if (isFailed) {
+                    badgeClass = 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-300';
+                    statusLabel = 'Delivery Failed';
+                  }
+
+                  return (
+                    <div key={hIdx} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${badgeClass}`}>
+                            {statusLabel}
+                          </span>
+                          <span className="font-black text-slate-800 dark:text-slate-100">
+                            {hist.photoCount || (hist.photoUrls ? hist.photoUrls.length : 1)} vehicle photo(s)
+                          </span>
+                          <span className="text-slate-400">to</span>
+                          <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{hist.recipientPhone}</span>
+                          {hist.sentBy && <span className="text-[10px] text-slate-400">(by {hist.sentBy})</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-slate-400">
+                            {hist.sentAt ? new Date(hist.sentAt).toLocaleString('en-IN') : ''}
+                          </span>
+                          {isFailed && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const photoIds = (hist.photoUrls || []).map(u => {
+                                  const p = (jc.photos || []).find(x => x.url === u);
+                                  return p ? (p._id || p.publicId || p.url) : u;
+                                });
+                                handleOpenWhatsAppModal(photoIds.length > 0 ? photoIds : null);
+                              }}
+                              className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-black uppercase cursor-pointer"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {isFailed && (hist.errorMessage || hist.error) && (
+                        <div className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold bg-rose-50/60 dark:bg-rose-950/20 p-2 rounded-lg border border-rose-200 dark:border-rose-900/40">
+                          <span className="font-bold">Reason:</span> {hist.errorMessage || hist.error}
+                          {hist.metaErrorCode && <span className="ml-1 text-[10px] opacity-75">(Code: {hist.metaErrorCode})</span>}
+                        </div>
+                      )}
+                      {hist.deliveredAt && (
+                        <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                          ✔ Confirmed Delivered at: {new Date(hist.deliveredAt).toLocaleString('en-IN')}
+                        </div>
+                      )}
+                      {hist.readAt && (
+                        <div className="text-[10px] text-purple-600 dark:text-purple-400 font-mono">
+                          ✔ Read by recipient at: {new Date(hist.readAt).toLocaleString('en-IN')}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      {hist.sentAt ? new Date(hist.sentAt).toLocaleString('en-IN') : ''}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -3778,13 +3941,32 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
             {/* Recipient WhatsApp Phone */}
             <div>
-              <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
-                Customer WhatsApp / Mobile Number *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Customer WhatsApp / Mobile Number *
+                </label>
+                {isCheckingSession ? (
+                  <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Checking 24h window...
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => checkCustomerSession(whatsAppRecipientPhone)}
+                    className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
+                  >
+                    Refresh Session Status
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 value={whatsAppRecipientPhone}
-                onChange={(e) => setWhatsAppRecipientPhone(e.target.value)}
+                onChange={(e) => {
+                  setWhatsAppRecipientPhone(e.target.value);
+                  setSessionInfo(null);
+                }}
+                onBlur={() => checkCustomerSession(whatsAppRecipientPhone)}
                 placeholder="e.g. 9876543210"
                 disabled={isSendingWhatsApp}
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -3793,6 +3975,31 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 WhatsApp messages will be sent using MVSS Automobiles official WhatsApp Cloud API.
               </p>
             </div>
+
+            {/* 24-Hour Session Status Banner */}
+            {sessionInfo && (
+              sessionInfo.active ? (
+                <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Customer 24-Hour WhatsApp Session Active</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400">
+                    Expires in ~{sessionInfo.hoursRemaining}h
+                  </span>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 text-xs text-amber-900 dark:text-amber-200 space-y-2">
+                  <div className="flex items-start gap-2 font-black leading-snug">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>Customer WhatsApp session has expired. Please use an approved WhatsApp template to contact the customer.</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 pl-6 leading-relaxed">
+                    Per WhatsApp Cloud API policies, direct vehicle photos can only be sent within 24 hours of a customer reply. You can dispatch an approved utility notification to invite the customer's reply. Once they reply, selected photos will be delivered automatically.
+                  </p>
+                </div>
+              )
+            )}
 
             {/* Configurable Message */}
             <div>
@@ -3811,30 +4018,64 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
             {/* Result / Status Notice */}
             {whatsAppSendStatus && (
               <div className={`p-3.5 rounded-2xl border text-xs font-bold ${
-                whatsAppSendStatus.success
+                liveDeliveryStatus === 'delivered' || liveDeliveryStatus === 'read'
                   ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
-                  : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                  : liveDeliveryStatus === 'accepted' || isPollingStatus
+                    ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300'
+                    : liveDeliveryStatus === 'pending_session'
+                      ? 'bg-orange-50 dark:bg-orange-950/30 border-orange-300 dark:border-orange-800 text-orange-700 dark:text-orange-300'
+                      : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
               }`}>
-                {whatsAppSendStatus.message}
+                <div className="flex items-center gap-2">
+                  {isPollingStatus && <Loader2 className="w-4 h-4 animate-spin text-sky-600" />}
+                  <span>{whatsAppSendStatus.message}</span>
+                </div>
+                {isPollingStatus && (
+                  <p className="text-[10px] text-sky-600 dark:text-sky-400 mt-1 font-normal">
+                    Listening for Meta webhook delivery receipt...
+                  </p>
+                )}
               </div>
             )}
 
             {/* Modal Actions */}
-            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setIsWhatsAppModalOpen(false)}
                 disabled={isSendingWhatsApp}
                 className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
               >
-                {whatsAppSendStatus?.success ? 'Close' : 'Cancel'}
+                {liveDeliveryStatus === 'delivered' || liveDeliveryStatus === 'read' || liveDeliveryStatus === 'pending_session' ? 'Close' : 'Cancel'}
               </button>
-              {!whatsAppSendStatus?.success && (
+
+              {sessionInfo && !sessionInfo.active && liveDeliveryStatus !== 'pending_session' && (
                 <button
                   type="button"
-                  onClick={handleSendWhatsAppPhotos}
+                  onClick={() => handleSendWhatsAppPhotos(true)}
                   disabled={isSendingWhatsApp || !whatsAppRecipientPhone.trim() || selectedPhotoIds.size === 0}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {isSendingWhatsApp ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending Template...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Send Approved Template & Queue Photos</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {(!sessionInfo || sessionInfo.active) && liveDeliveryStatus !== 'delivered' && liveDeliveryStatus !== 'read' && (
+                <button
+                  type="button"
+                  onClick={() => handleSendWhatsAppPhotos(false)}
+                  disabled={isSendingWhatsApp || !whatsAppRecipientPhone.trim() || selectedPhotoIds.size === 0}
+                  className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
                 >
                   {isSendingWhatsApp ? (
                     <>

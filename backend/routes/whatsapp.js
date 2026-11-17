@@ -104,6 +104,82 @@ router.post('/webhook', async (req, res) => {
                                 console.warn('[WhatsApp Webhook] Error syncing status to Estimate.whatsappHistory:', estSyncErr.message);
                             }
 
+                            // Synchronize delivery status directly to JobCard.whatsappHistory
+                            try {
+                                const JobCard = require('../models/JobCard');
+                                const jcUpdateFields = {
+                                    'whatsappHistory.$.status': statusString,
+                                    'whatsappHistory.$.lastAttemptAt': statusTimestamp
+                                };
+                                if (statusString === 'delivered') {
+                                    jcUpdateFields['whatsappHistory.$.deliveredAt'] = statusTimestamp;
+                                } else if (statusString === 'read') {
+                                    jcUpdateFields['whatsappHistory.$.readAt'] = statusTimestamp;
+                                } else if (statusString === 'failed') {
+                                    const errObj = status.errors?.[0];
+                                    const errorText = errObj
+                                        ? `[Code ${errObj.code}] ${errObj.title || 'Error'}: ${errObj.message || ''}${errObj.error_data?.details ? ` (${errObj.error_data.details})` : ''}`
+                                        : 'Meta Delivery Failed';
+                                    jcUpdateFields['whatsappHistory.$.error'] = errorText;
+                                    jcUpdateFields['whatsappHistory.$.errorMessage'] = errorText;
+                                    jcUpdateFields['whatsappHistory.$.metaErrorCode'] = String(errObj?.code || '');
+                                    jcUpdateFields['whatsappHistory.$.failedAt'] = statusTimestamp;
+                                }
+
+                                const jcResult1 = await JobCard.updateMany(
+                                    { 'whatsappHistory.messageId': messageId },
+                                    { $set: jcUpdateFields }
+                                );
+                                const jcResult2 = await JobCard.updateMany(
+                                    { 'whatsappHistory.messageIds': messageId },
+                                    { $set: jcUpdateFields }
+                                );
+                                const totalJcUpdated = (jcResult1.modifiedCount || 0) + (jcResult2.modifiedCount || 0);
+                                if (totalJcUpdated > 0) {
+                                    console.log(`[WhatsApp Webhook] Synced status '${statusString}' for messageId ${messageId} to ${totalJcUpdated} JobCard record(s)`);
+                                }
+                            } catch (jcSyncErr) {
+                                console.warn('[WhatsApp Webhook] Error syncing status to JobCard.whatsappHistory:', jcSyncErr.message);
+                            }
+
+                            // Synchronize delivery status directly to JobCard.whatsappHistory
+                            try {
+                                const JobCard = require('../models/JobCard');
+                                const jcUpdateFields = {
+                                    'whatsappHistory.$.status': statusString,
+                                    'whatsappHistory.$.lastAttemptAt': statusTimestamp
+                                };
+                                if (statusString === 'delivered') {
+                                    jcUpdateFields['whatsappHistory.$.deliveredAt'] = statusTimestamp;
+                                } else if (statusString === 'read') {
+                                    jcUpdateFields['whatsappHistory.$.readAt'] = statusTimestamp;
+                                } else if (statusString === 'failed') {
+                                    const errObj = status.errors?.[0];
+                                    const errorText = errObj
+                                        ? `[Code ${errObj.code}] ${errObj.title || 'Error'}: ${errObj.message || ''}${errObj.error_data?.details ? ` (${errObj.error_data.details})` : ''}`
+                                        : 'Meta Delivery Failed';
+                                    jcUpdateFields['whatsappHistory.$.error'] = errorText;
+                                    jcUpdateFields['whatsappHistory.$.errorMessage'] = errorText;
+                                    jcUpdateFields['whatsappHistory.$.metaErrorCode'] = String(errObj?.code || '');
+                                    jcUpdateFields['whatsappHistory.$.failedAt'] = statusTimestamp;
+                                }
+
+                                const jcResult1 = await JobCard.updateMany(
+                                    { 'whatsappHistory.messageId': messageId },
+                                    { $set: jcUpdateFields }
+                                );
+                                const jcResult2 = await JobCard.updateMany(
+                                    { 'whatsappHistory.messageIds': messageId },
+                                    { $set: jcUpdateFields }
+                                );
+                                const totalJcUpdated = (jcResult1.modifiedCount || 0) + (jcResult2.modifiedCount || 0);
+                                if (totalJcUpdated > 0) {
+                                    console.log(`[WhatsApp Webhook] Synced status '${statusString}' for messageId ${messageId} to ${totalJcUpdated} JobCard record(s)`);
+                                }
+                            } catch (jcSyncErr) {
+                                console.warn('[WhatsApp Webhook] Error syncing status to JobCard.whatsappHistory:', jcSyncErr.message);
+                            }
+
                             console.log(`[WhatsApp Webhook] [Stage 7] Webhook delivery status received: MessageId=${messageId}, Status=${statusString}${statusString === 'failed' ? `, Error=${updatePayload.errorMessage}` : ''}`);
                         }
                     }
@@ -269,6 +345,140 @@ router.post('/webhook', async (req, res) => {
                                 }
                             } catch (queuedDocErr) {
                                 console.warn('[WhatsApp Webhook] Error checking queued estimate documents:', queuedDocErr.message || queuedDocErr);
+                            }
+
+                            // 4. Auto-deliver queued Job Card photos now that customer has engaged (24h window active)
+                            try {
+                                const JobCard = require('../models/JobCard');
+                                const { sendImageMessage } = require('../services/whatsappService');
+                                const digits = String(fromPhone).replace(/\D/g, '');
+                                const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+
+                                const pendingJobCards = await JobCard.find({
+                                    'whatsappHistory': {
+                                        $elemMatch: {
+                                            stage: 'VEHICLE_PHOTOS',
+                                            status: 'pending_session'
+                                        }
+                                    }
+                                }).sort({ updatedAt: -1 });
+
+                                for (const jc of pendingJobCards) {
+                                    const matchingEntries = (jc.whatsappHistory || []).filter(h =>
+                                        h.stage === 'VEHICLE_PHOTOS' &&
+                                        h.status === 'pending_session' &&
+                                        h.recipientPhone &&
+                                        String(h.recipientPhone).replace(/\D/g, '').endsWith(last10)
+                                    );
+
+                                    for (const queueItem of matchingEntries) {
+                                        console.log(`[WhatsApp Webhook] Auto-delivering queued photos for Job Card ${jc.jobCardNo} to ${fromPhone} (24h window active)`);
+                                        const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || 'https://mvss-erp-backend.onrender.com';
+                                        const sentWamids = [];
+                                        const photoUrls = queueItem.photoUrls || [];
+
+                                        for (let pIdx = 0; pIdx < photoUrls.length; pIdx++) {
+                                            const pUrl = photoUrls[pIdx];
+                                            const finalImgUrl = (pUrl.startsWith('http://') || pUrl.startsWith('https://'))
+                                                ? pUrl
+                                                : `${serverBase}${pUrl.startsWith('/') ? '' : '/'}${pUrl}`;
+                                            try {
+                                                const imgRes = await sendImageMessage({
+                                                    to: fromPhone,
+                                                    imageUrl: finalImgUrl,
+                                                    caption: queueItem.caption || `Vehicle photo [${pIdx + 1}/${photoUrls.length}] for Job Card ${jc.jobCardNo}`,
+                                                    recipientName: queueItem.recipientName || 'Valued Customer',
+                                                    relatedEntity: jc._id,
+                                                    onModel: 'JobCard',
+                                                    idempotencyKey: `auto_photo_${jc._id}_${pIdx}_${Date.now()}`
+                                                });
+                                                if (imgRes && imgRes.messageId) {
+                                                    sentWamids.push(imgRes.messageId);
+                                                }
+                                            } catch (autoSendErr) {
+                                                console.error('[WhatsApp Webhook] Auto-deliver photo error:', autoSendErr.message);
+                                            }
+                                        }
+
+                                        if (sentWamids.length > 0) {
+                                            queueItem.status = 'accepted';
+                                            queueItem.messageId = sentWamids[0];
+                                            queueItem.messageIds = sentWamids;
+                                            queueItem.sentAt = new Date();
+                                            await jc.save();
+                                            console.log(`[WhatsApp Webhook] Auto-delivered ${sentWamids.length} photo(s) to ${fromPhone} for Job Card ${jc.jobCardNo}`);
+                                        }
+                                    }
+                                }
+                            } catch (autoPhotoErr) {
+                                console.warn('[WhatsApp Webhook] Error processing queued photos on customer reply:', autoPhotoErr.message);
+                            }
+
+                            // 4. Auto-deliver queued Job Card photos now that customer has engaged (24h window active)
+                            try {
+                                const JobCard = require('../models/JobCard');
+                                const { sendImageMessage } = require('../services/whatsappService');
+                                const digits = String(fromPhone).replace(/\D/g, '');
+                                const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+
+                                const pendingJobCards = await JobCard.find({
+                                    'whatsappHistory': {
+                                        $elemMatch: {
+                                            stage: 'VEHICLE_PHOTOS',
+                                            status: 'pending_session'
+                                        }
+                                    }
+                                }).sort({ updatedAt: -1 });
+
+                                for (const jc of pendingJobCards) {
+                                    const matchingEntries = (jc.whatsappHistory || []).filter(h =>
+                                        h.stage === 'VEHICLE_PHOTOS' &&
+                                        h.status === 'pending_session' &&
+                                        h.recipientPhone &&
+                                        String(h.recipientPhone).replace(/\D/g, '').endsWith(last10)
+                                    );
+
+                                    for (const queueItem of matchingEntries) {
+                                        console.log(`[WhatsApp Webhook] Auto-delivering queued photos for Job Card ${jc.jobCardNo} to ${fromPhone} (24h window active)`);
+                                        const serverBase = process.env.PUBLIC_API_URL || process.env.API_BASE_URL || 'https://mvss-erp-backend.onrender.com';
+                                        const sentWamids = [];
+                                        const photoUrls = queueItem.photoUrls || [];
+
+                                        for (let pIdx = 0; pIdx < photoUrls.length; pIdx++) {
+                                            const pUrl = photoUrls[pIdx];
+                                            const finalImgUrl = (pUrl.startsWith('http://') || pUrl.startsWith('https://'))
+                                                ? pUrl
+                                                : `${serverBase}${pUrl.startsWith('/') ? '' : '/'}${pUrl}`;
+                                            try {
+                                                const imgRes = await sendImageMessage({
+                                                    to: fromPhone,
+                                                    imageUrl: finalImgUrl,
+                                                    caption: queueItem.caption || `Vehicle photo [${pIdx + 1}/${photoUrls.length}] for Job Card ${jc.jobCardNo}`,
+                                                    recipientName: queueItem.recipientName || 'Valued Customer',
+                                                    relatedEntity: jc._id,
+                                                    onModel: 'JobCard',
+                                                    idempotencyKey: `auto_photo_${jc._id}_${pIdx}_${Date.now()}`
+                                                });
+                                                if (imgRes && imgRes.messageId) {
+                                                    sentWamids.push(imgRes.messageId);
+                                                }
+                                            } catch (autoSendErr) {
+                                                console.error('[WhatsApp Webhook] Auto-deliver photo error:', autoSendErr.message);
+                                            }
+                                        }
+
+                                        if (sentWamids.length > 0) {
+                                            queueItem.status = 'accepted';
+                                            queueItem.messageId = sentWamids[0];
+                                            queueItem.messageIds = sentWamids;
+                                            queueItem.sentAt = new Date();
+                                            await jc.save();
+                                            console.log(`[WhatsApp Webhook] Auto-delivered ${sentWamids.length} photo(s) to ${fromPhone} for Job Card ${jc.jobCardNo}`);
+                                        }
+                                    }
+                                }
+                            } catch (autoPhotoErr) {
+                                console.warn('[WhatsApp Webhook] Error processing queued photos on customer reply:', autoPhotoErr.message);
                             }
                         }
                     }

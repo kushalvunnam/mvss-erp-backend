@@ -160,6 +160,48 @@ const isCustomerSessionActive = async (phone) => {
     }
 };
 
+/**
+ * Checks detailed 24-hour customer service window status for a recipient phone.
+ */
+const getCustomerSessionStatus = async (phone) => {
+    if (!phone) return { active: false, reason: 'Phone number missing' };
+    const normalized = normalizePhoneNumber(phone);
+    if (!normalized) return { active: false, reason: 'Invalid phone number' };
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const last10 = normalized.slice(-10);
+    try {
+        const lastInbound = await WhatsAppLog.findOne({
+            recipientPhone: { $in: [normalized, `+${normalized}`, last10, `+91${last10}`, `91${last10}`] },
+            direction: 'inbound'
+        }).sort({ createdAt: -1 }).lean();
+
+        if (!lastInbound) {
+            return {
+                active: false,
+                reason: 'No previous customer message received. 24-hour window is closed.',
+                lastInboundAt: null,
+                hoursRemaining: 0
+            };
+        }
+
+        const isWithin24Hours = new Date(lastInbound.createdAt) >= cutoff;
+        const expiresAt = new Date(new Date(lastInbound.createdAt).getTime() + 24 * 60 * 60 * 1000);
+        const msRemaining = Math.max(0, expiresAt.getTime() - Date.now());
+        const hoursRemaining = Number((msRemaining / (1000 * 60 * 60)).toFixed(1));
+
+        return {
+            active: isWithin24Hours,
+            lastInboundAt: lastInbound.createdAt,
+            expiresAt: isWithin24Hours ? expiresAt : null,
+            hoursRemaining: isWithin24Hours ? hoursRemaining : 0,
+            reason: isWithin24Hours ? null : 'Customer WhatsApp session has expired. Please use an approved WhatsApp template to contact the customer.'
+        };
+    } catch (err) {
+        console.warn('[WhatsApp] Could not verify customer session status:', err.message);
+        return { active: false, reason: err.message };
+    }
+};
+
 // Static fallback baseline configuration matching Meta WABA 1070579342641923
 const TEMPLATE_CONFIG = {
     'mvss_welcome_customer': { lang: 'en', paramCount: 2 },
@@ -1619,6 +1661,7 @@ module.exports = {
     TEMPLATE_CONFIG,
     dynamicTemplateMap,
     isCustomerSessionActive,
+    getCustomerSessionStatus,
     GRAPH_API_VERSION,
     GRAPH_API_BASE_URL,
     AUTOMATION_FLAGS,

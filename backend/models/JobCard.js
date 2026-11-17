@@ -256,17 +256,27 @@ const JobCardSchema = new mongoose.Schema({
   // WhatsApp Photo Sharing Audit History
   whatsappHistory: [{
     messageId: { type: String },
+    messageIds: [{ type: String }],
     stage: { type: String, default: 'VEHICLE_PHOTOS' },
     photoUrls: [{ type: String }],
     photoCount: { type: Number, default: 0 },
     recipientPhone: { type: String },
     recipientName: { type: String },
-    status: { type: String, enum: ['sent', 'delivered', 'read', 'failed'], default: 'sent' },
+    status: { 
+      type: String, 
+      enum: ['accepted', 'pending_session', 'sent', 'delivered', 'read', 'failed'], 
+      default: 'accepted' 
+    },
+    metaErrorCode: { type: String },
+    errorMessage: { type: String },
+    error: { type: String },
     sentAt: { type: Date, default: Date.now },
     deliveredAt: { type: Date },
     readAt: { type: Date },
-    error: { type: String },
-    sentBy: { type: String, default: 'Staff' }
+    failedAt: { type: Date },
+    lastAttemptAt: { type: Date },
+    sentBy: { type: String, default: 'Staff' },
+    caption: { type: String }
   }],
 
   // Advisor & Delivery details
