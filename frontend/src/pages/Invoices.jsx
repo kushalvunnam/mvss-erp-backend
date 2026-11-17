@@ -68,6 +68,12 @@ export default function Invoices({ token, user, setActiveTab }) {
   };
 
   useEffect(() => {
+    if (localStorage.getItem('create_invoice_jc_id')) {
+      setViewMode('create');
+    }
+  }, []);
+
+  useEffect(() => {
     if (viewMode === 'list') {
       fetchInvoices();
     }
@@ -933,11 +939,25 @@ export default function Invoices({ token, user, setActiveTab }) {
 
 
 
-  const isBillingOrAdmin = user?.role === 'Admin' || user?.role === 'Accounts';
+  const isAccountsOrAdmin = Boolean(
+    user?.role && (
+      ['Admin', 'Super Admin', 'Accounts', 'Accounts Executive', 'Billing', 'Billing Executive', 'Accounts Manager'].includes(user.role) ||
+      user.role.toLowerCase() === 'admin' ||
+      user.role.toLowerCase().startsWith('account')
+    )
+  );
+  const isBillingOrAdmin = isAccountsOrAdmin;
+  const isSystemAdmin = Boolean(
+    user?.role && (
+      ['Admin', 'Super Admin'].includes(user.role) ||
+      user.role.toLowerCase() === 'admin' ||
+      user.role.toLowerCase() === 'super admin'
+    )
+  );
 
   return (
     <div className="space-y-4 animate-fade-in p-1">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <h2 className="text-xl font-black text-slate-800 dark:text-white">GST Tax Invoices</h2>
           <p className="text-xs text-slate-400 font-semibold dark:text-slate-500 font-mono">Invoice management, payment logs, and PDF dispatching</p>
@@ -945,7 +965,7 @@ export default function Invoices({ token, user, setActiveTab }) {
         {isBillingOrAdmin && (
           <button
             onClick={() => setViewMode('create')}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 cursor-pointer w-full sm:w-auto justify-center"
           >
             <Plus className="w-4 h-4" /> Create Invoice
           </button>
@@ -1093,7 +1113,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
-                              {['Admin', 'Accounts Executive'].includes(user?.role) && (
+                              {isSystemAdmin && (
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); handleDeleteInvoice(inv._id, e); }}
@@ -1111,7 +1131,18 @@ export default function Invoices({ token, user, setActiveTab }) {
                   ) : (
                     <tr>
                       <td colSpan="9" className="p-8 text-center text-slate-400 dark:text-slate-500 font-semibold">
-                        No GST tax invoices billed.
+                        <div className="flex flex-col items-center justify-center gap-3 py-4">
+                          <Receipt className="w-10 h-10 text-slate-300 dark:text-slate-700" />
+                          <p>No GST tax invoices found.</p>
+                          {isBillingOrAdmin && (
+                            <button
+                              onClick={() => setViewMode('create')}
+                              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
+                            >
+                              <Plus className="w-4 h-4" /> Create Invoice
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -1300,7 +1331,7 @@ export default function Invoices({ token, user, setActiveTab }) {
                       </button>
                     )}
 
-                    {['Admin', 'Accounts Executive'].includes(user?.role) && (
+                    {isSystemAdmin && (
                       <button
                         onClick={(e) => {
                           handleDeleteInvoice(selectedInvoice._id, e);

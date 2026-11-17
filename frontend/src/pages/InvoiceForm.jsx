@@ -34,6 +34,13 @@ const checkAddressIsInterstate = (address) => {
 };
 
 export default function InvoiceForm({ token, user, onSaved, onCancel, editId = null }) {
+  const isAccountsOrAdmin = Boolean(
+    user?.role && (
+      ['Admin', 'Super Admin', 'Accounts', 'Accounts Executive', 'Billing', 'Billing Executive', 'Accounts Manager', 'Branch Manager'].includes(user.role) ||
+      user.role.toLowerCase() === 'admin' ||
+      user.role.toLowerCase().startsWith('account')
+    )
+  );
   const [estimates, setEstimates] = useState([]);
   const [selectedJcId, setSelectedJcId] = useState('');
   const [selectedEstimateId, setSelectedEstimateId] = useState('');
@@ -1508,7 +1515,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                             handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', val);
                           }
                         }}
-                        disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                        disabled={!isAccountsOrAdmin}
                         className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
                       >
                         <option value={0}>0%</option>
@@ -1528,7 +1535,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                           placeholder="0.00"
                           value={part.gstPercent === 'custom' ? '' : part.gstPercent}
                           onChange={(e) => handleRowFieldChange(partsList, setPartsList, idx, 'gstPercent', e.target.value)}
-                          disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                          disabled={!isAccountsOrAdmin}
                           className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                         />
                       )}
@@ -1714,7 +1721,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                             handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', val);
                           }
                         }}
-                        disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                        disabled={!isAccountsOrAdmin}
                         className="w-full px-2 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none flex-1"
                       >
                         <option value={0}>0%</option>
@@ -1734,7 +1741,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
                           placeholder="0.00"
                           value={lab.gstPercent === 'custom' ? '' : lab.gstPercent}
                           onChange={(e) => handleRowFieldChange(labourList, setLabourList, idx, 'gstPercent', e.target.value)}
-                          disabled={!['Admin', 'Accounts'].includes(user?.role)}
+                          disabled={!isAccountsOrAdmin}
                           className="w-14 px-1.5 py-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-lg text-xs font-semibold focus:outline-none font-mono"
                         />
                       )}
@@ -1899,7 +1906,7 @@ export default function InvoiceForm({ token, user, onSaved, onCancel, editId = n
             </div>
 
             {/* Grand Total Manual Override */}
-            {['Super Admin', 'Admin', 'Billing', 'Accounts', 'Branch Manager'].includes(user?.role) && (
+            {isAccountsOrAdmin && (
               <div className="flex items-center justify-between border-t border-slate-200/50 pt-2 text-xs font-bold text-slate-550 select-none">
                 <span className="flex items-center gap-1.5 cursor-pointer">
                   <input

@@ -181,7 +181,7 @@ const recalculateInvoice = (parts = [], labour = [], isInterstate = false) => {
 };
 
 // Enforce permissions for all Invoice routes
-router.use(auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'));
+router.use(auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive'));
 
 // List invoices
 router.get('/', async (req, res) => {
@@ -379,7 +379,7 @@ router.post('/', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts 
 });
 
 // Update / Finalize Invoice (Triggers Inventory stock deduction)
-router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+router.put('/:id', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { parts, labour, status, paymentStatus, paymentMethod, amountPaid, insuranceClaimDetails, invoiceType, billingNameOption, poNumber, roNumber, preparedBy, manualInvoiceRef } = req.body;
     const invoice = await Invoice.findById(req.params.id);
@@ -665,7 +665,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), 
 });
 
 // Dedicated finalize endpoint for invoices
-router.put('/:id/finalize', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+router.put('/:id/finalize', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
@@ -857,7 +857,7 @@ router.get('/:id/gatepass/pdf', auth, async (req, res) => {
 });
 
 // DELETE: Remove an invoice record permanently (Admin only)
-router.delete('/:id', auth, restrictTo('Admin', 'Accounts Executive'), async (req, res) => {
+router.delete('/:id', auth, restrictTo('Super Admin', 'Admin'), async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
@@ -941,7 +941,7 @@ router.post('/:id/send', auth, async (req, res) => {
 });
 
 // PUT: Mark invoice as paid (updates payment status and logs audit/notifications)
-router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+router.put('/:id/pay', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const { paymentMethod, amountPaid } = req.body;
     const invoice = await Invoice.findById(req.params.id).populate('customerId');
@@ -1100,7 +1100,7 @@ router.put('/:id/pay', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive
 });
 
 // POST: Duplicate Invoice
-router.post('/:id/duplicate', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+router.post('/:id/duplicate', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
   try {
     const sourceInvoice = await Invoice.findById(req.params.id);
     if (!sourceInvoice) return res.status(404).send({ error: 'Source invoice not found.' });
@@ -1160,7 +1160,7 @@ router.post('/:id/share', auth, async (req, res) => {
 });
 
 // POST: Send payment due reminder via WhatsApp
-router.post('/:id/send-payment-due', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive', 'Service'), async (req, res) => {
+router.post('/:id/send-payment-due', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Service'), async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.id)
       .populate('customerId')
