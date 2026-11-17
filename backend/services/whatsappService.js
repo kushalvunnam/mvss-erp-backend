@@ -229,7 +229,9 @@ const TEMPLATE_CONFIG = {
     'mvss_service_remainder': { lang: 'en', paramCount: 4 },
     'mvss_feedback_request': { lang: 'en', paramCount: 2 },
     'mvss_customer_followup': { lang: 'en', paramCount: 1 },
-    'mvss_service_support': { lang: 'en', paramCount: 3 }
+    'mvss_service_support': { lang: 'en', paramCount: 3 },
+    'mvss_vehicle_photos_available': { lang: 'en', paramCount: 3, category: 'UTILITY' },
+    'mvss_vehicle_photos': { lang: 'en', paramCount: 3, category: 'UTILITY' }
 };
 
 // Dynamic cache of templates verified directly from Meta Graph API

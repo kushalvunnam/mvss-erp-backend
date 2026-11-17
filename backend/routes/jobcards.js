@@ -730,17 +730,30 @@ router.delete('/:id/photo/:photoId', auth, async (req, res) => {
   }
 });
 
-// Check 24-hour customer service window status for a Job Card
-router.get('/:id/whatsapp-session', auth, async (req, res) => {
+// Helper to resolve JobCard by ObjectId or jobCardNo (handles slashes like MVSS/JC/26-27/082)
+async function findJobCardByIdentifier(identifier, populate = true) {
+  if (!identifier) return null;
+  const raw = String(identifier).trim();
+  const isObjectId = mongoose.Types.ObjectId.isValid(raw);
+  let q = null;
+  if (isObjectId) {
+    q = JobCard.findById(raw);
+  } else {
+    q = JobCard.findOne({ jobCardNo: raw });
+  }
+  if (populate) {
+    q = q.populate('customerId').populate('vehicleId');
+  }
+  return await q;
+}
+
+// 1. WhatsApp Customer 24-hour Session Status Handler
+async function handleWhatsappSession(req, res) {
   try {
-    const rawId = req.params.id;
-    const isObjectId = mongoose.Types.ObjectId.isValid(rawId);
+    const rawId = req.query.jobCardId || req.query.id || req.params.id;
     let jobCard = null;
-    if (isObjectId) {
-      jobCard = await JobCard.findById(rawId).populate('customerId');
-    }
-    if (!jobCard) {
-      jobCard = await JobCard.findOne({ jobCardNo: rawId }).populate('customerId');
+    if (rawId) {
+      jobCard = await findJobCardByIdentifier(rawId, true);
     }
 
     const { getCustomerSessionStatus, validateCustomerContact } = require('../services/whatsappService');
@@ -772,19 +785,15 @@ router.get('/:id/whatsapp-session', auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// Check real-time WhatsApp photo delivery status
-router.get('/:id/whatsapp-photos-status', auth, async (req, res) => {
+// 2. WhatsApp Photo Delivery Status Poller
+async function handleWhatsappPhotosStatus(req, res) {
   try {
-    const rawId = req.params.id;
-    const isObjectId = mongoose.Types.ObjectId.isValid(rawId);
+    const rawId = req.query.jobCardId || req.query.id || req.params.id;
     let jobCard = null;
-    if (isObjectId) {
-      jobCard = await JobCard.findById(rawId, 'whatsappHistory').lean();
-    }
-    if (!jobCard) {
-      jobCard = await JobCard.findOne({ jobCardNo: rawId }, 'whatsappHistory').lean();
+    if (rawId) {
+      jobCard = await findJobCardByIdentifier(rawId, false);
     }
     if (!jobCard) {
       return res.json({
@@ -803,20 +812,17 @@ router.get('/:id/whatsapp-photos-status', auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// Send selected Job Card photos to customer via WhatsApp Cloud API
-router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
+// 3. Send selected Job Card photos to customer via WhatsApp Cloud API
+async function handleSendWhatsappPhotos(req, res) {
   try {
-    const rawId = req.params.id;
-    const isObjectId = mongoose.Types.ObjectId.isValid(rawId);
-    let jobCard = null;
-    if (isObjectId) {
-      jobCard = await JobCard.findById(rawId).populate('customerId').populate('vehicleId');
+    const rawId = req.body.jobCardId || req.body.id || req.params.id;
+    if (!rawId) {
+      return res.status(400).json({ error: 'Job Card identifier is required.' });
     }
-    if (!jobCard) {
-      jobCard = await JobCard.findOne({ jobCardNo: rawId }).populate('customerId').populate('vehicleId');
-    }
+
+    const jobCard = await findJobCardByIdentifier(rawId, true);
     if (!jobCard) {
       return res.status(404).json({ error: 'Job Card not found.' });
     }
@@ -840,13 +846,16 @@ router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
     // 2. Identify selected photos
     const { photoIds, customMessage, action } = req.body;
     let selectedPhotos = [];
-    if (photoIds && Array.isArray(photoIds) && photoIds.length > 0) {
+    if (Array.isArray(photoIds)) {
+      if (photoIds.length === 0) {
+        return res.status(400).json({ error: 'Please select at least one photo to share on WhatsApp.' });
+      }
       selectedPhotos = (jobCard.photos || []).filter(p => {
         const pId = String(p._id || p.publicId || p.url);
         return photoIds.includes(pId) || (p._id && photoIds.includes(String(p._id)));
       });
-    } else {
-      selectedPhotos = jobCard.photos || [];
+    } else if (jobCard.photos && jobCard.photos.length > 0) {
+      selectedPhotos = jobCard.photos;
     }
 
     if (selectedPhotos.length === 0) {
@@ -871,15 +880,16 @@ router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
       });
     }
 
-    // 4. Handle expired session with approved utility template & queueing
+    // 4. Handle expired session with dedicated approved utility template & queueing
     if (!sessionStatus.active && isQueueRequested) {
-      console.log(`[WhatsApp Photo Send] 24-hour window closed. Dispatching approved utility template to re-engage ${contactCheck.masked} and queueing photos.`);
+      const photoTemplateName = process.env.META_WA_PHOTO_TEMPLATE || 'mvss_vehicle_photos_available';
+      console.log(`[WhatsApp Photo Send] 24-hour window closed. Dispatching approved utility template '${photoTemplateName}' to re-engage ${contactCheck.masked} and queueing photos.`);
       
       let templateResult = null;
       try {
         templateResult = await sendTemplateMessage({
           to: contactCheck.phone,
-          templateName: 'mvss_service_support',
+          templateName: photoTemplateName,
           components: [
             {
               type: 'body',
@@ -896,7 +906,13 @@ router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
           idempotencyKey: `photo_reengage_${jobCard._id}_${Date.now()}`
         });
       } catch (tmplErr) {
-        console.warn(`[WhatsApp Photo Send] Could not dispatch mvss_service_support template:`, tmplErr.message);
+        console.warn(`[WhatsApp Photo Send] Dedicated template '${photoTemplateName}' failed:`, tmplErr.message);
+        return res.status(400).json({
+          success: false,
+          error: `WhatsApp photo utility template '${photoTemplateName}' failed: ${tmplErr.message}. Generic template fallback is disabled per workshop policy. Please ensure '${photoTemplateName}' is approved in Meta Business Manager.`,
+          templateRequired: photoTemplateName,
+          suggestedContent: `Dear {{1}},\n\nMVSS Automobiles has vehicle inspection/service photos available for your vehicle {{2}}.\n\nJob Card No: {{3}}.\n\nPlease reply to this message to receive your vehicle photos.\n\nThank you,\nMVSS Automobiles.`
+        });
       }
 
       if (!jobCard.whatsappHistory) jobCard.whatsappHistory = [];
@@ -905,6 +921,7 @@ router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
         messageIds: templateResult?.messageId ? [templateResult.messageId] : [],
         stage: 'VEHICLE_PHOTOS',
         photoUrls: selectedPhotos.map(p => p.url),
+        photoIds: selectedPhotos.map(p => String(p._id || p.publicId || p.url)),
         photoCount: selectedPhotos.length,
         recipientPhone: contactCheck.phone,
         recipientName: customerName,
@@ -1012,6 +1029,7 @@ router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
       messageIds: validMessageIds,
       stage: 'VEHICLE_PHOTOS',
       photoUrls: selectedPhotos.map(p => p.url),
+      photoIds: selectedPhotos.map(p => String(p._id || p.publicId || p.url)),
       photoCount: selectedPhotos.length,
       recipientPhone: contactCheck.phone,
       recipientName: customerName,
@@ -1047,7 +1065,17 @@ router.post('/:id/send-whatsapp-photos', auth, async (req, res) => {
     console.error('[Send WhatsApp Photos Error]:', error);
     res.status(500).json({ error: 'Failed to dispatch photos on WhatsApp: ' + error.message });
   }
-});
+}
+
+// Mount routes for WhatsApp Session, Status, and Photo dispatch (both parameterless and parameterized)
+router.get('/whatsapp-session', auth, handleWhatsappSession);
+router.get('/:id/whatsapp-session', auth, handleWhatsappSession);
+
+router.get('/whatsapp-photos-status', auth, handleWhatsappPhotosStatus);
+router.get('/:id/whatsapp-photos-status', auth, handleWhatsappPhotosStatus);
+
+router.post('/send-whatsapp-photos', auth, handleSendWhatsappPhotos);
+router.post('/:id/send-whatsapp-photos', auth, handleSendWhatsappPhotos);
 
 // Update digital job card
 router.put('/:id', auth, async (req, res) => {

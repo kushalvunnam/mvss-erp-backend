@@ -137,12 +137,12 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
 
   const checkCustomerSession = async (phoneToCheck) => {
     if (!phoneToCheck) return;
-    const targetId = jc?._id || jcId;
+    const targetId = jc?._id || jcId || jc?.jobCardNo;
     setIsCheckingSession(true);
     try {
       let data = null;
       if (targetId) {
-        const res = await fetch(`${API_BASE_URL}/jobcards/${targetId}/whatsapp-session?phone=${encodeURIComponent(phoneToCheck)}`, {
+        const res = await fetch(`${API_BASE_URL}/jobcards/whatsapp-session?jobCardId=${encodeURIComponent(targetId)}&phone=${encodeURIComponent(phoneToCheck)}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
@@ -180,7 +180,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const pollPhotoDeliveryStatus = (attempt = 1) => {
-    const targetId = jc?._id || jcId;
+    const targetId = jc?._id || jcId || jc?.jobCardNo;
     if (!targetId || attempt > 6) {
       setIsPollingStatus(false);
       return;
@@ -188,7 +188,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     setIsPollingStatus(true);
     setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/jobcards/${targetId}/whatsapp-photos-status`, {
+        const res = await fetch(`${API_BASE_URL}/jobcards/whatsapp-photos-status?jobCardId=${encodeURIComponent(targetId)}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
@@ -203,7 +203,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
               setWhatsAppSendStatus({
                 success: true,
                 status: s,
-                message: 'Photo successfully delivered to customer.',
+                message: s === 'read' ? 'Photo read by customer.' : 'Photo successfully delivered to customer.',
                 details: data.latest
               });
               setIsPollingStatus(false);
@@ -230,9 +230,16 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const handleOpenWhatsAppModal = (overridePhotoIds = null) => {
+    let idsToUse = selectedPhotoIds;
     if (overridePhotoIds && Array.isArray(overridePhotoIds) && overridePhotoIds.length > 0) {
-      setSelectedPhotoIds(new Set(overridePhotoIds));
-    } else if (selectedPhotoIds.size === 0) {
+      idsToUse = new Set(overridePhotoIds);
+      setSelectedPhotoIds(idsToUse);
+    } else if (typeof overridePhotoIds === 'string' && overridePhotoIds.trim()) {
+      idsToUse = new Set([overridePhotoIds.trim()]);
+      setSelectedPhotoIds(idsToUse);
+    }
+
+    if (idsToUse.size === 0) {
       alert('Please select at least one photo to share on WhatsApp.');
       return;
     }
@@ -249,7 +256,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
   };
 
   const handleSendWhatsAppPhotos = async (queueReengagement = false) => {
-    if (selectedPhotoIds.size === 0) return;
+    if (selectedPhotoIds.size === 0) {
+      alert('Please select at least one photo to share on WhatsApp.');
+      return;
+    }
     if (!whatsAppRecipientPhone || !whatsAppRecipientPhone.trim()) {
       alert('Customer WhatsApp / mobile number is required.');
       return;
@@ -259,15 +269,16 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
     setWhatsAppSendStatus(null);
     setLiveDeliveryStatus('idle');
 
-    const targetId = jc?._id || jcId;
+    const targetId = jc?._id || jcId || jc?.jobCardNo;
     try {
-      const res = await fetch(`${API_BASE_URL}/jobcards/${targetId}/send-whatsapp-photos`, {
+      const res = await fetch(`${API_BASE_URL}/jobcards/send-whatsapp-photos`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
+          jobCardId: targetId,
           photoIds: Array.from(selectedPhotoIds),
           phone: whatsAppRecipientPhone.trim(),
           customMessage: whatsAppCustomMessage.trim(),
@@ -275,7 +286,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         if (data.status === 'pending_session') {
           setLiveDeliveryStatus('pending_session');
@@ -304,8 +315,15 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
         const isSessionExpired = res.status === 409 || data.sessionExpired;
         const errMessage = isSessionExpired
           ? 'Customer WhatsApp session has expired. Please use an approved WhatsApp template to contact the customer.'
-          : (data.error || 'Failed to dispatch photos on WhatsApp.');
+          : (data.error || data.message || 'Failed to dispatch photos on WhatsApp.');
         
+        if (isSessionExpired) {
+          setSessionInfo({
+            active: false,
+            reason: errMessage
+          });
+        }
+
         setLiveDeliveryStatus('failed');
         setWhatsAppSendStatus({
           success: false,
@@ -321,7 +339,7 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
       setWhatsAppSendStatus({
         success: false,
         status: 'failed',
-        message: 'Network error communicating with WhatsApp dispatch service.'
+        message: 'Network error communicating with WhatsApp dispatch service: ' + err.message
       });
     } finally {
       setIsSendingWhatsApp(false);
@@ -4081,7 +4099,16 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                 {liveDeliveryStatus === 'delivered' || liveDeliveryStatus === 'read' || liveDeliveryStatus === 'pending_session' ? 'Close' : 'Cancel'}
               </button>
 
-              {sessionInfo && !sessionInfo.active && liveDeliveryStatus !== 'pending_session' && (
+              {isCheckingSession ? (
+                <button
+                  type="button"
+                  disabled
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-200 dark:bg-slate-800 text-slate-500 rounded-xl text-xs font-bold uppercase tracking-wider cursor-not-allowed"
+                >
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Checking 24h Window...</span>
+                </button>
+              ) : sessionInfo && !sessionInfo.active && liveDeliveryStatus !== 'pending_session' ? (
                 <button
                   type="button"
                   onClick={() => handleSendWhatsAppPhotos(true)}
@@ -4096,17 +4123,15 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      <span>Send Approved Template & Queue Photos</span>
+                      <span>Send Photo Template & Queue Photos</span>
                     </>
                   )}
                 </button>
-              )}
-
-              {(!sessionInfo || sessionInfo.active) && liveDeliveryStatus !== 'delivered' && liveDeliveryStatus !== 'read' && (
+              ) : (
                 <button
                   type="button"
                   onClick={() => handleSendWhatsAppPhotos(false)}
-                  disabled={isSendingWhatsApp || !whatsAppRecipientPhone.trim() || selectedPhotoIds.size === 0}
+                  disabled={isSendingWhatsApp || !whatsAppRecipientPhone.trim() || selectedPhotoIds.size === 0 || liveDeliveryStatus === 'delivered' || liveDeliveryStatus === 'read'}
                   className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
                 >
                   {isSendingWhatsApp ? (

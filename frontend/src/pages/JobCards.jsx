@@ -95,7 +95,7 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   };
 
   const handleDeleteJobCard = async (id, e) => {
-    if (e) e.stopPropagation();
+    if (e && e.stopPropagation) e.stopPropagation();
     if (!confirm('Are you sure you want to delete this job card permanently? This will also affect billing records and estimates linked.')) return;
     
     try {
