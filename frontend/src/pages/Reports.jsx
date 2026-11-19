@@ -124,23 +124,30 @@ const resolveInvoicePaymentDetails = (inv, jc) => {
 };
 
 // Authoritative vehicle delivery resolver
-const resolveAuthoritativeDeliveryDateClient = (jc) => {
-  if (!jc) return null;
-  const status = String(jc.status || '').trim();
+const resolveAuthoritativeDeliveryDateClient = (jc, inv = null, backendItem = null) => {
+  if (!jc && !inv && !backendItem) return null;
+  const status = String(jc?.status || backendItem?.jobCardStatus || '').trim();
   const isDelivered = ['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(status);
   if (!isDelivered) return null;
 
-  if (jc.actualDeliveryDate && !isNaN(new Date(jc.actualDeliveryDate).getTime())) {
+  // 1. Authoritative backend delivery date from reports API / DB resolver
+  if (backendItem?.vehicleDeliveryDate && !isNaN(new Date(backendItem.vehicleDeliveryDate).getTime())) {
+    return backendItem.vehicleDeliveryDate;
+  }
+
+  // 2. Direct JobCard delivery fields
+  if (jc?.actualDeliveryDate && !isNaN(new Date(jc.actualDeliveryDate).getTime())) {
     return jc.actualDeliveryDate;
   }
-  if (jc.deliveredBy?.date && !isNaN(new Date(jc.deliveredBy.date).getTime())) {
+  if (jc?.deliveredBy?.date && !isNaN(new Date(jc.deliveredBy.date).getTime())) {
     return jc.deliveredBy.date;
   }
-  if (jc.vehicleDeliveredAt && !isNaN(new Date(jc.vehicleDeliveredAt).getTime())) {
+  if (jc?.vehicleDeliveredAt && !isNaN(new Date(jc.vehicleDeliveredAt).getTime())) {
     return jc.vehicleDeliveredAt;
   }
 
-  if (Array.isArray(jc.statusHistory) && jc.statusHistory.length > 0) {
+  // 3. Status history transitions to Delivered
+  if (Array.isArray(jc?.statusHistory) && jc.statusHistory.length > 0) {
     const hist = jc.statusHistory.slice().reverse().find(h => {
       const s = String(h.status || '').trim();
       return s === 'Delivered' || s === 'Delivered – Payment Pending' || s === 'Delivered - Payment Pending' || s === 'Closed';
@@ -149,8 +156,20 @@ const resolveAuthoritativeDeliveryDateClient = (jc) => {
     if (d && !isNaN(new Date(d).getTime())) return d;
   }
 
-  if (jc.updatedAt && !isNaN(new Date(jc.updatedAt).getTime())) {
+  // 4. JobCard updatedAt
+  if (jc?.updatedAt && !isNaN(new Date(jc.updatedAt).getTime())) {
     return jc.updatedAt;
+  }
+
+  // 5. Linked invoice delivery or billing timestamp (when status is confirmed Delivered)
+  if (inv && (inv.actualDeliveryDate || inv.date || inv.createdAt)) {
+    const d = inv.actualDeliveryDate || inv.date || inv.createdAt;
+    if (d && !isNaN(new Date(d).getTime())) return d;
+  }
+
+  // 6. JobCard creation / date
+  if (jc?.date && !isNaN(new Date(jc.date).getTime())) {
+    return jc.date;
   }
 
   return null;
@@ -161,6 +180,7 @@ export default function Reports({ token, user }) {
   const [invoices, setInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices`) || []);
   const [inventory, setInventory] = useState(() => getCachedData(`${API_BASE_URL}/inventory`) || []);
   const [employees, setEmployees] = useState(() => getCachedData(`${API_BASE_URL}/employees`) || []);
+  const [backendPendingReports, setBackendPendingReports] = useState(() => getCachedData(`${API_BASE_URL}/reports/pending-payments`) || []);
   const [loading, setLoading] = useState(() => {
     const jc = getCachedData(`${API_BASE_URL}/jobcards`);
     const inv = getCachedData(`${API_BASE_URL}/invoices`);
@@ -198,6 +218,7 @@ export default function Reports({ token, user }) {
       const invUrl = `${API_BASE_URL}/invoices`;
       const stockUrl = `${API_BASE_URL}/inventory`;
       const empUrl = `${API_BASE_URL}/employees`;
+      const pendingUrl = `${API_BASE_URL}/reports/pending-payments`;
 
       const hasCache = getCachedData(jcUrl) && getCachedData(invUrl) && getCachedData(stockUrl);
       if (!hasCache) {
@@ -208,7 +229,8 @@ export default function Reports({ token, user }) {
       const promises = [
         fetch(jcUrl, { headers }),
         fetch(invUrl, { headers }),
-        fetch(stockUrl, { headers })
+        fetch(stockUrl, { headers }),
+        fetch(pendingUrl, { headers }).catch(() => null)
       ];
 
       if (isAdminOrAccounts) {
@@ -217,23 +239,29 @@ export default function Reports({ token, user }) {
 
       const results = await Promise.all(promises);
 
-      if (results[0].ok) {
+      if (results[0] && results[0].ok) {
         const jcData = await results[0].json();
         setCachedData(jcUrl, jcData);
         setJobCards(jcData);
       }
-      if (results[1].ok) {
+      if (results[1] && results[1].ok) {
         const invData = await results[1].json();
         setCachedData(invUrl, invData);
         setInvoices(invData);
       }
-      if (results[2].ok) {
+      if (results[2] && results[2].ok) {
         const invItemsData = await results[2].json();
         setCachedData(stockUrl, invItemsData);
         setInventory(invItemsData);
       }
-      if (isAdminOrAccounts && results[3] && results[3].ok) {
-        const empData = await results[3].json();
+      if (results[3] && results[3].ok) {
+        const pendingRaw = await results[3].json();
+        const pendingList = Array.isArray(pendingRaw) ? pendingRaw : (pendingRaw.items || pendingRaw.data || []);
+        setCachedData(pendingUrl, pendingList);
+        setBackendPendingReports(pendingList);
+      }
+      if (isAdminOrAccounts && results[4] && results[4].ok) {
+        const empData = await results[4].json();
         setCachedData(empUrl, empData);
         setEmployees(empData);
       }
@@ -393,42 +421,55 @@ export default function Reports({ token, user }) {
             if (jcId) invoiceByJcId.set(String(jcId), inv);
           });
 
+          const backendByJcNo = new Map();
+          const backendByJcId = new Map();
+          (backendPendingReports || []).forEach(b => {
+            if (b.jobCardNo && b.jobCardNo !== 'N/A') backendByJcNo.set(b.jobCardNo, b);
+            if (b.jobCardId) backendByJcId.set(String(b.jobCardId), b);
+            if (b._id) backendByJcId.set(String(b._id), b);
+          });
+
           const processedJcIds = new Set();
+          const processedJcNos = new Set();
           const items = [];
 
           // 1. Process all Job Cards
           jobCards.forEach(jc => {
             processedJcIds.add(String(jc._id));
+            if (jc.jobCardNo) processedJcNos.add(jc.jobCardNo);
             const inv = invoiceByJcId.get(String(jc._id));
-            const customer = jc.customerId || inv?.customerId;
-            const vehicle = jc.vehicleId || inv?.vehicleId;
+            const backendItem = (jc.jobCardNo && backendByJcNo.get(jc.jobCardNo)) || backendByJcId.get(String(jc._id));
+            const customer = jc.customerId || inv?.customerId || (backendItem?.customerName ? { name: backendItem.customerName, companyName: backendItem.companyName, type: backendItem.customerType } : null);
+            const vehicle = jc.vehicleId || inv?.vehicleId || (backendItem?.vehicleRegNo ? { vehicleNumber: backendItem.vehicleRegNo, model: backendItem.vehicleModel } : null);
 
             const finalAmt = inv
               ? (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0)
-              : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
+              : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || (backendItem?.finalInvoiceAmount || 0));
 
-            const advReceived = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-            const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || 0);
+            const advReceived = jc.financialSummary?.totalAdvance ?? ((jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (backendItem?.totalAdvanceReceived || 0));
+            const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || backendItem?.totalPaymentsReceived || 0);
             const rawBal = Math.max(0, finalAmt - totalRec);
-            const bal = jc.financialSummary?.pendingAmount ?? (inv?.balanceDue ?? rawBal);
+            const bal = (totalRec >= finalAmt - 0.05) ? 0 : (jc.financialSummary?.pendingAmount ?? (inv?.balanceDue !== undefined && inv.balanceDue <= rawBal ? inv.balanceDue : rawBal));
 
-            const pStatus = jc.paymentStatus || inv?.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
+            const pStatus = (bal <= 0.05) ? 'Fully Paid' : (jc.paymentStatus || inv?.paymentStatus || backendItem?.paymentStatus || (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
-            const invDate = inv?.date || inv?.createdAt || jc.date || jc.createdAt;
-            const delDate = resolveAuthoritativeDeliveryDateClient(jc);
-            const payDetails = resolveInvoicePaymentDetails(inv, jc);
-            const creditDue = inv?.creditDueDate || jc.creditDueDate || ((cType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
+            const invDate = inv?.date || inv?.createdAt || backendItem?.invoiceDate || jc.date || jc.createdAt;
+            const delDate = resolveAuthoritativeDeliveryDateClient(jc, inv, backendItem);
+            const payDetails = (backendItem?.paymentMethod && backendItem.paymentMethod !== 'Unknown / Not Recorded')
+              ? { method: backendItem.paymentMethod, breakdown: backendItem.paymentBreakdown || backendItem.paymentMethod }
+              : resolveInvoicePaymentDetails(inv, jc);
+            const creditDue = inv?.creditDueDate || jc.creditDueDate || backendItem?.creditDueDate || ((cType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
 
             items.push({
               _id: jc._id,
               jobCardId: jc._id,
-              jobCardNo: jc.jobCardNo || 'N/A',
-              customerName: customer?.name || 'N/A',
+              jobCardNo: jc.jobCardNo || backendItem?.jobCardNo || 'N/A',
+              customerName: customer?.name || backendItem?.customerName || 'N/A',
               customerType: cType,
-              companyName: customer?.companyName || '',
-              vehicleRegNo: vehicle?.vehicleNumber || vehicle?.regNo || 'N/A',
-              vehicleModel: vehicle?.model || vehicle?.brand || '',
-              invoiceNo: inv?.invoiceNo || 'N/A',
+              companyName: customer?.companyName || backendItem?.companyName || '',
+              vehicleRegNo: vehicle?.vehicleNumber || vehicle?.regNo || backendItem?.vehicleRegNo || 'N/A',
+              vehicleModel: vehicle?.model || vehicle?.brand || backendItem?.vehicleModel || '',
+              invoiceNo: inv?.invoiceNo || backendItem?.invoiceNo || (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(jc.status) ? 'Delivered – Invoice Pending' : 'N/A'),
               invoiceDate: invDate,
               vehicleDeliveryDate: delDate,
               finalInvoiceAmount: finalAmt,
@@ -443,6 +484,37 @@ export default function Reports({ token, user }) {
             });
           });
 
+          // 1b. Include backend pending items not found in jobCards
+          (backendPendingReports || []).forEach(b => {
+            const jcId = b.jobCardId || b._id;
+            if ((jcId && processedJcIds.has(String(jcId))) || (b.jobCardNo && processedJcNos.has(b.jobCardNo))) return;
+            if (b.jobCardNo && b.jobCardNo !== 'N/A') processedJcNos.add(b.jobCardNo);
+            if (jcId) processedJcIds.add(String(jcId));
+
+            items.push({
+              _id: b._id || b.jobCardId,
+              jobCardId: b.jobCardId || null,
+              jobCardNo: b.jobCardNo || 'N/A',
+              customerName: b.customerName || 'N/A',
+              customerType: b.customerType || 'Individual',
+              companyName: b.companyName || '',
+              vehicleRegNo: b.vehicleRegNo || 'N/A',
+              vehicleModel: b.vehicleModel || '',
+              invoiceNo: b.invoiceNo || 'N/A',
+              invoiceDate: b.invoiceDate,
+              vehicleDeliveryDate: b.vehicleDeliveryDate,
+              finalInvoiceAmount: b.finalInvoiceAmount || 0,
+              totalAdvanceReceived: b.totalAdvanceReceived || 0,
+              totalPaymentsReceived: b.totalPaymentsReceived || 0,
+              outstandingBalance: b.outstandingBalance || 0,
+              paymentStatus: b.paymentStatus || 'Pending',
+              paymentMethod: b.paymentMethod || 'Unknown / Not Recorded',
+              paymentBreakdown: b.paymentBreakdown || b.paymentMethod || 'Unknown / Not Recorded',
+              jobCardStatus: b.jobCardStatus || 'Pending',
+              creditDueDate: b.creditDueDate
+            });
+          });
+
           // 2. Process standalone invoices not linked to Job Cards
           invoices.forEach(inv => {
             const jcId = inv.jobCardId?._id || inv.jobCardId;
@@ -452,7 +524,8 @@ export default function Reports({ token, user }) {
             const vehicle = inv.vehicleId;
             const finalAmt = inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0;
             const totalRec = inv.amountPaid || 0;
-            const bal = inv.balanceDue ?? Math.max(0, finalAmt - totalRec);
+            const calcBal = Math.max(0, finalAmt - totalRec);
+            const bal = (totalRec >= finalAmt - 0.05) ? 0 : (inv.balanceDue !== undefined && inv.balanceDue <= calcBal ? inv.balanceDue : calcBal);
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
             const invDate = inv.date || inv.createdAt;
             const payDetails = resolveInvoicePaymentDetails(inv, null);
@@ -474,7 +547,7 @@ export default function Reports({ token, user }) {
               totalAdvanceReceived: inv.advanceReceived || 0,
               totalPaymentsReceived: totalRec,
               outstandingBalance: bal,
-              paymentStatus: inv.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : 'Pending'),
+              paymentStatus: (bal <= 0.05) ? 'Fully Paid' : (inv.paymentStatus || 'Pending'),
               paymentMethod: payDetails.method,
               paymentBreakdown: payDetails.breakdown,
               jobCardStatus: 'Invoice Only',

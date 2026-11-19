@@ -462,7 +462,7 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const invDate = linkedInvoice?.date || linkedInvoice?.createdAt || null;
     
     // Authoritative vehicle delivery resolution
-    const deliveryDate = resolveAuthoritativeDeliveryDate(jc, gatePasses);
+    const deliveryDate = resolveAuthoritativeDeliveryDate(jc, gatePasses, linkedInvoice);
     const deliveryStaff = jc.deliveredBy?.name || '';
     const deliveryTime = jc.deliveredBy?.time || '';
 

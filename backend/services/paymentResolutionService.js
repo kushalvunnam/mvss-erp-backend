@@ -194,7 +194,7 @@ const resolvePaymentDetails = (invoice, jobCard) => {
  *    e) GatePass issuance date for vehicle delivery
  *    f) jc.updatedAt
  */
-const resolveAuthoritativeDeliveryDate = (jobCard, gatePasses = []) => {
+const resolveAuthoritativeDeliveryDate = (jobCard, gatePasses = [], invoice = null) => {
   if (!jobCard) return null;
 
   const status = String(jobCard.status || '').trim();
@@ -262,6 +262,19 @@ const resolveAuthoritativeDeliveryDate = (jobCard, gatePasses = []) => {
   // 4. Fallback to updatedAt for historical delivered records without explicit date
   if (jobCard.updatedAt && !isNaN(new Date(jobCard.updatedAt).getTime())) {
     return new Date(jobCard.updatedAt);
+  }
+
+  // 5. Fallback to invoice date or actualDeliveryDate for confirmed delivered vehicles
+  if (invoice && (invoice.actualDeliveryDate || invoice.date || invoice.createdAt)) {
+    const invDate = invoice.actualDeliveryDate || invoice.date || invoice.createdAt;
+    if (!isNaN(new Date(invDate).getTime())) {
+      return new Date(invDate);
+    }
+  }
+
+  // 6. Fallback to jobCard creation/service date for confirmed delivered vehicles
+  if (jobCard.date && !isNaN(new Date(jobCard.date).getTime())) {
+    return new Date(jobCard.date);
   }
 
   return null;
