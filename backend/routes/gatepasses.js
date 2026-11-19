@@ -115,7 +115,7 @@ router.get('/eligible-releases', auth, async (req, res) => {
         invoiceDate: inv.date || inv.createdAt,
         invoiceStatus: inv.status, // Finalized / Draft
         paymentStatus: effectivePaymentStatus,
-        paymentMethod: inv.paymentMethod || 'Cash',
+        paymentMethod: inv.paymentMethod || (isPaid ? 'Unknown / Not Recorded' : 'Pending / Unpaid'),
         totalAmount: total,
         amountPaid: inv.amountPaid || 0,
         balanceDue: balance,
@@ -384,6 +384,8 @@ router.post('/', auth, async (req, res) => {
               time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
             };
           }
+          existingJc.actualDeliveryDate = existingJc.deliveredBy.date;
+          existingJc.vehicleDeliveredAt = existingJc.deliveredBy.date;
           if (!existingJc.statusHistory) existingJc.statusHistory = [];
           existingJc.statusHistory.push({
             status: targetStatus,

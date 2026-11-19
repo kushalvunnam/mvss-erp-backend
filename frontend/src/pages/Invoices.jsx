@@ -20,6 +20,13 @@ export default function Invoices({ token, user, setActiveTab }) {
   const [shareEmail, setShareEmail] = useState('');
   const [shareSuccess, setShareSuccess] = useState(false);
 
+  // Payment recording modal state
+  const [paymentModalInvoice, setPaymentModalInvoice] = useState(null);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState('UPI');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+
   // Debounce search state
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -214,39 +221,64 @@ export default function Invoices({ token, user, setActiveTab }) {
     }
   };
 
-  const handleMarkAsPaid = async (inv, e) => {
+  const handleMarkAsPaid = (inv, e) => {
     if (e) e.stopPropagation();
-    console.log('[Invoice Action: Mark as Paid]', inv);
-    if (!confirm(`Are you sure you want to mark Invoice ${inv.invoiceNo} as Paid?`)) return;
+    const balDue = inv.balanceDue !== undefined ? inv.balanceDue : Math.max(0, (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0) - (inv.amountPaid || inv.advanceReceived || 0));
+    setPaymentModalInvoice(inv);
+    setSelectedPaymentMode('UPI');
+    setPaymentReference('');
+    setPaymentAmount(String(balDue > 0 ? balDue : (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0)));
+  };
 
+  const confirmRecordPayment = async () => {
+    if (!paymentModalInvoice) return;
+    setIsRecordingPayment(true);
     try {
+      const numAmt = parseFloat(paymentAmount) || 0;
       if (token === 'mock_jwt_token_for_offline_demo') {
         const db = JSON.parse(sessionStorage.getItem('mock_invoices') || '[]');
         const updated = db.map(item => {
-          if (item._id === inv._id) {
-            return { ...item, paymentStatus: 'Paid', status: 'Finalized', amountPaid: item.totals?.grandTotal || 0 };
+          if (item._id === paymentModalInvoice._id) {
+            return {
+              ...item,
+              paymentStatus: 'Paid',
+              status: 'Finalized',
+              paymentMethod: selectedPaymentMode,
+              paymentBreakdown: selectedPaymentMode,
+              amountPaid: numAmt
+            };
           }
           return item;
         });
         sessionStorage.setItem('mock_invoices', JSON.stringify(updated));
+        setPaymentModalInvoice(null);
         fetchInvoices();
       } else {
-        const res = await fetch(`${API_BASE_URL}/invoices/${inv._id}/pay`, {
+        const res = await fetch(`${API_BASE_URL}/invoices/${paymentModalInvoice._id}/pay`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`
-          }
+          },
+          body: JSON.stringify({
+            paymentMethod: selectedPaymentMode,
+            amountPaid: numAmt,
+            transactionId: paymentReference
+          })
         });
         if (res.ok) {
+          setPaymentModalInvoice(null);
           fetchInvoices();
         } else {
-          const err = await res.json();
+          const err = await res.json().catch(() => ({}));
           alert('Failed to mark invoice as paid: ' + (err.error || res.statusText));
         }
       }
     } catch (err) {
       console.error(err);
+      alert('Error recording payment: ' + err.message);
+    } finally {
+      setIsRecordingPayment(false);
     }
   };
 
@@ -1086,6 +1118,11 @@ export default function Invoices({ token, user, setActiveTab }) {
                             }`}>
                               {inv.paymentStatus || 'Unpaid'}
                             </span>
+                            {inv.amountPaid > 0 && (
+                              <span className="block px-2 py-0.5 rounded font-black text-[8px] uppercase tracking-wide bg-indigo-50 text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300 truncate max-w-[120px]" title={inv.paymentBreakdown || inv.paymentMethod}>
+                                {inv.paymentBreakdown || inv.paymentMethod || 'Unknown / Not Recorded'}
+                              </span>
+                            )}
                           </td>
                           <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1 sm:gap-1.5">
@@ -1233,6 +1270,14 @@ export default function Invoices({ token, user, setActiveTab }) {
                       {selectedInvoice.paymentStatus || 'Unpaid'}
                     </span>
                   </div>
+                  {selectedInvoice.amountPaid > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 font-bold">Payment Method:</span>
+                      <span className="font-extrabold text-xs text-indigo-650 dark:text-indigo-400">
+                        {selectedInvoice.paymentBreakdown || selectedInvoice.paymentMethod || 'Unknown / Not Recorded'}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center">
                     <span className="text-slate-400 font-bold">Invoice Status:</span>
                     <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
@@ -1347,6 +1392,94 @@ export default function Invoices({ token, user, setActiveTab }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Payment Recording Modal */}
+      {paymentModalInvoice && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex justify-center items-center z-[99999] p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-md shadow-2xl p-6 animate-fade-in text-xs font-semibold">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-base font-black text-slate-850 dark:text-white uppercase tracking-wider">Record Payment</h3>
+                <p className="text-[11px] text-slate-400 font-medium">Invoice: {paymentModalInvoice.invoiceNo}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentModalInvoice(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Payment Mode / Method <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={selectedPaymentMode}
+                  onChange={(e) => setSelectedPaymentMode(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
+                >
+                  <option value="UPI">UPI (Google Pay, PhonePe, Paytm)</option>
+                  <option value="QR / Scanner Payment">QR / Scanner Payment</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card (Debit / Credit / POS Swipe)</option>
+                  <option value="Bank Transfer">Bank Transfer (NEFT / RTGS / IMPS)</option>
+                  <option value="Cheque">Cheque</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Amount Received (₹) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-mono font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Transaction / Reference ID (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="e.g. UTR12345678, UPI Ref No, Cheque #"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalInvoice(null)}
+                  disabled={isRecordingPayment}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRecordPayment}
+                  disabled={isRecordingPayment || !paymentAmount || parseFloat(paymentAmount) <= 0}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl font-bold shadow-md cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {isRecordingPayment ? 'Recording...' : 'Confirm Payment'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

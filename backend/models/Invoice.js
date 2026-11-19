@@ -238,8 +238,16 @@ const invoiceSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'UPI', 'QR / Scanner Payment', 'Bank Transfer', 'Card Swipe', 'Online', 'Card', 'Cheque', 'QR', 'Insurance Claim', 'Split', 'Scanner Payment', 'Scanner Payment (QR)', 'Other'],
-    default: 'Cash',
+    default: null,
+    trim: true,
+  },
+  paymentBreakdown: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  actualDeliveryDate: {
+    type: Date,
   },
   amountPaid: {
     type: Number,

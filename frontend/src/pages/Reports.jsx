@@ -21,6 +21,141 @@ import {
 } from 'lucide-react';
 import { getCachedData, setCachedData } from '../utils/apiCache';
 
+// Authoritative payment mode normalizer across all 7 supported modes
+const normalizePaymentModeClient = (rawMode) => {
+  if (!rawMode || typeof rawMode !== 'string') return 'Unknown / Not Recorded';
+  const m = rawMode.trim();
+  const lower = m.toLowerCase();
+
+  if (!lower || lower === 'unknown' || lower === 'not recorded' || lower === 'n/a' || lower === 'none' || lower === 'undefined') {
+    return 'Unknown / Not Recorded';
+  }
+
+  if (lower === 'cash') return 'Cash';
+  if (lower === 'upi' || lower === 'gpay' || lower === 'phonepe' || lower === 'paytm' || lower === 'bhim') return 'UPI';
+  if (lower === 'card' || lower === 'card swipe' || lower === 'credit card' || lower === 'debit card' || lower === 'pos' || lower === 'swipe') return 'Card';
+  if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking' || lower === 'wire') return 'Bank Transfer';
+  if (lower === 'cheque' || lower === 'check' || lower === 'dd') return 'Cheque';
+  if (
+    lower === 'qr / scanner payment' ||
+    lower === 'qr/scanner' ||
+    lower === 'scanner payment' ||
+    lower === 'scanner payment (qr)' ||
+    lower === 'qr' ||
+    lower.includes('qr') ||
+    lower.includes('scanner')
+  ) {
+    return 'QR / Scanner Payment';
+  }
+  if (lower === 'online') return 'UPI';
+  if (lower === 'other' || lower === 'others') return 'Other';
+  return m;
+};
+
+// Resolves actual payment method & split breakdown from JobCard advancePayments & finalPayments or Invoice
+const resolveInvoicePaymentDetails = (inv, jc) => {
+  const transactions = [];
+
+  if (jc) {
+    if (Array.isArray(jc.advancePayments)) {
+      jc.advancePayments.forEach(p => {
+        const amt = Number(p.amount) || 0;
+        if (amt > 0) {
+          transactions.push({
+            amount: amt,
+            mode: normalizePaymentModeClient(p.paymentMode || p.type),
+            type: 'Advance'
+          });
+        }
+      });
+    }
+    if (Array.isArray(jc.finalPayments)) {
+      jc.finalPayments.forEach(p => {
+        const amt = Number(p.amount) || 0;
+        if (amt > 0) {
+          transactions.push({
+            amount: amt,
+            mode: normalizePaymentModeClient(p.paymentType || p.paymentMode),
+            type: 'Final'
+          });
+        }
+      });
+    }
+  }
+
+  if (transactions.length === 0) {
+    const paidAmt = Number(inv?.amountPaid || 0);
+    const raw = inv?.paymentMethod;
+    if (paidAmt > 0) {
+      const mode = (raw && raw !== 'Cash') ? normalizePaymentModeClient(raw) : (inv?.jobCardId ? 'Unknown / Not Recorded' : (raw ? normalizePaymentModeClient(raw) : 'Unknown / Not Recorded'));
+      return {
+        method: mode,
+        breakdown: mode,
+        transactions: [{ amount: paidAmt, mode, type: 'Direct' }]
+      };
+    }
+    return {
+      method: 'Pending / Not Paid',
+      breakdown: 'Pending / Not Paid',
+      transactions: []
+    };
+  }
+
+  const modeTotals = {};
+  transactions.forEach(t => {
+    modeTotals[t.mode] = (modeTotals[t.mode] || 0) + t.amount;
+  });
+
+  const modes = Object.keys(modeTotals);
+  if (modes.length === 1) {
+    return {
+      method: modes[0],
+      breakdown: modes[0],
+      transactions
+    };
+  }
+
+  const breakdown = modes.map(m => `${m}: ₹${Math.round(modeTotals[m]).toLocaleString('en-IN')}`).join(', ');
+  return {
+    method: modes.join(' + '),
+    breakdown: `Split (${breakdown})`,
+    transactions
+  };
+};
+
+// Authoritative vehicle delivery resolver
+const resolveAuthoritativeDeliveryDateClient = (jc) => {
+  if (!jc) return null;
+  const status = String(jc.status || '').trim();
+  const isDelivered = ['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(status);
+  if (!isDelivered) return null;
+
+  if (jc.actualDeliveryDate && !isNaN(new Date(jc.actualDeliveryDate).getTime())) {
+    return jc.actualDeliveryDate;
+  }
+  if (jc.deliveredBy?.date && !isNaN(new Date(jc.deliveredBy.date).getTime())) {
+    return jc.deliveredBy.date;
+  }
+  if (jc.vehicleDeliveredAt && !isNaN(new Date(jc.vehicleDeliveredAt).getTime())) {
+    return jc.vehicleDeliveredAt;
+  }
+
+  if (Array.isArray(jc.statusHistory) && jc.statusHistory.length > 0) {
+    const hist = jc.statusHistory.slice().reverse().find(h => {
+      const s = String(h.status || '').trim();
+      return s === 'Delivered' || s === 'Delivered – Payment Pending' || s === 'Delivered - Payment Pending' || s === 'Closed';
+    });
+    const d = hist?.changedAt || hist?.date;
+    if (d && !isNaN(new Date(d).getTime())) return d;
+  }
+
+  if (jc.updatedAt && !isNaN(new Date(jc.updatedAt).getTime())) {
+    return jc.updatedAt;
+  }
+
+  return null;
+};
+
 export default function Reports({ token, user }) {
   const [jobCards, setJobCards] = useState(() => getCachedData(`${API_BASE_URL}/jobcards`) || []);
   const [invoices, setInvoices] = useState(() => getCachedData(`${API_BASE_URL}/invoices`) || []);
@@ -280,7 +415,8 @@ export default function Reports({ token, user }) {
             const pStatus = jc.paymentStatus || inv?.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
             const invDate = inv?.date || inv?.createdAt || jc.date || jc.createdAt;
-            const delDate = jc.deliveredBy?.date || null;
+            const delDate = resolveAuthoritativeDeliveryDateClient(jc);
+            const payDetails = resolveInvoicePaymentDetails(inv, jc);
             const creditDue = inv?.creditDueDate || jc.creditDueDate || ((cType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
 
             items.push({
@@ -300,6 +436,8 @@ export default function Reports({ token, user }) {
               totalPaymentsReceived: totalRec,
               outstandingBalance: bal,
               paymentStatus: pStatus,
+              paymentMethod: payDetails.method,
+              paymentBreakdown: payDetails.breakdown,
               jobCardStatus: jc.status,
               creditDueDate: creditDue
             });
@@ -317,6 +455,7 @@ export default function Reports({ token, user }) {
             const bal = inv.balanceDue ?? Math.max(0, finalAmt - totalRec);
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
             const invDate = inv.date || inv.createdAt;
+            const payDetails = resolveInvoicePaymentDetails(inv, null);
             const creditDue = inv.creditDueDate || ((cType === 'Corporate' || customer?.companyName) && invDate ? new Date(new Date(invDate).getTime() + 30 * 86400000) : null);
 
             items.push({
@@ -336,6 +475,8 @@ export default function Reports({ token, user }) {
               totalPaymentsReceived: totalRec,
               outstandingBalance: bal,
               paymentStatus: inv.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : 'Pending'),
+              paymentMethod: payDetails.method,
+              paymentBreakdown: payDetails.breakdown,
               jobCardStatus: 'Invoice Only',
               creditDueDate: creditDue
             });
@@ -725,6 +866,8 @@ export default function Reports({ token, user }) {
           'Net Amount Payable',
           'Outstanding Balance',
           'Payment Status',
+          'Payment Method',
+          'Payment Breakdown',
           'Credit Due Date'
         ];
         rows = data.map(item => [
@@ -734,7 +877,7 @@ export default function Reports({ token, user }) {
           item.vehicleRegNo || 'N/A',
           item.invoiceNo || 'N/A',
           item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A',
-          item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A',
+          item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'Not Delivered',
           (item.estimatedRepairAmount || 0).toFixed(2),
           (item.finalInvoiceAmount || 0).toFixed(2),
           (item.totalAdvanceReceived || 0).toFixed(2),
@@ -743,18 +886,25 @@ export default function Reports({ token, user }) {
           (item.netAmountPayable !== undefined ? item.netAmountPayable : (item.finalInvoiceAmount || 0)).toFixed(2),
           (item.outstandingBalance || 0).toFixed(2),
           item.paymentStatus || 'Pending',
+          item.paymentMethod || 'Unknown / Not Recorded',
+          item.paymentBreakdown || item.paymentMethod || 'Unknown / Not Recorded',
           item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'
         ]);
       } else if (selectedReport === 'payment_collection') {
-        headers = ['Invoice No', 'Date', 'Customer Name', 'Payment Method', 'Amount Billed', 'Amount Settled'];
-        rows = data.map(inv => [
-          inv.invoiceNo,
-          new Date(inv.date).toLocaleDateString('en-IN'),
-          inv.customerId?.name || 'N/A',
-          inv.paymentMethod || 'N/A',
-          (inv.totals?.grandTotal || 0).toFixed(2),
-          (inv.amountPaid || 0).toFixed(2)
-        ]);
+        headers = ['Invoice No', 'Date', 'Customer Name', 'Payment Method', 'Payment Breakdown', 'Amount Billed', 'Amount Settled'];
+        rows = data.map(inv => {
+          const jc = inv.jobCardId?._id ? jobCards.find(j => String(j._id) === String(inv.jobCardId._id)) : (inv.jobCardId ? jobCards.find(j => String(j._id) === String(inv.jobCardId)) : null);
+          const pay = resolveInvoicePaymentDetails(inv, jc);
+          return [
+            inv.invoiceNo,
+            new Date(inv.date).toLocaleDateString('en-IN'),
+            inv.customerId?.name || 'N/A',
+            pay.method || 'Unknown / Not Recorded',
+            pay.breakdown || pay.method || 'Unknown / Not Recorded',
+            (inv.totals?.grandTotal || 0).toFixed(2),
+            (inv.amountPaid || 0).toFixed(2)
+          ];
+        });
       } else {
         headers = ['Invoice No', 'Date', 'Customer Name', 'Billed Base Total', 'GST Paid', 'Grand Total', 'Status'];
         rows = data.map(inv => [
@@ -916,7 +1066,7 @@ export default function Reports({ token, user }) {
               <td style="font-family:monospace; font-weight:bold;">${item.vehicleRegNo || 'N/A'}</td>
               <td style="font-family:monospace;">${item.invoiceNo || 'N/A'}</td>
               <td>${item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A'}</td>
-              <td>${item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A'}</td>
+              <td>${item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'Not Delivered'}</td>
               <td>₹${(item.finalInvoiceAmount || 0).toFixed(2)}</td>
               <td>₹${(item.totalAdvanceReceived || 0).toFixed(2)}</td>
               <td>₹${(item.totalPaymentsReceived || 0).toFixed(2)}</td>
@@ -931,12 +1081,14 @@ export default function Reports({ token, user }) {
           <th>Invoice No</th><th>Date</th><th>Customer Name</th><th>Payment Method</th><th>Amount Billed</th><th>Amount Settled</th>
         `;
         data.forEach(inv => {
+          const jc = inv.jobCardId?._id ? jobCards.find(j => String(j._id) === String(inv.jobCardId._id)) : (inv.jobCardId ? jobCards.find(j => String(j._id) === String(inv.jobCardId)) : null);
+          const pay = resolveInvoicePaymentDetails(inv, jc);
           tableRowsHtml += `
             <tr>
               <td style="font-family:monospace; font-weight:bold;">${inv.invoiceNo}</td>
               <td>${new Date(inv.date).toLocaleDateString('en-IN')}</td>
               <td>${inv.customerId?.name || 'N/A'}</td>
-              <td style="font-weight:bold;">${inv.paymentMethod || 'N/A'}</td>
+              <td style="font-weight:bold;">${pay.breakdown || pay.method || 'Unknown / Not Recorded'}</td>
               <td>₹${(inv.totals?.grandTotal || 0).toFixed(2)}</td>
               <td style="font-weight:bold; color:#16a34a;">₹${(inv.amountPaid || 0).toFixed(2)}</td>
             </tr>
@@ -1899,16 +2051,32 @@ export default function Reports({ token, user }) {
                         </tr>
                       ))
                     ) : selectedReport === 'payment_collection' ? (
-                      filteredData.map(inv => (
-                        <tr key={inv._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all font-semibold">
-                          <td className="p-4 font-bold text-slate-800 dark:text-white font-mono">{inv.invoiceNo}</td>
-                          <td className="p-4 text-slate-500">{new Date(inv.date).toLocaleDateString('en-IN')}</td>
-                          <td className="p-4 text-slate-700 dark:text-slate-300">{inv.customerId?.name || 'N/A'}</td>
-                          <td className="p-4 font-bold text-indigo-650">{inv.paymentMethod || 'N/A'}</td>
-                          <td className="p-4">₹{(inv.totals?.grandTotal || 0).toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-emerald-600 font-bold">₹{(inv.amountPaid || 0).toLocaleString('en-IN')}</td>
-                        </tr>
-                      ))
+                      filteredData.map(inv => {
+                        const jc = inv.jobCardId?._id ? jobCards.find(j => String(j._id) === String(inv.jobCardId._id)) : (inv.jobCardId ? jobCards.find(j => String(j._id) === String(inv.jobCardId)) : null);
+                        const pay = resolveInvoicePaymentDetails(inv, jc);
+                        const isSplit = pay.breakdown && pay.breakdown.startsWith('Split');
+                        return (
+                          <tr key={inv._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all font-semibold">
+                            <td className="p-4 font-bold text-slate-800 dark:text-white font-mono">{inv.invoiceNo}</td>
+                            <td className="p-4 text-slate-500">{new Date(inv.date).toLocaleDateString('en-IN')}</td>
+                            <td className="p-4 text-slate-700 dark:text-slate-300">{inv.customerId?.name || 'N/A'}</td>
+                            <td className="p-4">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="font-bold text-indigo-650 dark:text-indigo-400">
+                                  {pay.method || 'Unknown / Not Recorded'}
+                                </span>
+                                {isSplit && (
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
+                                    {pay.breakdown}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4">₹{(inv.totals?.grandTotal || 0).toLocaleString('en-IN')}</td>
+                            <td className="p-4 text-emerald-600 font-bold">₹{(inv.amountPaid || 0).toLocaleString('en-IN')}</td>
+                          </tr>
+                        );
+                      })
                     ) : (
                       // General Invoices Report
                       filteredData.map(inv => (

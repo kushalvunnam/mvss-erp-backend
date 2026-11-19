@@ -172,6 +172,8 @@ const computeFinancials = ({
   };
 };
 
+const { resolvePaymentDetails, resolveAuthoritativeDeliveryDate } = require('./paymentResolutionService');
+
 /**
  * Recalculates Job Card financial totals and synchronizes with linked Invoice and Estimate.
  * Single source of truth update helper.
@@ -308,6 +310,37 @@ const recalculateJobCardFinancials = async (jobCard, options = {}) => {
     if (invoice.paymentStatus !== calc.invoicePaymentStatus) {
       invoice.paymentStatus = calc.invoicePaymentStatus;
       invoiceChanged = true;
+    }
+
+    // Synchronize authoritative paymentMethod and paymentBreakdown from actual transactions
+    const payDetails = resolvePaymentDetails(invoice, jobCard);
+    if (payDetails && payDetails.transactions.length > 0) {
+      if (invoice.paymentMethod !== payDetails.paymentMethod) {
+        invoice.paymentMethod = payDetails.paymentMethod;
+        invoiceChanged = true;
+      }
+      if (invoice.paymentBreakdown !== payDetails.paymentBreakdown) {
+        invoice.paymentBreakdown = payDetails.paymentBreakdown;
+        invoiceChanged = true;
+      }
+    } else if (calc.totalReceived <= 0.05) {
+      // Unpaid with no transactions: never default to Cash
+      if (invoice.paymentMethod && invoice.paymentMethod === 'Cash') {
+        invoice.paymentMethod = null;
+        invoiceChanged = true;
+      }
+    }
+
+    // Synchronize delivery timestamp if delivered
+    const authDelDate = resolveAuthoritativeDeliveryDate(jobCard);
+    if (authDelDate) {
+      if (!jobCard.actualDeliveryDate) {
+        jobCard.actualDeliveryDate = authDelDate;
+      }
+      if (!invoice.actualDeliveryDate || new Date(invoice.actualDeliveryDate).getTime() !== authDelDate.getTime()) {
+        invoice.actualDeliveryDate = authDelDate;
+        invoiceChanged = true;
+      }
     }
 
     if (invoiceChanged && options.saveInvoice !== false) {

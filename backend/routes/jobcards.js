@@ -9,6 +9,7 @@ const { auth, restrictTo } = require('../middleware/auth');
 const { logAction } = require('../utils/logger');
 const { generateJobCardPDF, generateGatePassPDF } = require('../utils/pdfGenerator');
 const { getNextSequence } = require('../utils/documentNumbering');
+const { resolveAuthoritativeDeliveryDate } = require('../services/paymentResolutionService');
 const router = express.Router();
 
 const mongoose = require('mongoose');
@@ -160,14 +161,26 @@ router.get('/', auth, async (req, res) => {
     }
 
     const jobCards = await JobCard.find(query)
-      .select('jobCardNo status bodyShopStatus bodyShopStage vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails')
+      .select('jobCardNo status bodyShopStatus bodyShopStage vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails deliveredBy actualDeliveryDate vehicleDeliveredAt statusHistory advancePayments finalPayments financialSummary paymentStatus creditDueDate creditTerms qcStatus')
       .populate('customerId')
       .populate('vehicleId')
       .populate('serviceAdvisorId', 'name')
       .sort({ createdAt: -1 })
       .lean();
 
-    res.send(jobCards);
+    // Enrich delivery dates for delivered vehicles so frontend reports and dashboards always have the exact delivery date
+    const enrichedJobCards = jobCards.map(jc => {
+      const authDelDate = resolveAuthoritativeDeliveryDate(jc);
+      if (authDelDate) {
+        if (!jc.deliveredBy) jc.deliveredBy = {};
+        if (!jc.deliveredBy.date) jc.deliveredBy.date = authDelDate;
+        jc.actualDeliveryDate = authDelDate;
+        jc.vehicleDeliveredAt = authDelDate;
+      }
+      return jc;
+    });
+
+    res.send(enrichedJobCards);
   } catch (error) {
     res.status(500).send({ error: 'Failed to fetch job cards.' });
   }
@@ -1180,12 +1193,19 @@ router.put('/:id', auth, async (req, res) => {
         }
 
         // Record or preserve delivery details
+        const effectiveDelDate = (req.body.deliveredBy && req.body.deliveredBy.date) ? new Date(req.body.deliveredBy.date) : (req.body.deliveryDate ? new Date(req.body.deliveryDate) : (jobCard.deliveredBy?.date || new Date()));
         if (!jobCard.deliveredBy || !jobCard.deliveredBy.date) {
           jobCard.deliveredBy = {
             name: (req.body.deliveredBy && req.body.deliveredBy.name) || req.body.deliveredByName || (req.user ? req.user.name : 'Workshop Staff'),
-            date: (req.body.deliveredBy && req.body.deliveredBy.date) ? new Date(req.body.deliveredBy.date) : (req.body.deliveryDate ? new Date(req.body.deliveryDate) : new Date()),
+            date: effectiveDelDate,
             time: (req.body.deliveredBy && req.body.deliveredBy.time) || req.body.deliveryTime || new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
           };
+        }
+        jobCard.actualDeliveryDate = jobCard.deliveredBy.date || effectiveDelDate;
+        jobCard.vehicleDeliveredAt = jobCard.actualDeliveryDate;
+        if (invoice) {
+          invoice.actualDeliveryDate = jobCard.actualDeliveryDate;
+          await invoice.save();
         }
       }
 
@@ -1230,6 +1250,11 @@ router.put('/:id', auth, async (req, res) => {
           date: delDate,
           time: delTime
         };
+        jobCard.actualDeliveryDate = delDate;
+        jobCard.vehicleDeliveredAt = delDate;
+        if (invoice) {
+          invoice.actualDeliveryDate = delDate;
+        }
 
         if (req.body.creditDueDate) {
           jobCard.creditDueDate = new Date(req.body.creditDueDate);

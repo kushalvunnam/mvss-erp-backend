@@ -7,8 +7,10 @@ const Invoice = require('../models/Invoice');
 const JobCard = require('../models/JobCard');
 const Customer = require('../models/Customer');
 const Vehicle = require('../models/Vehicle');
+const GatePass = require('../models/GatePass');
 const PDFDocument = require('pdfkit');
 const { roundToTwo } = require('../services/financialCalculationService');
+const { resolvePaymentDetails, resolveAuthoritativeDeliveryDate, normalizePaymentMode } = require('../services/paymentResolutionService');
 const { auth, restrictTo } = require('../middleware/auth');
 const router = express.Router();
 
@@ -418,7 +420,7 @@ const getPendingPaymentsReportData = async (query = {}) => {
     toDate
   } = query;
 
-  // 1. Fetch all Job Cards and active Invoices
+  // 1. Fetch all Job Cards, active Invoices, and Delivery Gate Passes
   const jobCards = await JobCard.find({})
     .populate('customerId')
     .populate('vehicleId')
@@ -428,6 +430,10 @@ const getPendingPaymentsReportData = async (query = {}) => {
     .populate('customerId')
     .populate('vehicleId')
     .sort({ date: -1, createdAt: -1 });
+
+  const gatePasses = await GatePass.find({
+    passType: { $in: ['Vehicle Delivery', 'Customer Delivery'] }
+  }).lean();
 
   const invoiceByJobCardId = new Map();
   invoices.forEach(inv => {
@@ -454,9 +460,14 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const isDeliveredPaymentPending = ['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(jc.status);
     const invNo = linkedInvoice?.invoiceNo || (isDeliveredPaymentPending ? 'Delivered – Invoice Pending' : 'N/A');
     const invDate = linkedInvoice?.date || linkedInvoice?.createdAt || null;
-    const deliveryDate = jc.deliveredBy?.date || null;
+    
+    // Authoritative vehicle delivery resolution
+    const deliveryDate = resolveAuthoritativeDeliveryDate(jc, gatePasses);
     const deliveryStaff = jc.deliveredBy?.name || '';
     const deliveryTime = jc.deliveredBy?.time || '';
+
+    // Authoritative payment details resolution
+    const payDetails = resolvePaymentDetails(linkedInvoice, jc);
 
     const finalBillAmount = linkedInvoice
       ? (linkedInvoice.totals?.roundedGrandTotal || linkedInvoice.totals?.grandTotal || 0)
@@ -502,6 +513,9 @@ const getPendingPaymentsReportData = async (query = {}) => {
       vehicleDeliveryDate: deliveryDate,
       deliveryStaff,
       deliveryTime,
+      paymentMethod: payDetails.paymentMethod,
+      paymentBreakdown: payDetails.paymentBreakdown,
+      paymentTransactions: payDetails.transactions,
       estimatedRepairAmount: roundToTwo(estAmount),
       finalInvoiceAmount: roundToTwo(finalBillAmount),
       totalAdvanceReceived: roundToTwo(totalAdvance),
@@ -534,6 +548,8 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const balanceDue = inv.balanceDue ?? Math.max(0, roundToTwo(netPayable - totalReceived));
     const creditDueDate = inv.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && inv.date ? new Date(new Date(inv.date).getTime() + 30 * 86400000) : null);
 
+    const payDetails = resolvePaymentDetails(inv, null);
+
     rawList.push({
       _id: inv._id,
       jobCardId: null,
@@ -552,6 +568,9 @@ const getPendingPaymentsReportData = async (query = {}) => {
       vehicleDeliveryDate: null,
       deliveryStaff: '',
       deliveryTime: '',
+      paymentMethod: payDetails.paymentMethod,
+      paymentBreakdown: payDetails.paymentBreakdown,
+      paymentTransactions: payDetails.transactions,
       estimatedRepairAmount: roundToTwo(inv.estimatedRepairAmount || 0),
       finalInvoiceAmount: roundToTwo(finalBillAmount),
       totalAdvanceReceived: roundToTwo(totalAdvance),
@@ -750,6 +769,8 @@ router.get('/pending-payments/export/excel', auth, async (req, res) => {
       'Net Amount Payable',
       'Outstanding Balance',
       'Payment Status',
+      'Payment Method',
+      'Payment Breakdown',
       'Credit Due Date'
     ];
 
@@ -760,7 +781,7 @@ router.get('/pending-payments/export/excel', auth, async (req, res) => {
       item.vehicleRegNo || 'N/A',
       item.invoiceNo || 'N/A',
       item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString('en-IN') : 'N/A',
-      item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'N/A',
+      item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'Not Delivered',
       (item.estimatedRepairAmount || 0).toFixed(2),
       item.finalInvoiceAmount.toFixed(2),
       item.totalAdvanceReceived.toFixed(2),
@@ -770,6 +791,8 @@ router.get('/pending-payments/export/excel', auth, async (req, res) => {
       (item.netAmountPayable !== undefined ? item.netAmountPayable : item.finalInvoiceAmount).toFixed(2),
       item.outstandingBalance.toFixed(2),
       item.paymentStatus,
+      item.paymentMethod || 'Unknown / Not Recorded',
+      item.paymentBreakdown || item.paymentMethod || 'Unknown / Not Recorded',
       item.creditDueDate ? new Date(item.creditDueDate).toLocaleDateString('en-IN') : 'N/A'
     ]);
 
@@ -856,7 +879,9 @@ router.get('/pending-payments/export/pdf', auth, async (req, res) => {
       doc.text(item.outstandingBalance.toFixed(2), 630, y, { width: 58, align: 'right' });
 
       doc.fillColor('#0f172a').font('Helvetica');
-      doc.text(item.paymentStatus, 694, y, { width: 75 });
+      const delText = item.vehicleDeliveryDate ? new Date(item.vehicleDeliveryDate).toLocaleDateString('en-IN') : 'Not Delivered';
+      const statusLine = `${item.paymentStatus} (${delText})`;
+      doc.text(statusLine, 694, y, { width: 115 });
 
       y += 15;
     });

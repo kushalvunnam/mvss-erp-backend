@@ -20,6 +20,8 @@ const ALL_SUPPORTED_PAYMENT_MODES = [
   'Cheque',
   'QR / Scanner Payment',
   'Other',
+  'Unknown / Not Recorded',
+  'Split',
   // Historical / legacy values
   'Card Swipe',
   'Online',
@@ -29,16 +31,17 @@ const ALL_SUPPORTED_PAYMENT_MODES = [
 ];
 
 const normalizePaymentModeValue = (mode) => {
-  if (!mode || typeof mode !== 'string') return 'Cash';
+  if (!mode || typeof mode !== 'string') return 'Unknown / Not Recorded';
   const m = mode.trim();
   const lower = m.toLowerCase();
+  if (!lower || lower === 'unknown' || lower === 'not recorded' || lower === 'n/a' || lower === 'none') return 'Unknown / Not Recorded';
   if (lower === 'cash') return 'Cash';
   if (lower === 'upi') return 'UPI';
   if (lower === 'card' || lower === 'card swipe' || lower === 'debit card' || lower === 'credit card' || lower === 'pos') return 'Card';
   if (lower === 'bank transfer' || lower === 'bank' || lower === 'neft' || lower === 'rtgs' || lower === 'imps' || lower === 'net banking') return 'Bank Transfer';
   if (lower === 'cheque' || lower === 'check') return 'Cheque';
   if (lower === 'qr / scanner payment' || lower === 'scanner payment (qr)' || lower === 'scanner payment' || lower === 'qr' || lower.includes('qr') || lower.includes('scanner')) return 'QR / Scanner Payment';
-  if (lower === 'online') return 'Online';
+  if (lower === 'online') return 'UPI';
   if (lower === 'other' || lower === 'others') return 'Other';
   return m;
 };
@@ -55,7 +58,7 @@ const AdvancePaymentSchema = new mongoose.Schema({
       values: ALL_SUPPORTED_PAYMENT_MODES,
       message: '{VALUE} is not a valid enum value for path type'
     },
-    default: 'Cash',
+    default: 'Unknown / Not Recorded',
     set: normalizePaymentModeValue,
     required: true 
   },
@@ -65,7 +68,7 @@ const AdvancePaymentSchema = new mongoose.Schema({
       values: ALL_SUPPORTED_PAYMENT_MODES,
       message: '{VALUE} is not a valid enum value for path paymentMode'
     },
-    default: 'Cash',
+    default: 'Unknown / Not Recorded',
     set: normalizePaymentModeValue,
     required: true 
   },
@@ -95,7 +98,7 @@ const FinalPaymentSchema = new mongoose.Schema({
       values: ALL_SUPPORTED_PAYMENT_MODES,
       message: '{VALUE} is not a valid enum value for path paymentType'
     },
-    default: 'Cash',
+    default: 'Unknown / Not Recorded',
     set: normalizePaymentModeValue,
     required: true 
   },
@@ -571,6 +574,8 @@ const JobCardSchema = new mongoose.Schema({
     date: { type: Date },
     time: { type: String, default: '' },
   },
+  actualDeliveryDate: { type: Date },
+  vehicleDeliveredAt: { type: Date },
 
   // Post inspection
   finalInspection: {

@@ -1835,7 +1835,15 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
                       }
                       const confirmChange = window.confirm(`Are you sure you want to update the job card status to "${formatStatusLabel(nextStatus)}"?`);
                       if (confirmChange) {
-                        updateStatus(nextStatus);
+                        if (nextStatus === 'Delivered') {
+                          updateFields({
+                            status: 'Delivered',
+                            deliveryDate: new Date(),
+                            actualDeliveryDate: new Date()
+                          });
+                        } else {
+                          updateStatus(nextStatus);
+                        }
                       }
                     }}
                     className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-805 dark:text-white font-bold text-xs uppercase tracking-wider focus:outline-none"

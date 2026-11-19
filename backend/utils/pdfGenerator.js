@@ -2099,7 +2099,7 @@ function generatePaymentReceiptPDF({ receiptNo, receiptDate, payment, jobCard, i
 
   // Table Row
   const payAmt = Number(payment?.amount || 0);
-  let payMode = payment?.paymentMode || payment?.paymentType || payment?.mode || 'Cash';
+  let payMode = payment?.paymentMode || payment?.paymentType || payment?.mode || 'Unknown / Not Recorded';
   let payRemarks = payment?.remarks || '-';
   if (payment?.remarks && payment.remarks.includes('[Mode: ')) {
     const match = payment.remarks.match(/\[Mode:\s*([^\]]+)\]/);
@@ -2108,8 +2108,9 @@ function generatePaymentReceiptPDF({ receiptNo, receiptDate, payment, jobCard, i
       payRemarks = payment.remarks.replace(/\[Mode:\s*[^\]]+\]\s*/g, '').trim() || '-';
     }
   }
-  if (payMode === 'Scanner Payment (QR)' || payMode === 'Scanner Payment') payMode = 'QR / Scanner Payment';
+  if (payMode === 'Scanner Payment (QR)' || payMode === 'Scanner Payment' || payMode === 'QR') payMode = 'QR / Scanner Payment';
   if (payMode === 'Card Swipe') payMode = 'Card';
+  if (payMode === 'Online') payMode = 'UPI';
   const payTxn = payment?.transactionId || payment?.referenceNumber || payment?.txnId || 'N/A';
 
   doc.strokeColor('#000000').lineWidth(1).rect(30, y, 535, 25).stroke();

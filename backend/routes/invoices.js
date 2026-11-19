@@ -10,6 +10,7 @@ const { logAction } = require('../utils/logger');
 const { generateInvoicePDF, generateGatePassPDF } = require('../utils/pdfGenerator');
 const numberToWords = require('../utils/numberToWords');
 const { getNextSequence } = require('../utils/documentNumbering');
+const { resolvePaymentDetails, resolveAuthoritativeDeliveryDate, normalizePaymentMode } = require('../services/paymentResolutionService');
 const router = express.Router();
 
 // Helper to auto-generate Invoice Number
@@ -222,13 +223,41 @@ router.get('/', async (req, res) => {
     }
 
     const invoices = await Invoice.find(query)
-      .select('invoiceNo jobCardId customerId vehicleId totals parts labour invoiceType paymentStatus paymentMethod amountPaid advanceReceived balanceDue isSent sentStatus status date createdAt')
+      .select('invoiceNo jobCardId customerId vehicleId totals parts labour invoiceType paymentStatus paymentMethod paymentBreakdown actualDeliveryDate amountPaid advanceReceived balanceDue isSent sentStatus status date createdAt')
       .populate('customerId')
       .populate('vehicleId')
+      .populate({
+        path: 'jobCardId',
+        select: 'jobCardNo advancePayments finalPayments status paymentStatus deliveredBy actualDeliveryDate statusHistory'
+      })
       .sort({ createdAt: -1 })
       .lean();
 
-    res.send(invoices);
+    const enrichedInvoices = invoices.map(inv => {
+      const payDetails = resolvePaymentDetails(inv, inv.jobCardId);
+      if (payDetails && payDetails.transactions.length > 0) {
+        inv.paymentMethod = payDetails.paymentMethod;
+        inv.paymentBreakdown = payDetails.paymentBreakdown;
+        inv.paymentTransactions = payDetails.transactions;
+      } else if (!inv.paymentMethod || inv.amountPaid <= 0.05) {
+        inv.paymentMethod = inv.amountPaid > 0.05 ? 'Unknown / Not Recorded' : 'Pending / Not Paid';
+        inv.paymentBreakdown = inv.paymentMethod;
+        inv.paymentTransactions = [];
+      } else {
+        inv.paymentMethod = normalizePaymentMode(inv.paymentMethod);
+        inv.paymentBreakdown = inv.paymentMethod;
+      }
+
+      if (inv.jobCardId) {
+        const authDelDate = resolveAuthoritativeDeliveryDate(inv.jobCardId);
+        if (authDelDate) {
+          inv.actualDeliveryDate = authDelDate;
+        }
+      }
+      return inv;
+    });
+
+    res.send(enrichedInvoices);
   } catch (error) {
     res.status(500).send({ error: 'Failed to fetch invoices.' });
   }
@@ -243,10 +272,32 @@ router.get('/:id', auth, async (req, res) => {
       .populate('jobCardId');
     if (!invoice) return res.status(404).send({ error: 'Invoice not found.' });
 
+    // Enrich payment details and delivery date
+    const invObj = invoice.toObject ? invoice.toObject() : invoice;
+    const payDetails = resolvePaymentDetails(invObj, invObj.jobCardId);
+    if (payDetails && payDetails.transactions.length > 0) {
+      invObj.paymentMethod = payDetails.paymentMethod;
+      invObj.paymentBreakdown = payDetails.paymentBreakdown;
+      invObj.paymentTransactions = payDetails.transactions;
+    } else if (!invObj.paymentMethod || invObj.amountPaid <= 0.05) {
+      invObj.paymentMethod = invObj.amountPaid > 0.05 ? 'Unknown / Not Recorded' : 'Pending / Not Paid';
+      invObj.paymentBreakdown = invObj.paymentMethod;
+    } else {
+      invObj.paymentMethod = normalizePaymentMode(invObj.paymentMethod);
+      invObj.paymentBreakdown = invObj.paymentMethod;
+    }
+
+    if (invObj.jobCardId) {
+      const authDelDate = resolveAuthoritativeDeliveryDate(invObj.jobCardId);
+      if (authDelDate) {
+        invObj.actualDeliveryDate = authDelDate;
+      }
+    }
+
     // Log Invoice Viewed
     await logAction(req.user, 'INVOICE_VIEW', `Viewed Invoice ${invoice.invoiceNo}`, req);
 
-    res.send(invoice);
+    res.send(invObj);
   } catch (error) {
     res.status(500).send({ error: 'Failed to fetch invoice.' });
   }
@@ -552,18 +603,8 @@ router.put('/:id', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Account
       // Update Job Card and calculate billing summary without prematurely forcing Delivered status
       const targetJc = await JobCard.findById(invoice.jobCardId);
       if (targetJc) {
-        if (!['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(targetJc.status)) {
-          if (targetJc.paymentStatus === 'Fully Paid' || invoice.paymentStatus === 'Paid') {
-            targetJc.status = 'Delivered';
-            if (!targetJc.deliveredBy || !targetJc.deliveredBy.date) {
-              targetJc.deliveredBy = {
-                name: req.user ? req.user.name : 'Billing Staff',
-                date: new Date(),
-                time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-              };
-            }
-          }
-        }
+        const { recalculateJobCardFinancials } = require('../services/financialCalculationService');
+        await recalculateJobCardFinancials(targetJc, { invoice });
         await targetJc.save();
       }
       const { calculateBillingSummary } = require('../utils/billing');
@@ -723,18 +764,8 @@ router.put('/:id/finalize', auth, restrictTo('Super Admin', 'Admin', 'Accounts',
     // Update Job Card and calculate billing summary without prematurely forcing Delivered status
     const targetJc = await JobCard.findById(invoice.jobCardId);
     if (targetJc) {
-      if (!['Delivered', 'Delivered – Payment Pending', 'Delivered - Payment Pending', 'Closed'].includes(targetJc.status)) {
-        if (targetJc.paymentStatus === 'Fully Paid' || invoice.paymentStatus === 'Paid') {
-          targetJc.status = 'Delivered';
-          if (!targetJc.deliveredBy || !targetJc.deliveredBy.date) {
-            targetJc.deliveredBy = {
-              name: req.user ? req.user.name : 'Billing Staff',
-              date: new Date(),
-              time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-            };
-          }
-        }
-      }
+      const { recalculateJobCardFinancials } = require('../services/financialCalculationService');
+      await recalculateJobCardFinancials(targetJc, { invoice });
       await targetJc.save();
     }
     const { calculateBillingSummary } = require('../utils/billing');
@@ -952,7 +983,7 @@ router.put('/:id/pay', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Acc
     const jc = invoice.jobCardId ? await JobCard.findById(invoice.jobCardId) : null;
 
     const grandTotal = invoice.totals?.roundedGrandTotal || invoice.totals?.grandTotal || 0;
-    const cleanMethod = paymentMethod || invoice.paymentMethod || 'Cash';
+    let cleanMethod = paymentMethod ? normalizePaymentMode(paymentMethod) : null;
 
     if (jc) {
       const totalAdv = (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -962,19 +993,22 @@ router.put('/:id/pay', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Acc
 
       const paymentToRecord = amountPaid !== undefined ? Number(amountPaid) : outstandingDue;
 
+      if (!cleanMethod) {
+        cleanMethod = invoice.paymentMethod ? normalizePaymentMode(invoice.paymentMethod) : 'Unknown / Not Recorded';
+      }
+
       if (paymentToRecord > 0) {
         jc.finalPayments.push({
           amount: paymentToRecord,
           paymentType: cleanMethod,
           transactionId: req.body.transactionId || '',
-          referenceNumber: '',
+          referenceNumber: req.body.referenceNumber || '',
           remarks: req.body.remarks || `Payment recorded for Invoice ${invoice.invoiceNo}`,
-          paymentDate: new Date(),
+          paymentDate: req.body.paymentDate ? new Date(req.body.paymentDate) : new Date(),
           recordedBy: req.user ? (req.user.name || req.user.username) : 'System'
         });
       }
 
-      invoice.paymentMethod = cleanMethod;
       invoice.status = 'Finalized';
 
       const resCalc = await recalculateJobCardFinancials(jc, { invoice, saveInvoice: false });
@@ -988,10 +1022,14 @@ router.put('/:id/pay', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Acc
       await invoice.save();
       await jc.save();
     } else {
+      if (!cleanMethod) {
+        cleanMethod = invoice.paymentMethod ? normalizePaymentMode(invoice.paymentMethod) : 'Unknown / Not Recorded';
+      }
       const payAmount = amountPaid !== undefined ? Number(amountPaid) : grandTotal;
       invoice.paymentStatus = payAmount >= grandTotal ? 'Paid' : 'Partially Paid';
       invoice.status = 'Finalized';
       invoice.paymentMethod = cleanMethod;
+      invoice.paymentBreakdown = cleanMethod;
       invoice.amountPaid = payAmount;
       invoice.balanceDue = Math.max(0, grandTotal - payAmount);
       invoice.customerCredit = payAmount > grandTotal ? (payAmount - grandTotal) : 0;
