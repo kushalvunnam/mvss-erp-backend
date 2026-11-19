@@ -87,16 +87,16 @@ const resolveInvoicePaymentDetails = (inv, jc) => {
     const paidAmt = Number(inv?.amountPaid || 0);
     const raw = inv?.paymentMethod;
     if (paidAmt > 0) {
-      const mode = (raw && raw !== 'Cash') ? normalizePaymentModeClient(raw) : (inv?.jobCardId ? 'Unknown / Not Recorded' : (raw ? normalizePaymentModeClient(raw) : 'Unknown / Not Recorded'));
+      const mode = raw ? normalizePaymentModeClient(raw) : 'Unknown / Not Recorded';
       return {
         method: mode,
-        breakdown: mode,
+        breakdown: inv?.paymentBreakdown || mode,
         transactions: [{ amount: paidAmt, mode, type: 'Direct' }]
       };
     }
     return {
-      method: 'Pending / Not Paid',
-      breakdown: 'Pending / Not Paid',
+      method: raw ? normalizePaymentModeClient(raw) : 'Pending / Not Paid',
+      breakdown: raw ? normalizePaymentModeClient(raw) : 'Pending / Not Paid',
       transactions: []
     };
   }
