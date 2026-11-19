@@ -439,21 +439,21 @@ export default function Reports({ token, user }) {
             if (jc.jobCardNo) processedJcNos.add(jc.jobCardNo);
             const inv = invoiceByJcId.get(String(jc._id));
             const backendItem = (jc.jobCardNo && backendByJcNo.get(jc.jobCardNo)) || backendByJcId.get(String(jc._id));
-            const customer = jc.customerId || inv?.customerId || (backendItem?.customerName ? { name: backendItem.customerName, companyName: backendItem.companyName, type: backendItem.customerType } : null);
-            const vehicle = jc.vehicleId || inv?.vehicleId || (backendItem?.vehicleRegNo ? { vehicleNumber: backendItem.vehicleRegNo, model: backendItem.vehicleModel } : null);
+            const customer = jc.customerId || inv?.customerId;
+            const vehicle = jc.vehicleId || inv?.vehicleId;
 
             const finalAmt = inv
               ? (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0)
-              : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || (backendItem?.finalInvoiceAmount || 0));
+              : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
 
-            const advReceived = jc.financialSummary?.totalAdvance ?? ((jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (backendItem?.totalAdvanceReceived || 0));
-            const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || backendItem?.totalPaymentsReceived || 0);
+            const advReceived = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+            const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || 0);
             const rawBal = Math.max(0, finalAmt - totalRec);
-            const bal = (totalRec >= finalAmt - 0.05) ? 0 : (jc.financialSummary?.pendingAmount ?? (inv?.balanceDue !== undefined && inv.balanceDue <= rawBal ? inv.balanceDue : rawBal));
+            const bal = jc.financialSummary?.pendingAmount ?? (inv?.balanceDue ?? rawBal);
 
-            const pStatus = (bal <= 0.05) ? 'Fully Paid' : (jc.paymentStatus || inv?.paymentStatus || backendItem?.paymentStatus || (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
+            const pStatus = jc.paymentStatus || inv?.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
-            const invDate = inv?.date || inv?.createdAt || backendItem?.invoiceDate || jc.date || jc.createdAt;
+            const invDate = inv?.date || inv?.createdAt || jc.date || jc.createdAt;
             const delDate = resolveAuthoritativeDeliveryDateClient(jc, inv, backendItem);
             const payDetails = (backendItem?.paymentMethod && backendItem.paymentMethod !== 'Unknown / Not Recorded')
               ? { method: backendItem.paymentMethod, breakdown: backendItem.paymentBreakdown || backendItem.paymentMethod }
@@ -469,7 +469,7 @@ export default function Reports({ token, user }) {
               companyName: customer?.companyName || backendItem?.companyName || '',
               vehicleRegNo: vehicle?.vehicleNumber || vehicle?.regNo || backendItem?.vehicleRegNo || 'N/A',
               vehicleModel: vehicle?.model || vehicle?.brand || backendItem?.vehicleModel || '',
-              invoiceNo: inv?.invoiceNo || backendItem?.invoiceNo || (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(jc.status) ? 'Delivered – Invoice Pending' : 'N/A'),
+              invoiceNo: inv?.invoiceNo || (['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(jc.status) ? 'Delivered – Invoice Pending' : 'N/A'),
               invoiceDate: invDate,
               vehicleDeliveryDate: delDate,
               finalInvoiceAmount: finalAmt,
@@ -484,37 +484,6 @@ export default function Reports({ token, user }) {
             });
           });
 
-          // 1b. Include backend pending items not found in jobCards
-          (backendPendingReports || []).forEach(b => {
-            const jcId = b.jobCardId || b._id;
-            if ((jcId && processedJcIds.has(String(jcId))) || (b.jobCardNo && processedJcNos.has(b.jobCardNo))) return;
-            if (b.jobCardNo && b.jobCardNo !== 'N/A') processedJcNos.add(b.jobCardNo);
-            if (jcId) processedJcIds.add(String(jcId));
-
-            items.push({
-              _id: b._id || b.jobCardId,
-              jobCardId: b.jobCardId || null,
-              jobCardNo: b.jobCardNo || 'N/A',
-              customerName: b.customerName || 'N/A',
-              customerType: b.customerType || 'Individual',
-              companyName: b.companyName || '',
-              vehicleRegNo: b.vehicleRegNo || 'N/A',
-              vehicleModel: b.vehicleModel || '',
-              invoiceNo: b.invoiceNo || 'N/A',
-              invoiceDate: b.invoiceDate,
-              vehicleDeliveryDate: b.vehicleDeliveryDate,
-              finalInvoiceAmount: b.finalInvoiceAmount || 0,
-              totalAdvanceReceived: b.totalAdvanceReceived || 0,
-              totalPaymentsReceived: b.totalPaymentsReceived || 0,
-              outstandingBalance: b.outstandingBalance || 0,
-              paymentStatus: b.paymentStatus || 'Pending',
-              paymentMethod: b.paymentMethod || 'Unknown / Not Recorded',
-              paymentBreakdown: b.paymentBreakdown || b.paymentMethod || 'Unknown / Not Recorded',
-              jobCardStatus: b.jobCardStatus || 'Pending',
-              creditDueDate: b.creditDueDate
-            });
-          });
-
           // 2. Process standalone invoices not linked to Job Cards
           invoices.forEach(inv => {
             const jcId = inv.jobCardId?._id || inv.jobCardId;
@@ -524,8 +493,7 @@ export default function Reports({ token, user }) {
             const vehicle = inv.vehicleId;
             const finalAmt = inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0;
             const totalRec = inv.amountPaid || 0;
-            const calcBal = Math.max(0, finalAmt - totalRec);
-            const bal = (totalRec >= finalAmt - 0.05) ? 0 : (inv.balanceDue !== undefined && inv.balanceDue <= calcBal ? inv.balanceDue : calcBal);
+            const bal = inv.balanceDue ?? Math.max(0, finalAmt - totalRec);
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
             const invDate = inv.date || inv.createdAt;
             const payDetails = resolveInvoicePaymentDetails(inv, null);
@@ -547,7 +515,7 @@ export default function Reports({ token, user }) {
               totalAdvanceReceived: inv.advanceReceived || 0,
               totalPaymentsReceived: totalRec,
               outstandingBalance: bal,
-              paymentStatus: (bal <= 0.05) ? 'Fully Paid' : (inv.paymentStatus || 'Pending'),
+              paymentStatus: inv.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : 'Pending'),
               paymentMethod: payDetails.method,
               paymentBreakdown: payDetails.breakdown,
               jobCardStatus: 'Invoice Only',
