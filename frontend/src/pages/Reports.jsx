@@ -449,12 +449,19 @@ export default function Reports({ token, user }) {
             const waived = (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0)) || (inv?.totalWaived || 0);
             const netPayable = Math.max(0, finalAmt - waived);
 
-            const advReceived = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-            const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || 0);
-            const rawBal = Math.max(0, finalAmt - totalRec);
-            const bal = jc.financialSummary?.pendingAmount ?? (inv?.balanceDue ?? rawBal);
+            const advReceived = (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (inv?.advanceReceived || 0) || (jc.financialSummary?.totalAdvance || 0);
+            const finReceived = (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (jc.financialSummary?.totalFinal || 0);
+            const directPaid = Number(inv?.amountPaid || 0);
+            const totalRec = Math.max(directPaid, advReceived + finReceived, Number(jc.financialSummary?.totalReceived || 0));
 
-            const pStatus = jc.paymentStatus || inv?.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : (totalRec > 0.05 ? 'Partially Paid' : 'Pending'));
+            const isFullyPaidByStatus = inv?.paymentStatus === 'Paid' || jc.paymentStatus === 'Paid' || ['Fully Paid', 'Paid'].includes(jc.financialSummary?.paymentStatus);
+            const bal = (isFullyPaidByStatus || (netPayable > 0 && totalRec >= netPayable - 0.05))
+              ? 0
+              : Math.max(0, Math.round((netPayable - totalRec) * 100) / 100);
+
+            const pStatus = (bal <= 0.05 && (totalRec > 0 || isFullyPaidByStatus))
+              ? 'Fully Paid'
+              : (totalRec > 0.05 ? 'Partially Paid' : (inv?.paymentStatus || jc.paymentStatus || 'Pending'));
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
             const invDate = inv?.date || inv?.createdAt || jc.date || jc.createdAt;
             const delDate = resolveAuthoritativeDeliveryDateClient(jc, inv, backendItem);
@@ -500,7 +507,13 @@ export default function Reports({ token, user }) {
             const waived = inv.totalWaived || inv.waiverAmount || 0;
             const netPayable = Math.max(0, finalAmt - waived);
             const totalRec = inv.amountPaid || 0;
-            const bal = inv.balanceDue ?? Math.max(0, finalAmt - totalRec);
+            const isFullyPaidByStatus = inv.paymentStatus === 'Paid';
+            const bal = (isFullyPaidByStatus || (netPayable > 0 && totalRec >= netPayable - 0.05))
+              ? 0
+              : Math.max(0, Math.round((netPayable - totalRec) * 100) / 100);
+            const pStatus = (bal <= 0.05 && (totalRec > 0 || isFullyPaidByStatus))
+              ? 'Fully Paid'
+              : (totalRec > 0.05 ? 'Partially Paid' : (inv.paymentStatus || 'Pending'));
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
             const invDate = inv.date || inv.createdAt;
             const payDetails = resolveInvoicePaymentDetails(inv, null);
@@ -543,6 +556,8 @@ export default function Reports({ token, user }) {
               if (!['Fully Paid', 'Paid'].includes(item.paymentStatus)) return false;
             } else if (pendingFilterStatus === 'corporate') {
               if (item.customerType !== 'Corporate' && !item.companyName) return false;
+            } else if (pendingFilterStatus === 'all_records') {
+              return true;
             } else {
               // 'all' view: show items with pending balance OR delivered pending payment
               if (item.outstandingBalance <= 0.05 && !['Delivered – Payment Pending', 'Delivered - Payment Pending'].includes(item.jobCardStatus)) {
@@ -1604,7 +1619,8 @@ export default function Reports({ token, user }) {
               { id: 'delivered_pending', label: 'Delivered – Payment Pending' },
               { id: 'partially_paid', label: 'Partially Paid' },
               { id: 'fully_paid', label: 'Fully Paid' },
-              { id: 'corporate', label: 'Corporate' }
+              { id: 'corporate', label: 'Corporate' },
+              { id: 'all_records', label: 'All Records' }
             ].map(tab => {
               const active = pendingFilterStatus === tab.id;
               return (
@@ -1872,8 +1888,7 @@ export default function Reports({ token, user }) {
                           <th className="p-4 text-right">Advance</th>
                           <th className="p-4 text-right">Total Received</th>
                           <th className="p-4 text-right">Waived</th>
-                          <th className="p-4 text-right">Net Payable</th>
-                          <th className="p-4 text-right">Outstanding</th>
+                          <th className="p-4 text-right">Balance Due</th>
                           <th className="p-4">Payment Status</th>
                           <th className="p-4">Credit Due Date</th>
                         </>
@@ -2069,8 +2084,9 @@ export default function Reports({ token, user }) {
                           <td className="p-4 text-right text-slate-600 dark:text-slate-400">₹{Math.round(item.totalAdvanceReceived || 0).toLocaleString('en-IN')}</td>
                           <td className="p-4 text-right text-emerald-600 dark:text-emerald-400 font-semibold">₹{Math.round(item.totalPaymentsReceived || 0).toLocaleString('en-IN')}</td>
                           <td className="p-4 text-right font-semibold text-purple-600 dark:text-purple-400">₹{Math.round(item.totalWaived || 0).toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-right font-bold text-slate-800 dark:text-slate-100">₹{Math.round(item.netAmountPayable !== undefined ? item.netAmountPayable : item.finalInvoiceAmount || 0).toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-right font-black text-red-600 dark:text-red-400">₹{Math.round(item.outstandingBalance || 0).toLocaleString('en-IN')}</td>
+                          <td className={`p-4 text-right font-black ${item.outstandingBalance > 0.05 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            ₹{Math.round(item.outstandingBalance || 0).toLocaleString('en-IN')}
+                          </td>
                           <td className="p-4">
                             <div className="flex flex-col gap-1 items-start">
                               <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${

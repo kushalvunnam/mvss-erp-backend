@@ -474,23 +474,32 @@ const getPendingPaymentsReportData = async (query = {}) => {
       : (jc.financialSummary?.finalBillAmount || 0);
 
     const estAmount = jc.financialSummary?.estimatedRepairAmount || jc.estAmt || 0;
-    const totalAdvance = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const totalFinal = jc.financialSummary?.totalFinal ?? (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const totalReceived = jc.financialSummary?.totalReceived ?? roundToTwo(totalAdvance + totalFinal);
-    const totalWaived = jc.financialSummary?.totalWaived ?? (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0));
+    const totalAdvance = (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (linkedInvoice?.advanceReceived || 0) || (jc.financialSummary?.totalAdvance || 0);
+    const totalFinal = (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (jc.financialSummary?.totalFinal || 0);
+    const directPaid = Number(linkedInvoice?.amountPaid || 0);
+    const totalReceived = Math.max(directPaid, roundToTwo(totalAdvance + totalFinal), Number(jc.financialSummary?.totalReceived || 0));
+    const totalWaived = jc.financialSummary?.totalWaived ?? (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0)) || Number(linkedInvoice?.totalWaived || linkedInvoice?.waiverAmount || 0);
     
     let netPayable = 0;
     let balanceDue = 0;
 
+    const isFullyPaidByStatus = linkedInvoice?.paymentStatus === 'Paid' || jc.paymentStatus === 'Paid' || ['Fully Paid', 'Paid'].includes(jc.financialSummary?.paymentStatus);
+
     if (linkedInvoice || finalBillAmount > 0) {
-      netPayable = jc.financialSummary?.netAmountPayable ?? Math.max(0, roundToTwo(finalBillAmount - totalWaived));
-      balanceDue = jc.financialSummary?.outstandingBalance ?? (jc.financialSummary?.pendingAmount ?? Math.max(0, roundToTwo(netPayable - totalReceived)));
+      netPayable = Math.max(0, roundToTwo(finalBillAmount - totalWaived));
+      balanceDue = (isFullyPaidByStatus || (netPayable > 0 && totalReceived >= netPayable - 0.05))
+        ? 0
+        : Math.max(0, roundToTwo(netPayable - totalReceived));
     } else {
-      netPayable = jc.financialSummary?.netAmountPayable ?? Math.max(0, roundToTwo(estAmount - totalWaived));
-      balanceDue = jc.financialSummary?.outstandingBalance ?? (jc.financialSummary?.estimatedBalanceDue ?? Math.max(0, roundToTwo(netPayable - totalReceived)));
+      netPayable = Math.max(0, roundToTwo(estAmount - totalWaived));
+      balanceDue = (totalReceived >= (netPayable - 0.05) && netPayable > 0)
+        ? 0
+        : Math.max(0, roundToTwo(netPayable - totalReceived));
     }
 
-    const effectivePaymentStatus = jc.paymentStatus || linkedInvoice?.paymentStatus || (balanceDue <= 0.05 ? 'Fully Paid' : (totalReceived > 0.05 ? 'Partially Paid' : 'Pending'));
+    const effectivePaymentStatus = (balanceDue <= 0.05 && (totalReceived > 0 || isFullyPaidByStatus))
+      ? 'Fully Paid'
+      : (totalReceived > 0.05 ? 'Partially Paid' : (linkedInvoice?.paymentStatus || jc.paymentStatus || 'Pending'));
 
     const creditDueDate = linkedInvoice?.creditDueDate || jc.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && (invDate || deliveryDate) ? new Date(new Date(invDate || deliveryDate).getTime() + 30 * 86400000) : null);
     const creditTerms = linkedInvoice?.creditTerms || jc.creditTerms || (custType === 'Corporate' ? '30 Days' : '');
@@ -544,8 +553,14 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const totalAdvance = inv.advanceReceived || 0;
     const totalFinal = Math.max(0, roundToTwo(totalReceived - totalAdvance));
     const totalWaived = inv.totalWaived || inv.waiverAmount || 0;
-    const netPayable = inv.netAmountPayable || Math.max(0, roundToTwo(finalBillAmount - totalWaived));
-    const balanceDue = inv.balanceDue ?? Math.max(0, roundToTwo(netPayable - totalReceived));
+    const netPayable = Math.max(0, roundToTwo(finalBillAmount - totalWaived));
+    const isFullyPaidByStatus = inv.paymentStatus === 'Paid';
+    const balanceDue = (isFullyPaidByStatus || (netPayable > 0 && totalReceived >= netPayable - 0.05))
+      ? 0
+      : Math.max(0, roundToTwo(netPayable - totalReceived));
+    const effectivePaymentStatus = (balanceDue <= 0.05 && (totalReceived > 0 || isFullyPaidByStatus))
+      ? 'Fully Paid'
+      : (totalReceived > 0.05 ? 'Partially Paid' : (inv.paymentStatus || 'Pending'));
     const creditDueDate = inv.creditDueDate || ((custType === 'Corporate' || customer?.companyName) && inv.date ? new Date(new Date(inv.date).getTime() + 30 * 86400000) : null);
 
     const payDetails = resolvePaymentDetails(inv, null);
@@ -601,6 +616,8 @@ const getPendingPaymentsReportData = async (query = {}) => {
     } else if (targetFilter === 'corporate') {
       const isCorp = item.customerType === 'Corporate' || Boolean(item.companyName);
       if (!isCorp) return false;
+    } else if (targetFilter === 'all_records') {
+      // Return all records
     } else if (targetFilter && targetFilter !== 'all') {
       const matchJcStatus = item.jobCardStatus.toLowerCase() === targetFilter;
       const matchPayStatus = item.paymentStatus.toLowerCase() === targetFilter;
