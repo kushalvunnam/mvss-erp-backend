@@ -478,7 +478,7 @@ const getPendingPaymentsReportData = async (query = {}) => {
     const totalFinal = (jc.finalPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || (jc.financialSummary?.totalFinal || 0);
     const directPaid = Number(linkedInvoice?.amountPaid || 0);
     const totalReceived = Math.max(directPaid, roundToTwo(totalAdvance + totalFinal), Number(jc.financialSummary?.totalReceived || 0));
-    const totalWaived = jc.financialSummary?.totalWaived ?? (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0)) || Number(linkedInvoice?.totalWaived || linkedInvoice?.waiverAmount || 0);
+    const totalWaived = (jc.financialSummary?.totalWaived ?? (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiverAmount || jc.waiver?.waivedAmount) || 0))) || Number(linkedInvoice?.totalWaived || linkedInvoice?.waiverAmount || 0);
     
     let netPayable = 0;
     let balanceDue = 0;
