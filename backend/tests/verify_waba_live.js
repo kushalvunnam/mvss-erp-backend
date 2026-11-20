@@ -15,8 +15,8 @@ const RENDER_BASE = 'https://mvss-erp-backend.onrender.com';
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function waitForDeploy() {
-  console.log('[1/4] Waiting for Render deployment of commit 5d04794 to become live...');
-  const maxAttempts = 35; // 35 * 10s = ~5.8 minutes
+  console.log('[1/4] Waiting for Render deployment of commit b7b047c to become live...');
+  const maxAttempts = 60; // 60 * 10s = 10 minutes
   for (let i = 1; i <= maxAttempts; i++) {
     try {
       const res = await axios.get(`${RENDER_BASE}/api/whatsapp/deep-audit`, {

@@ -489,35 +489,13 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         }
     };
 
-    // 0. Direct reverse lookup from Phone Number ID to owning WABA
-    const targetPhoneId = getEffectivePhoneNumberId();
-    if (targetPhoneId) {
-        try {
-            const phoneWabaRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${targetPhoneId}?fields=id,whatsapp_business_account{id,name}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const waba = phoneWabaRes.data?.whatsapp_business_account;
-            if (waba && waba.id) {
-                candidates.set(waba.id, {
-                    id: waba.id,
-                    name: waba.name || `Owning WABA of ${targetPhoneId}`,
-                    source: `phone_node_reverse_lookup_${targetPhoneId}`
-                });
-                console.log(`[WhatsApp Meta Audit] REVERSE LOOKUP CONFIRMED: Phone Number ID ${targetPhoneId} is owned by WABA ID ${waba.id} (${waba.name || 'N/A'})`);
-            }
-        } catch (phoneErr) {
-            const errDetails = getMetaErrorDetails(phoneErr);
-            console.log(`[WhatsApp Meta Audit] Phone ${targetPhoneId} owning WABA lookup note: ${errDetails.formatted}`);
-        }
-    }
-
     // 1. Direct /me/assigned_whatsapp_business_accounts (supported for System Users)
     await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/assigned_whatsapp_business_accounts?fields=id,name`, '/me/assigned_whatsapp_business_accounts');
 
     // 2. Direct /me/owned_whatsapp_business_accounts
     await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/owned_whatsapp_business_accounts?fields=id,name`, '/me/owned_whatsapp_business_accounts');
 
-    // 4. Direct /me/businesses (Meta Business Portfolios), then /{business_id}/owned_whatsapp_business_accounts
+    // 3. Direct /me/businesses (Meta Business Portfolios), then /{business_id}/owned_whatsapp_business_accounts
     try {
         const bizRes = await customAxios.get(`${GRAPH_API_BASE_URL}/me/businesses?fields=id,name`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -533,7 +511,7 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         console.log(`[WhatsApp Meta Audit] /me/businesses check note: ${errDetails.formatted}`);
     }
 
-    // 5. Candidate Business Portfolio / WABA IDs: configured ID, verified Business ID 1983617422302091, candidate WABA 1718873676471685, and WABA asset_id 3953189031490997
+    // 4. Candidate IDs to investigate: distinguish Business Portfolios from WABAs
     const candidateBizIds = new Set();
     if (configuredBusinessOrWabaId) candidateBizIds.add(String(configuredBusinessOrWabaId).trim());
     if (process.env.META_WA_BUSINESS_ACCOUNT_ID) candidateBizIds.add(String(process.env.META_WA_BUSINESS_ACCOUNT_ID).trim());
@@ -543,24 +521,42 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
     candidateBizIds.add('3953189031490997'); // Exact WABA asset_id from WhatsApp Manager URL
 
     for (const bizId of candidateBizIds) {
-        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/owned_whatsapp_business_accounts?fields=id,name`, `Business ID ${bizId} owned_wabas`);
-        await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/client_whatsapp_business_accounts?fields=id,name`, `Business ID ${bizId} client_wabas`);
-
-        // Check if ID is directly a WABA
+        let nodeType = null;
+        let nodeData = null;
         try {
-            const directRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${bizId}?fields=id,name,timezone_id`, {
+            const metaRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${bizId}?metadata=1&fields=id,name,timezone_id,message_template_namespace`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (directRes.data?.id) {
-                candidates.set(directRes.data.id, {
-                    id: directRes.data.id,
-                    name: directRes.data.name || `Direct WABA (${bizId})`,
-                    source: `direct_lookup_${bizId}`
+            nodeData = metaRes.data;
+            nodeType = metaRes.data?.metadata?.type;
+            console.log(`[WhatsApp Meta Audit] Node ${bizId} resolved type: ${nodeType || 'N/A'} (Name: ${nodeData?.name || 'N/A'})`);
+        } catch (metaErr) {
+            const errDetails = getMetaErrorDetails(metaErr);
+            console.log(`[WhatsApp Meta Audit] Node ${bizId} introspection note: ${errDetails.formatted}`);
+        }
+
+        if (nodeType === 'business') {
+            // Business Portfolio: fetch owned and client WABAs ONLY. Never call /phone_numbers on Business.
+            await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/owned_whatsapp_business_accounts?fields=id,name`, `Business Portfolio ${bizId} owned_wabas`);
+            await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/client_whatsapp_business_accounts?fields=id,name`, `Business Portfolio ${bizId} client_wabas`);
+        } else if (nodeType === 'whatsapp_business_account' || nodeData?.message_template_namespace) {
+            // Confirmed WABA node
+            candidates.set(bizId, {
+                id: bizId,
+                name: nodeData?.name || `WABA (${bizId})`,
+                source: `direct_waba_lookup_${bizId}`
+            });
+        } else {
+            // Other or unverified node: check if directly acts as WABA or business portfolio
+            if (nodeData?.id) {
+                candidates.set(bizId, {
+                    id: bizId,
+                    name: nodeData?.name || `Candidate Account (${bizId})`,
+                    source: `candidate_lookup_${bizId}`
                 });
             }
-        } catch (directErr) {
-            const errDetails = getMetaErrorDetails(directErr);
-            console.log(`[WhatsApp Meta Audit] Direct ID ${bizId} check note: ${errDetails.formatted}`);
+            await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/owned_whatsapp_business_accounts?fields=id,name`, `Node ${bizId} owned_wabas`);
+            await tryFetchWabas(`${GRAPH_API_BASE_URL}/${bizId}/client_whatsapp_business_accounts?fields=id,name`, `Node ${bizId} client_wabas`);
         }
     }
 
@@ -680,19 +676,38 @@ const syncMetaTemplates = async (customAxios = axios) => {
     // 3. Discover Candidate WABAs via supported Meta Graph API flows and verify which one owns phoneNumberId
     const candidateWabas = await discoverAccessibleWabas(customAxios, token, configuredWabaId);
     let verifiedWaba = null;
+    const candidatesChecked = [];
 
     if (candidateWabas.length > 0 && phoneNumberId) {
         console.log(`[WhatsApp Meta Audit] Verifying ${candidateWabas.length} candidate WABA(s) against Phone Number ID ${phoneNumberId}...`);
         for (const cand of candidateWabas) {
+            const candSummary = {
+                id: cand.id,
+                name: cand.name,
+                source: cand.source,
+                phoneCount: 0,
+                phones: [],
+                error: null,
+                matched: false
+            };
             try {
-                const phonesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${cand.id}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`, {
+                const phonesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${cand.id}/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const phoneList = phonesRes.data?.data || [];
+                candSummary.phoneCount = phoneList.length;
+                candSummary.phones = phoneList.map(p => ({
+                    id: p.id,
+                    display_phone_number: p.display_phone_number,
+                    verified_name: p.verified_name,
+                    code_verification_status: p.code_verification_status,
+                    quality_rating: p.quality_rating
+                }));
                 console.log(`[WhatsApp Meta Audit] Candidate WABA ${cand.id} (${cand.name}) owns ${phoneList.length} phone number(s): ${phoneList.map(p => `${p.id} (${p.display_phone_number})`).join(', ') || 'none'}`);
 
                 const matchedPhone = phoneList.find(p => p.id === phoneNumberId);
                 if (matchedPhone) {
+                    candSummary.matched = true;
                     verifiedWaba = {
                         id: cand.id,
                         name: cand.name,
@@ -701,14 +716,18 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     };
                     resolvedVerifiedWabaId = cand.id;
                     console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED: WABA ID ${cand.id} (${cand.name}) owns Phone Number ID ${phoneNumberId} (${matchedPhone.display_phone_number || 'N/A'})`);
+                    candidatesChecked.push(candSummary);
                     break;
                 }
             } catch (candErr) {
                 const errDetails = getMetaErrorDetails(candErr);
+                candSummary.error = errDetails.formatted;
                 console.log(`[WhatsApp Meta Audit] Candidate WABA ${cand.id} /phone_numbers check note: ${errDetails.formatted}`);
             }
+            candidatesChecked.push(candSummary);
         }
     }
+    auditReport.wabaVerification.candidatesChecked = candidatesChecked;
 
     // 4. Handle WABA Verification Outcome
     if (verifiedWaba) {

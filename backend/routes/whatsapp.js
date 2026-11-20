@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const router = express.Router();
 const WhatsAppLog = require('../models/WhatsAppLog');
 const Customer = require('../models/Customer');
@@ -475,10 +476,10 @@ router.get('/deep-audit', auth, restrictTo('Admin', 'Super Admin'), async (req, 
             return {
                 success: false,
                 status: err.response?.status || 0,
-                code: errObj.code,
+                code: errObj.code || err.code,
                 subcode: errObj.error_subcode,
                 type: errObj.type,
-                message: errObj.message,
+                message: errObj.message || err.message,
                 fbtrace_id: errObj.fbtrace_id
             };
         }
@@ -532,10 +533,7 @@ router.get('/deep-audit', auth, restrictTo('Admin', 'Super Admin'), async (req, 
         // 5. Introspect 1435390016330145 (Phone Number ID)
         audit.targetPhone_1435390016330145 = {
             metadata: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?metadata=1'),
-            basic: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating'),
-            wabaEdge_v22: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?fields=whatsapp_business_account{id,name}'),
-            wabaEdge_v21: await safeGet('https://graph.facebook.com/v21.0/1435390016330145?fields=whatsapp_business_account{id,name}'),
-            wabaEdge_v20: await safeGet('https://graph.facebook.com/v20.0/1435390016330145?fields=whatsapp_business_account{id,name}')
+            basic: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating,status,account_mode,name_status,new_name_status')
         };
 
         // 6. Introspect other known IDs: 2021254895254703, 1070579342641923, 1983617422302091, 3953189031490997
