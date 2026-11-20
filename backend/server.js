@@ -18,16 +18,16 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Official WhatsApp Automation Sender Configuration
-// Active Sender: +91 91771 77509 | Phone Number ID: 1446113211917959 | WABA ID: 2021254895254703
+// Active Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 1718873676471685
 const OLD_PHONE_NUMBER_ID = '1391083524077434';
-const OLD_WABA_IDS = ['10705793426461923', '1070579342641923'];
+const OLD_WABA_IDS = ['10705793426461923', '1070579342641923', '4778078332414981'];
 const OLD_SENDER_PHONE = '917674819765';
 
-const NEW_PHONE_NUMBER_ID = '1446113211917959';
-const NEW_WABA_ID = '2021254895254703';
+const NEW_PHONE_NUMBER_ID = '1435390016330145';
+const NEW_WABA_ID = '1718873676471685';
 const NEW_SENDER_PHONE = '919177177509';
 
-if (!process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_PHONE_NUMBER_ID === OLD_PHONE_NUMBER_ID) {
+if (!process.env.META_WA_PHONE_NUMBER_ID || process.env.META_WA_PHONE_NUMBER_ID === OLD_PHONE_NUMBER_ID || process.env.META_WA_PHONE_NUMBER_ID === '1446113211917959') {
   process.env.META_WA_PHONE_NUMBER_ID = NEW_PHONE_NUMBER_ID;
 }
 if (!process.env.META_WA_BUSINESS_ACCOUNT_ID || OLD_WABA_IDS.includes(process.env.META_WA_BUSINESS_ACCOUNT_ID)) {
@@ -402,7 +402,7 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    version: 'production-v2.1.0-waba-verification-diagnostic',
+    version: 'production-v2.1.1-waba-verification-diagnostic',
     description: 'All 7 advance payment modes supported, reports balance calculations aligned, and WhatsApp WABA verification diagnostics active'
   });
 });
