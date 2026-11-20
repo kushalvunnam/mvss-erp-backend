@@ -519,6 +519,16 @@ router.get('/deep-audit', auth, restrictTo('Admin', 'Super Admin'), async (req, 
             clientWabas: await safeGet('https://graph.facebook.com/v22.0/4778078332414981/client_whatsapp_business_accounts?fields=id,name')
         };
 
+        // 4b. Introspect 1718873676471685 (Candidate WABA ID from Meta Business Settings URL)
+        audit.targetWaba_1718873676471685 = {
+            metadata: await safeGet('https://graph.facebook.com/v22.0/1718873676471685?metadata=1'),
+            basic: await safeGet('https://graph.facebook.com/v22.0/1718873676471685?fields=id,name,currency,timezone_id,account_mode,message_template_namespace'),
+            phoneNumbers: await safeGet('https://graph.facebook.com/v22.0/1718873676471685/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating'),
+            templates: await safeGet('https://graph.facebook.com/v22.0/1718873676471685/message_templates?fields=id,name,status,language,components&limit=50'),
+            assignedUsers: await safeGet('https://graph.facebook.com/v22.0/1718873676471685/assigned_users?fields=id,name,tasks'),
+            subscribedApps: await safeGet('https://graph.facebook.com/v22.0/1718873676471685/subscribed_apps')
+        };
+
         // 5. Introspect 1435390016330145 (Phone Number ID)
         audit.targetPhone_1435390016330145 = {
             metadata: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?metadata=1'),

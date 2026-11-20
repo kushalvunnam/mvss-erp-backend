@@ -2,10 +2,12 @@ const axios = require('axios');
 const WhatsAppLog = require('../models/WhatsAppLog');
 
 // Official Meta WhatsApp Business Account & Sender configuration
-// Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 4778078332414981 / 2021254895254703
+// Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 1718873676471685
 const OFFICIAL_PHONE_NUMBER_ID = '1435390016330145';
-const OFFICIAL_WABA_ID = '2021254895254703';
+const OFFICIAL_WABA_ID = '1718873676471685';
 const OFFICIAL_SENDER_PHONE = '919177177509';
+
+let resolvedVerifiedWabaId = null;
 
 const getEffectivePhoneNumberId = () => {
     const envId = process.env.META_WA_PHONE_NUMBER_ID;
@@ -16,8 +18,9 @@ const getEffectivePhoneNumberId = () => {
 };
 
 const getEffectiveWabaId = () => {
+    if (resolvedVerifiedWabaId) return resolvedVerifiedWabaId;
     const envWaba = process.env.META_WA_BUSINESS_ACCOUNT_ID;
-    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923') {
+    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923' || envWaba === '4778078332414981') {
         return OFFICIAL_WABA_ID;
     }
     return envWaba;
@@ -530,9 +533,12 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         console.log(`[WhatsApp Meta Audit] /me/businesses check note: ${errDetails.formatted}`);
     }
 
-    // 5. Candidate Business Portfolio / WABA IDs: configured ID, verified Business ID 1983617422302091, and WABA asset_id 3953189031490997
+    // 5. Candidate Business Portfolio / WABA IDs: configured ID, verified Business ID 1983617422302091, candidate WABA 1718873676471685, and WABA asset_id 3953189031490997
     const candidateBizIds = new Set();
     if (configuredBusinessOrWabaId) candidateBizIds.add(String(configuredBusinessOrWabaId).trim());
+    if (process.env.META_WA_BUSINESS_ACCOUNT_ID) candidateBizIds.add(String(process.env.META_WA_BUSINESS_ACCOUNT_ID).trim());
+    candidateBizIds.add('1718873676471685'); // Candidate WABA ID from Meta Business Settings URL
+    candidateBizIds.add('4778078332414981'); // Candidate Messaging Account ID
     candidateBizIds.add('1983617422302091'); // MVSS Automobiles Meta Business Portfolio ID from WhatsApp Manager
     candidateBizIds.add('3953189031490997'); // Exact WABA asset_id from WhatsApp Manager URL
 
@@ -693,6 +699,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
                         source: cand.source,
                         matchedPhone
                     };
+                    resolvedVerifiedWabaId = cand.id;
                     console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED: WABA ID ${cand.id} (${cand.name}) owns Phone Number ID ${phoneNumberId} (${matchedPhone.display_phone_number || 'N/A'})`);
                     break;
                 }
