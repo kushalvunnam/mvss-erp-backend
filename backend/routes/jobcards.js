@@ -161,7 +161,7 @@ router.get('/', auth, async (req, res) => {
     }
 
     const jobCards = await JobCard.find(query)
-      .select('jobCardNo status bodyShopStatus bodyShopStage vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails deliveredBy actualDeliveryDate vehicleDeliveredAt statusHistory advancePayments finalPayments financialSummary paymentStatus creditDueDate creditTerms qcStatus')
+      .select('jobCardNo status bodyShopStatus bodyShopStage vehicleId customerId odometerReading serviceType serviceTypes date serviceAdvisorId createdAt updatedAt billingSummary promDate promTime workCategory advisorNotes bodyShopDetails deliveredBy actualDeliveryDate vehicleDeliveredAt statusHistory advancePayments finalPayments financialSummary paymentStatus creditDueDate creditTerms qcStatus')
       .populate('customerId')
       .populate('vehicleId')
       .populate('serviceAdvisorId', 'name')

@@ -446,6 +446,9 @@ export default function Reports({ token, user }) {
               ? (inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0)
               : (jc.financialSummary?.finalBillAmount || jc.billingSummary?.grandTotal || 0);
 
+            const waived = (jc.waivers ? jc.waivers.filter(w => w.status !== 'Reversed').reduce((s, w) => s + (Number(w.amount) || 0), 0) : (Number(jc.waiver?.waivedAmount) || 0)) || (inv?.totalWaived || 0);
+            const netPayable = Math.max(0, finalAmt - waived);
+
             const advReceived = jc.financialSummary?.totalAdvance ?? (jc.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
             const totalRec = jc.financialSummary?.totalReceived ?? (inv?.amountPaid || 0);
             const rawBal = Math.max(0, finalAmt - totalRec);
@@ -475,6 +478,8 @@ export default function Reports({ token, user }) {
               finalInvoiceAmount: finalAmt,
               totalAdvanceReceived: advReceived,
               totalPaymentsReceived: totalRec,
+              totalWaived: waived,
+              netAmountPayable: netPayable,
               outstandingBalance: bal,
               paymentStatus: pStatus,
               paymentMethod: payDetails.method,
@@ -492,6 +497,8 @@ export default function Reports({ token, user }) {
             const customer = inv.customerId;
             const vehicle = inv.vehicleId;
             const finalAmt = inv.totals?.roundedGrandTotal || inv.totals?.grandTotal || 0;
+            const waived = inv.totalWaived || inv.waiverAmount || 0;
+            const netPayable = Math.max(0, finalAmt - waived);
             const totalRec = inv.amountPaid || 0;
             const bal = inv.balanceDue ?? Math.max(0, finalAmt - totalRec);
             const cType = customer?.type || (customer?.companyName ? 'Corporate' : 'Individual');
@@ -514,6 +521,8 @@ export default function Reports({ token, user }) {
               finalInvoiceAmount: finalAmt,
               totalAdvanceReceived: inv.advanceReceived || 0,
               totalPaymentsReceived: totalRec,
+              totalWaived: waived,
+              netAmountPayable: netPayable,
               outstandingBalance: bal,
               paymentStatus: inv.paymentStatus || (bal <= 0.05 ? 'Fully Paid' : 'Pending'),
               paymentMethod: payDetails.method,
