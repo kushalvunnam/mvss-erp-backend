@@ -7,20 +7,20 @@ const purchaseItemSchema = new mongoose.Schema({
   },
   partNumber: {
     type: String,
-    required: true,
+    default: '',
   },
   partName: {
     type: String,
-    required: true,
+    default: '',
   },
   qty: {
     type: Number,
-    required: true,
-    min: 1,
+    default: 1,
+    min: 0,
   },
   purchasePrice: {
     type: Number,
-    required: true,
+    default: 0,
     min: 0,
   },
   sellingPrice: {
@@ -72,11 +72,11 @@ const purchaseItemSchema = new mongoose.Schema({
   },
   taxableAmount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   gstAmount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   cgst: {
     type: Number,
@@ -96,7 +96,7 @@ const purchaseItemSchema = new mongoose.Schema({
   },
   total: {
     type: Number,
-    required: true,
+    default: 0,
   },
   // New fields for Parts Master integration
   brand: {
@@ -139,11 +139,22 @@ const purchaseSchema = new mongoose.Schema({
   vendorId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vendor',
-    required: true,
+    required: false,
   },
   vendorName: {
     type: String,
-    required: true,
+    default: '',
+  },
+  status: {
+    type: String,
+    enum: ['Draft', 'Submitted'],
+    default: 'Submitted',
+    index: true,
+  },
+  isDraft: {
+    type: Boolean,
+    default: false,
+    index: true,
   },
   date: {
     type: Date,
@@ -185,7 +196,7 @@ const purchaseSchema = new mongoose.Schema({
   },
   createdBy: {
     type: String,
-    required: true,
+    default: 'Staff',
   },
   updatedBy: {
     type: String,
@@ -221,6 +232,8 @@ const purchaseSchema = new mongoose.Schema({
 
 purchaseSchema.index({ invoiceNo: 1 });
 purchaseSchema.index({ vendorName: 1 });
-purchaseSchema.index({ vendorId: 1, invoiceNo: 1 }, { unique: true });
+purchaseSchema.index({ status: 1 });
+purchaseSchema.index({ isDraft: 1 });
+purchaseSchema.index({ vendorId: 1, invoiceNo: 1 }, { unique: true, partialFilterExpression: { isDraft: false, invoiceNo: { $exists: true, $gt: '' } } });
 
 module.exports = mongoose.model('Purchase', purchaseSchema);

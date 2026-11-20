@@ -128,6 +128,7 @@ async function getNextSequence(moduleName, modelName, date = new Date()) {
 function formatLegacyNumber(val, moduleName, fallbackDate = new Date()) {
   if (!val) return val;
   if (val.startsWith('MVSS/')) return val;
+  if (val.startsWith('EST-DRAFT-') || val.startsWith('PUR-DRAFT-') || val.startsWith('DRAFT-') || val.includes('DRAFT')) return val;
 
   // If it matches JC/26-27/005, map to MVSS/JC/26-27/005
   if (val.includes('/')) {

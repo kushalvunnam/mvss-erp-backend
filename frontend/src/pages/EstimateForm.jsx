@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
-import { Plus, Trash2, Save, ShoppingCart, Activity, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Save, ShoppingCart, Activity, AlertCircle, FileText, Loader2 } from 'lucide-react';
 import { calculatePricing } from '../utils/pricingEngine';
 import SearchableDropdown from '../components/SearchableDropdown';
 import JobCardSearchableDropdown from '../components/JobCardSearchableDropdown';
@@ -842,7 +842,95 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     setter(updatedList);
   };
 
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSaveDraft = async () => {
+    if (isSavingDraft || isSaving) return;
+    setIsSavingDraft(true);
+
+    try {
+      // Clean up parts rows that have at least some input
+      const cleanedParts = partsList
+        .filter(p => (p.name && p.name.trim() !== '') || (p.partNo && p.partNo.trim() !== '') || (Number(p.rate) > 0) || (Number(p.qty) > 0))
+        .map(p => {
+          const item = {
+            name: p.name ? p.name.trim() : (p.partNo ? `Part ${p.partNo.trim()}` : 'Draft Part'),
+            partNo: p.partNo ? p.partNo.trim() : '',
+            hsnCode: p.hsnCode ? p.hsnCode.trim() : '',
+            unit: p.unit || 'Pcs',
+            qty: Math.max(0, Number(p.qty) || 1),
+            rate: Number(p.rate) || 0,
+            discount: Number(p.discount) || 0,
+            total: Number(p.total) || 0,
+            gstPercent: (p.gstPercent !== undefined && p.gstPercent !== null && p.gstPercent !== '') ? Number(p.gstPercent) : 18,
+            status: p.status || 'Pending'
+          };
+          if (p.partId && p.partId.trim() !== '') {
+            item.partId = p.partId.trim();
+          }
+          return item;
+        });
+
+      // Clean up labour rows that have some input
+      const cleanedLabour = labourList
+        .filter(l => (l.description && l.description.trim() !== '') || (Number(l.rate) > 0))
+        .map(l => ({
+          description: l.description ? l.description.trim() : 'Draft Service',
+          rate: Number(l.rate) || 0,
+          discount: Number(l.discount) || 0,
+          total: Number(l.total) || 0,
+          gstPercent: (l.gstPercent !== undefined && l.gstPercent !== null && l.gstPercent !== '') ? Number(l.gstPercent) : 18
+        }));
+
+      const isManual = Boolean(manualOverride);
+      const parsedOverride = (isManual && overriddenGrandTotal !== '') ? parseFloat(overriddenGrandTotal) || 0 : null;
+
+      const payload = {
+        jobCardId: selectedJcId || null,
+        parts: cleanedParts,
+        labour: cleanedLabour,
+        manualOverride: isManual,
+        manualGrandTotal: parsedOverride,
+        grandTotal: parsedOverride !== null ? parsedOverride : undefined,
+        reason: revisionReason ? revisionReason.trim() : undefined,
+        isDraft: true,
+        status: 'Draft',
+        action: 'save_draft'
+      };
+
+      const url = editId
+        ? `${API_BASE_URL}/estimates/${editId}`
+        : `${API_BASE_URL}/estimates`;
+      const method = editId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        alert('Draft saved successfully.');
+        onSaved();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to save draft.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('An error occurred while saving the draft.');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (isSaving || isSavingDraft) return;
+
     if (!selectedJcId) {
       alert('Please select a Job Card first.');
       return;
@@ -887,6 +975,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       return;
     }
 
+    setIsSaving(true);
     const isRevising = Boolean(existingEstimate && existingEstimate.status !== 'Draft');
     const isManual = Boolean(manualOverride);
     const parsedOverride = (isManual && overriddenGrandTotal !== '') ? parseFloat(overriddenGrandTotal) || 0 : null;
@@ -928,6 +1017,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     } catch (err) {
       console.error(err);
       alert('An error occurred while saving the estimate.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1583,20 +1674,33 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         )}
 
         {/* Save button */}
-        <div className="flex justify-end gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex justify-end items-center gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-750 dark:text-slate-350 transition-colors"
+            disabled={isSaving || isSavingDraft}
+            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors"
           >
             Cancel
           </button>
           <button
             type="button"
-            onClick={handleSave}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 flex items-center gap-2"
+            onClick={handleSaveDraft}
+            disabled={isSavingDraft || isSaving}
+            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-amber-500/20 flex items-center gap-2"
+            title="Save all entered information as a draft without triggering approval requests"
           >
-            <Save className="w-4 h-4" /> {existingEstimate && existingEstimate.status !== 'Draft' ? 'Save Revised Estimate' : 'Save Estimate'}
+            {isSavingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+            Save as Draft
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving || isSavingDraft}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 flex items-center gap-2"
+          >
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {existingEstimate && existingEstimate.status !== 'Draft' ? 'Save Revised Estimate' : 'Save Estimate'}
           </button>
         </div>
 

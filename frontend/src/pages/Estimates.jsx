@@ -1,6 +1,31 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { API_BASE_URL, OWNER_SUPPORT_NUMBER } from '../config';
-import { Search, Plus, Edit2, FileCheck, Check, X, Download, FileText, Trash2, Send, Loader2, MessageSquare, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react';
+import { 
+  Search, 
+  Plus, 
+  Edit2, 
+  FileCheck, 
+  Check, 
+  X, 
+  Download, 
+  FileText, 
+  Trash2, 
+  Send, 
+  Loader2, 
+  MessageSquare, 
+  AlertCircle, 
+  CheckCircle2, 
+  ExternalLink,
+  Eye,
+  Printer,
+  Clock,
+  User,
+  Car,
+  Wrench,
+  IndianRupee,
+  Calendar,
+  Phone
+} from 'lucide-react';
 const EstimateForm = lazy(() => import('./EstimateForm'));
 
 export default function Estimates({ token, user, setActiveTab }) {
@@ -16,6 +41,21 @@ export default function Estimates({ token, user, setActiveTab }) {
   const [isApproving, setIsApproving] = useState(false);
   const [sendingMap, setSendingMap] = useState({});
   const [notification, setNotification] = useState(null);
+  const [previewEstimate, setPreviewEstimate] = useState(null);
+  const scrollPositionRef = useRef(0);
+
+  const handleOpenPreview = (est, e) => {
+    if (e) e.stopPropagation();
+    scrollPositionRef.current = window.scrollY;
+    setPreviewEstimate(est);
+  };
+
+  const handleClosePreview = () => {
+    setPreviewEstimate(null);
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollPositionRef.current, behavior: 'instant' });
+    });
+  };
 
   // Auto-dismiss notifications after 7 seconds
   useEffect(() => {
@@ -270,9 +310,12 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   };
 
-  const handleDeleteEstimate = async (id, e) => {
+  const handleDeleteEstimate = async (id, e, isDraft = false) => {
     if (e) e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this estimate permanently?')) return;
+    const confirmMsg = isDraft 
+      ? 'Are you sure you want to delete this draft estimate permanently?' 
+      : 'Are you sure you want to delete this estimate permanently?';
+    if (!confirm(confirmMsg)) return;
 
     try {
       const res = await fetch(`${API_BASE_URL}/estimates/${id}`, {
@@ -280,6 +323,9 @@ export default function Estimates({ token, user, setActiveTab }) {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
+        if (previewEstimate && previewEstimate._id === id) {
+          handleClosePreview();
+        }
         fetchEstimates();
       } else {
         const err = await res.json();
@@ -911,6 +957,43 @@ export default function Estimates({ token, user, setActiveTab }) {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 p-3 rounded-2xl">
         <div className="flex flex-wrap gap-3 items-center flex-1">
+          {/* Quick Status Filter Tabs: All, Draft, Submitted */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                statusFilter === ''
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('Draft')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                statusFilter === 'Draft'
+                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Drafts
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('Submitted')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                statusFilter === 'Submitted'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Submitted
+            </button>
+          </div>
+
           <div className="relative min-w-[250px] flex-1 max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -926,7 +1009,7 @@ export default function Estimates({ token, user, setActiveTab }) {
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-4 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-350 text-xs font-bold focus:outline-none"
           >
-            <option value="">All Estimate Statuses</option>
+            <option value="">All Statuses</option>
             <option value="Draft">Draft</option>
             <option value="Waiting for Approval">Waiting for Approval</option>
             <option value="Sent">Sent</option>
@@ -968,15 +1051,18 @@ export default function Estimates({ token, user, setActiveTab }) {
               {estimates.length > 0 ? (
                 estimates.map(est => {
                   let statusBg = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
-                  if (est.status === 'Waiting for Approval') statusBg = 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-300 dark:border-purple-800';
-                  if (est.status === 'Sent') statusBg = 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400 border border-sky-300 dark:border-sky-800';
-                  if (est.status === 'Approved') statusBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800';
-                  if (est.status === 'Rejected') statusBg = 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800';
-                  if (est.status === 'Revised') statusBg = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-300 dark:border-amber-800';
+                  if (est.isDraft || est.status === 'Draft') statusBg = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-300 dark:border-amber-800';
+                  else if (est.status === 'Waiting for Approval') statusBg = 'bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-300 dark:border-purple-800';
+                  else if (est.status === 'Sent') statusBg = 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400 border border-sky-300 dark:border-sky-800';
+                  else if (est.status === 'Approved') statusBg = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800';
+                  else if (est.status === 'Rejected') statusBg = 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800';
+                  else if (est.status === 'Revised') statusBg = 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-300 dark:border-amber-800';
 
                   const jc = est.jobCardId || {};
                   const cust = jc.customerId || {};
                   const veh = jc.vehicleId || {};
+                  const customerDisplayName = cust.name || est.draftCustomerInfo?.customerName || (est.isDraft ? 'Draft Customer' : 'Unknown');
+                  const vehicleDisplayNo = veh.vehicleNumber || est.draftCustomerInfo?.vehicleNumber || (est.isDraft ? 'Pending JC' : 'N/A');
 
                   return (
                     <React.Fragment key={est._id}>
@@ -989,8 +1075,8 @@ export default function Estimates({ token, user, setActiveTab }) {
                       >
                         <td className="p-4 font-bold text-slate-800 dark:text-slate-200 font-mono">{est.estimateNo}</td>
                         <td className="p-4 font-semibold text-slate-650 dark:text-slate-350">{jc.jobCardNo || 'N/A'}</td>
-                        <td className="p-4 font-bold text-slate-550 dark:text-slate-400 font-mono">{veh.vehicleNumber || 'N/A'}</td>
-                        <td className="p-4 font-medium text-slate-550 dark:text-slate-400">{cust.name || 'Unknown'}</td>
+                        <td className="p-4 font-bold text-slate-550 dark:text-slate-400 font-mono">{vehicleDisplayNo}</td>
+                        <td className="p-4 font-medium text-slate-550 dark:text-slate-400">{customerDisplayName}</td>
                         <td className="p-4 font-bold text-slate-900 dark:text-white">
                           <div>
                             ₹{((est.manualOverride && est.manualGrandTotal !== undefined && est.manualGrandTotal !== null)
@@ -1010,7 +1096,16 @@ export default function Estimates({ token, user, setActiveTab }) {
                         </td>
                         <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-2 justify-end items-center">
-                            {isAdvisorOrAdmin && ['Draft', 'Revised'].includes(est.status) && (
+                            {/* Preview Eye Action */}
+                            <button
+                              onClick={(e) => handleOpenPreview(est, e)}
+                              className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              title="Preview Estimate Details"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            </button>
+
+                            {isAdvisorOrAdmin && !est.isDraft && ['Draft', 'Revised'].includes(est.status) && (
                               <button
                                 onClick={(e) => handleSendCustomerEstimate(est, e)}
                                 disabled={Boolean(sendingMap[est._id])}
@@ -1127,11 +1222,11 @@ export default function Estimates({ token, user, setActiveTab }) {
                             >
                               <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                             </button>
-                            {['Admin', 'Accounts', 'Accounts Executive'].includes(user?.role) && (
+                            {((['Admin', 'Accounts', 'Accounts Executive'].includes(user?.role)) || (est.isDraft && ['Service', 'Body Shop', 'Spares'].includes(user?.role))) && (
                               <button
-                                onClick={(e) => handleDeleteEstimate(est._id, e)}
+                                onClick={(e) => handleDeleteEstimate(est._id, e, est.isDraft)}
                                 className="text-slate-400 hover:text-red-650 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850"
-                                title="Delete Estimate"
+                                title={est.isDraft ? "Delete Draft" : "Delete Estimate"}
                               >
                                 <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
                               </button>
@@ -1488,6 +1583,303 @@ export default function Estimates({ token, user, setActiveTab }) {
           </div>
         </div>
       )}
+      {/* Responsive Slide-over Preview Drawer for Estimation */}
+      {previewEstimate && (() => {
+        const est = previewEstimate;
+        const jc = est.jobCardId || {};
+        const cust = jc.customerId || {};
+        const veh = jc.vehicleId || {};
+        const customerName = cust.name || est.draftCustomerInfo?.customerName || (est.isDraft ? 'Draft Customer' : 'Walk-in Customer');
+        const contactNo = cust.mobile || cust.phone || cust.contactNumber || est.draftCustomerInfo?.contactNumber || 'N/A';
+        const address = cust.address || 'N/A';
+        const gstin = cust.gstNumber || 'N/A';
+        const vehicleReg = veh.vehicleNumber || est.draftCustomerInfo?.vehicleNumber || (est.isDraft ? 'Pending Job Card' : 'N/A');
+        const vehicleModel = `${veh.make || ''} ${veh.model || ''}`.trim() || est.draftCustomerInfo?.vehicleMakeModel || 'N/A';
+        const isDraftRecord = Boolean(est.isDraft || est.status === 'Draft');
+
+        const partsList = est.parts || [];
+        const labourList = est.labour || [];
+        const partsTotal = est.totals?.partsTotal || 0;
+        const labourTotal = est.totals?.labourTotal || 0;
+        const taxableAmount = est.totals?.taxableAmount || (partsTotal + labourTotal);
+        const cgstTotal = est.totals?.cgstTotal || 0;
+        const sgstTotal = est.totals?.sgstTotal || 0;
+        const igstTotal = est.totals?.igstTotal || 0;
+        const totalGst = est.totals?.gstTotal || (cgstTotal + sgstTotal + igstTotal);
+        const grandTotal = (est.manualOverride && est.manualGrandTotal !== undefined && est.manualGrandTotal !== null)
+          ? Number(est.manualGrandTotal)
+          : (est.status === 'Approved' && est.approvalMetadata?.finalAmount
+            ? Number(est.approvalMetadata.finalAmount)
+            : (est.totals?.grandTotal || (taxableAmount + totalGst)));
+
+        return (
+          <div 
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex justify-end animate-fade-in"
+            onClick={handleClosePreview}
+          >
+            <div 
+              className="w-full sm:max-w-2xl lg:max-w-3xl h-full bg-white dark:bg-slate-900 shadow-2xl overflow-y-auto flex flex-col z-50 animate-slide-left border-l border-slate-200 dark:border-slate-800"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Drawer Top Navigation & Actions Bar */}
+              <div className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 z-10 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-black font-mono text-indigo-600 dark:text-indigo-400">
+                      {est.estimateNo}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                      isDraftRecord
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300'
+                        : est.status === 'Approved'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300'
+                        : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300'
+                    }`}>
+                      {est.status}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                    Estimation Preview • {new Date(est.createdAt || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  {isAdvisorOrAdmin && est.status !== 'Approved' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        handleClosePreview();
+                        handleOpenEdit(est._id, e);
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold transition-all"
+                      title="Edit this estimate"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>{isDraftRecord ? 'Resume / Edit Draft' : 'Edit'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => printEstimate(est)}
+                    className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                    title="Print Proforma Estimate"
+                  >
+                    <Printer className="w-4 h-4 text-slate-700 dark:text-slate-200" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleDownloadCustomerPDF(est, e)}
+                    className="p-2 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded-xl transition-colors"
+                    title="Download Customer Estimate PDF"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleClosePreview}
+                    className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title="Close preview"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Drawer Content */}
+              <div className="p-4 sm:p-6 space-y-5 text-xs text-slate-800 dark:text-slate-200">
+                {/* Meta Overview Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Customer Card */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 space-y-2">
+                    <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black uppercase text-[10px] tracking-wider">
+                      <User className="w-3.5 h-3.5" /> Customer Details
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-sm text-slate-900 dark:text-white">{customerName}</p>
+                      <p className="text-slate-500 flex items-center gap-1 mt-0.5">
+                        <Phone className="w-3 h-3 text-slate-400" /> {contactNo}
+                      </p>
+                      {address !== 'N/A' && <p className="text-slate-500 mt-1">{address}</p>}
+                      {gstin !== 'N/A' && <p className="text-slate-500 font-mono text-[11px] mt-0.5">GSTIN: {gstin}</p>}
+                    </div>
+                  </div>
+
+                  {/* Vehicle Card */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 space-y-2">
+                    <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black uppercase text-[10px] tracking-wider">
+                      <Car className="w-3.5 h-3.5" /> Vehicle & Job Card
+                    </div>
+                    <div>
+                      <p className="font-black font-mono text-sm text-slate-900 dark:text-white">{vehicleReg}</p>
+                      <p className="text-slate-600 dark:text-slate-300 font-semibold mt-0.5">{vehicleModel}</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="text-slate-400 text-[11px]">Job Card:</span>
+                        <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{jc.jobCardNo || 'Not linked / Draft'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Spare Parts Itemization */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5 text-indigo-500" /> A. Spare Parts ({partsList.length})
+                    </h4>
+                    <span className="text-xs font-bold text-slate-500 font-mono">
+                      Subtotal: ₹{partsTotal.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 font-black text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2.5 px-3">#</th>
+                          <th className="py-2.5 px-3">Part Name</th>
+                          <th className="py-2.5 px-3">Qty</th>
+                          <th className="py-2.5 px-3">Rate (₹)</th>
+                          <th className="py-2.5 px-3">Disc (₹)</th>
+                          <th className="py-2.5 px-3">Taxable (₹)</th>
+                          <th className="py-2.5 px-3">GST%</th>
+                          <th className="py-2.5 px-3 text-right">Total (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {partsList.length > 0 ? (
+                          partsList.map((p, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                              <td className="py-2 px-3 text-slate-400">{idx + 1}</td>
+                              <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                                <div>{p.name || 'Part'}</div>
+                                {p.partNo && <span className="text-[10px] text-slate-400 font-mono">No: {p.partNo}</span>}
+                              </td>
+                              <td className="py-2 px-3 font-bold font-mono">{p.qty || 1} {p.unit || ''}</td>
+                              <td className="py-2 px-3 font-mono">₹{Number(p.rate || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono text-amber-600">₹{Number(p.discount || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono">₹{Number(p.taxableValue || ((p.qty || 1) * (p.rate || 0) - (p.discount || 0))).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono">{p.gstPercent || 18}%</td>
+                              <td className="py-2 px-3 font-mono font-bold text-right">₹{Number(p.total || 0).toFixed(2)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="8" className="py-4 text-center text-slate-400 italic">No spare parts in this estimate.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Labour / Services Itemization */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-purple-500" /> B. Labour & Services ({labourList.length})
+                    </h4>
+                    <span className="text-xs font-bold text-slate-500 font-mono">
+                      Subtotal: ₹{labourTotal.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 font-black text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2.5 px-3">#</th>
+                          <th className="py-2.5 px-3">Service Description</th>
+                          <th className="py-2.5 px-3">Rate (₹)</th>
+                          <th className="py-2.5 px-3">Disc (₹)</th>
+                          <th className="py-2.5 px-3">Taxable (₹)</th>
+                          <th className="py-2.5 px-3">GST%</th>
+                          <th className="py-2.5 px-3 text-right">Total (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {labourList.length > 0 ? (
+                          labourList.map((l, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                              <td className="py-2 px-3 text-slate-400">{idx + 1}</td>
+                              <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-200">{l.description || 'Labour Service'}</td>
+                              <td className="py-2 px-3 font-mono">₹{Number(l.rate || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono text-amber-600">₹{Number(l.discount || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono">₹{Number(l.taxableValue || ((l.rate || 0) - (l.discount || 0))).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono">{l.gstPercent || 18}%</td>
+                              <td className="py-2 px-3 font-mono font-bold text-right">₹{Number(l.total || 0).toFixed(2)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="py-4 text-center text-slate-400 italic">No labour items in this estimate.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* GST Breakdown & Financial Totals */}
+                <div className="bg-slate-50 dark:bg-slate-850/60 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                  <h4 className="font-extrabold uppercase text-[10px] text-slate-400 tracking-wider">Financial Breakdown</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Parts Subtotal</span>
+                      <span className="font-mono font-bold">₹{partsTotal.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Labour Subtotal</span>
+                      <span className="font-mono font-bold">₹{labourTotal.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total Taxable</span>
+                      <span className="font-mono font-bold">₹{taxableAmount.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total GST</span>
+                      <span className="font-mono font-bold text-purple-600 dark:text-purple-400">₹{totalGst.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-750 pt-3 mt-2">
+                    <div className="text-[11px] text-slate-500">
+                      {igstTotal > 0 ? (
+                        <span>IGST: ₹{igstTotal.toFixed(2)}</span>
+                      ) : (
+                        <span>CGST: ₹{cgstTotal.toFixed(2)} • SGST: ₹{sgstTotal.toFixed(2)}</span>
+                      )}
+                      {est.manualOverride && (
+                        <span className="ml-2 font-bold text-amber-600 dark:text-amber-400">(Manual Override Applied)</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">Grand Total</span>
+                      <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                        ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Approval Metadata (if available) */}
+                {est.approvalMetadata?.approvedByName && (
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs space-y-1">
+                    <p className="font-bold text-emerald-800 dark:text-emerald-300">
+                      ✓ Approved by {est.approvalMetadata.approvedByName}
+                    </p>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                      Date: {new Date(est.approvalMetadata.approvedAt).toLocaleString('en-IN')} • Final Amount: ₹{Number(est.approvalMetadata.finalAmount || grandTotal).toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

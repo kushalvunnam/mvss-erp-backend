@@ -28,7 +28,10 @@ import {
   CreditCard,
   Eye,
   Percent,
-  Pencil
+  Pencil,
+  Download,
+  Phone,
+  User
 } from 'lucide-react';
 
 // Helpers to extract brand information and multi-brand lists from Vendor records
@@ -71,6 +74,23 @@ export default function PurchaseReport({ token, user }) {
   // Active Module Sub-Tab: 'entry' | 'history' | 'reports'
   const [activeTab, setActiveTab] = useState('entry');
   const [editPurchaseId, setEditPurchaseId] = useState(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Draft' | 'Submitted'
+  const [selectedPreviewPurchase, setSelectedPreviewPurchase] = useState(null);
+  const scrollPositionRef = useRef(0);
+
+  const handleOpenPreview = (purchase, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    scrollPositionRef.current = window.scrollY;
+    setSelectedPreviewPurchase(purchase);
+  };
+
+  const handleClosePreview = () => {
+    setSelectedPreviewPurchase(null);
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollPositionRef.current, behavior: 'instant' });
+    });
+  };
 
   // Datasets
   const [vendorsList, setVendorsList] = useState([]);
@@ -931,23 +951,25 @@ export default function PurchaseReport({ token, user }) {
   const summaryTotals = getSummaryTotals();
 
   const handleStartEdit = async (p) => {
-    // 1. Check if the purchase items are already in use
-    try {
-      const res = await fetch(`${API_BASE_URL}/purchases/${p._id}/check-in-use`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const check = await res.json();
-        if (check.isInUse) {
-          const partList = check.warnings.map(w => `• ${w.partName} (${w.partNumber}) used in: ${w.usages.join(', ')}`).join('\n');
-          const confirm = window.confirm(
-            `WARNING: The following parts in this purchase entry are already used in active transactions:\n\n${partList}\n\nEditing this purchase will recalculate inventory stock levels and totals. Do you want to proceed?`
-          );
-          if (!confirm) return;
+    // 1. Check if the purchase items are already in use (only for submitted purchases)
+    if (!p.isDraft && p.status !== 'Draft') {
+      try {
+        const res = await fetch(`${API_BASE_URL}/purchases/${p._id}/check-in-use`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const check = await res.json();
+          if (check.isInUse) {
+            const partList = check.warnings.map(w => `• ${w.partName} (${w.partNumber}) used in: ${w.usages.join(', ')}`).join('\n');
+            const confirm = window.confirm(
+              `WARNING: The following parts in this purchase entry are already used in active transactions:\n\n${partList}\n\nEditing this purchase will recalculate inventory stock levels and totals. Do you want to proceed?`
+            );
+            if (!confirm) return;
+          }
         }
+      } catch (err) {
+        console.error("Failed to check in-use status:", err);
       }
-    } catch (err) {
-      console.error("Failed to check in-use status:", err);
     }
 
     // 2. Prefill form state
@@ -1110,6 +1132,152 @@ export default function PurchaseReport({ token, user }) {
     }
   };
 
+  // Handle Save Draft (Incomplete/Partial Allowed, No Stock/Accounting Mutation)
+  const handleSaveDraft = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (isSavingDraft || purchaseSubmitting) return;
+
+    setIsSavingDraft(true);
+    setPurchaseFormError('');
+    setPurchaseSuccess('');
+
+    try {
+      const selectedVendor = vendorsList.find(v => v._id === purchaseHeader.vendorId);
+      const vendorName = purchaseHeader.vendorName || (selectedVendor ? selectedVendor.name : '');
+      const fallbackBrand = getVendorSupplierBrand(selectedVendor) || purchaseHeader.supplierBrand || vendorName || '';
+
+      const payloadItems = (purchaseItems && purchaseItems.length > 0 ? purchaseItems : [createEmptyRow()]).map(row => {
+        const rowCalc = calculateRowTotals(row);
+        return {
+          partId: row.selectedPartId || undefined,
+          partName: row.partName || 'Draft Item',
+          partNumber: row.partNumber || 'DRAFT-PART',
+          hsnCode: row.hsnCode || '8708',
+          qty: Number(row.qty) || 1,
+          purchasePrice: Number(row.purchasePrice) || 0,
+          sellingPrice: Number(row.sellingPrice) || Number(row.purchasePrice) || 0,
+          mrp: Number(row.mrp) || 0,
+          discountType: row.discountType || 'Percent',
+          discountValue: Number(row.discountValue) || 0,
+          discountPercent: Number(row.discountPercent) || 0,
+          discountAmount: Number(row.discountAmount) || 0,
+          discountPerUnit: Number(row.discountPerUnit) || 0,
+          gstPercent: Number(row.gstPercent) !== undefined ? Number(row.gstPercent) : 18,
+          igstPercent: row.igstPercent !== undefined && row.igstPercent !== '' ? Number(row.igstPercent) : undefined,
+          warehouse: row.warehouse || 'Main Store',
+          rackLocation: row.rackLocation || '',
+          taxableAmount: rowCalc.taxable || 0,
+          gstAmount: rowCalc.gstAmt || 0,
+          cgst: rowCalc.cgst || 0,
+          sgst: rowCalc.sgst || 0,
+          igst: rowCalc.igst || 0,
+          total: rowCalc.total || 0,
+          brand: row.brand || '',
+          supplierBrand: row.supplierBrand || fallbackBrand || '',
+          vehicleMake: row.vehicleMake || '',
+          vehicleModel: row.vehicleModel || '',
+          compatibility: row.compatibility || '',
+          oemBrand: row.oemBrand || '',
+          warranty: row.warranty || ''
+        };
+      });
+
+      const isEdit = editPurchaseId !== null;
+      const url = isEdit ? `${API_BASE_URL}/purchases/${editPurchaseId}` : `${API_BASE_URL}/purchases`;
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const payload = {
+        isDraft: true,
+        status: 'Draft',
+        vendorId: purchaseHeader.vendorId || undefined,
+        vendorName: vendorName || 'Draft Vendor',
+        invoiceNo: purchaseHeader.invoiceNo ? String(purchaseHeader.invoiceNo).trim() : '',
+        invoiceDate: purchaseHeader.invoiceDate || new Date().toISOString(),
+        paymentStatus: purchaseHeader.paymentStatus || 'Credit',
+        amountPaid: Number(purchaseHeader.amountPaid) || 0,
+        notes: purchaseHeader.notes || '',
+        items: payloadItems,
+        updatePurchasePrice: false,
+        updateMRP: false,
+        billingType: purchaseHeader.billingType || 'Intra-State',
+        attachments: attachments.filter(att => att.status === 'uploaded').map(att => {
+          let keyVal = att.key;
+          if (!keyVal && att.url) {
+            if (att.url.includes('/api/purchases/attachment/')) {
+              keyVal = att.url.split('/api/purchases/attachment/')[1].split('?')[0];
+            } else {
+              keyVal = att.url.split('/').pop();
+            }
+          }
+          return {
+            key: keyVal || att.url,
+            originalName: att.name || 'Attached Document',
+            mimeType: att.type || 'image/jpeg',
+            size: att.size || 0
+          };
+        }),
+        attachmentUrl: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].url : '',
+        attachmentName: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].name : '',
+        attachmentType: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].type : ''
+      };
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        setPurchaseSuccess('Draft saved successfully.');
+        setTimeout(() => {
+          setPurchaseSuccess('');
+          setEditPurchaseId(null);
+          handleClearForm();
+          fetchPurchases();
+          setActiveTab('history');
+        }, 1200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setPurchaseFormError(err.error || 'Failed to save draft purchase entry.');
+      }
+    } catch (err) {
+      console.error('Error saving purchase draft:', err);
+      setPurchaseFormError('Network error while saving draft.');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  // Handle Delete Draft
+  const handleDeleteDraft = async (purchaseId, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!window.confirm('Are you sure you want to delete this draft purchase entry permanently?')) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/purchases/${purchaseId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        alert('Draft purchase entry deleted successfully.');
+        if (selectedPreviewPurchase && selectedPreviewPurchase._id === purchaseId) {
+          handleClosePreview();
+        }
+        fetchPurchases();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Failed to delete draft: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Delete draft error:', err);
+      alert('Network error while deleting draft.');
+    }
+  };
+
   // Handle Form Submit
   const handlePurchaseSubmit = async (e) => {
     e.preventDefault();
@@ -1261,7 +1429,9 @@ export default function PurchaseReport({ token, user }) {
       }),
       attachmentUrl: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].url : '',
       attachmentName: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].name : '',
-      attachmentType: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].type : ''
+      attachmentType: attachments.length > 0 && attachments[0].status === 'uploaded' ? attachments[0].type : '',
+      isDraft: false,
+      status: 'Submitted'
     };
 
     setPurchaseSubmitting(true);
@@ -2463,6 +2633,15 @@ export default function PurchaseReport({ token, user }) {
                 </button>
 
                 <button
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={purchaseSubmitting || isSavingDraft}
+                  className="w-full sm:w-auto px-6 py-3.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg hover:shadow-amber-500/25 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSavingDraft ? 'Saving Draft...' : 'Save as Draft'}
+                </button>
+
+                <button
                   type="submit"
                   disabled={purchaseSubmitting || invoiceNoDuplicate}
                   className="w-full sm:w-auto px-7 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg hover:shadow-indigo-500/25 disabled:opacity-50 flex items-center justify-center gap-2"
@@ -2490,15 +2669,54 @@ export default function PurchaseReport({ token, user }) {
               </p>
             </div>
 
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search history..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-semibold text-slate-800 dark:text-white"
-              />
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              {/* Quick Status Filter Tabs: All, Draft, Submitted */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setHistoryStatusFilter('All')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    historyStatusFilter === 'All'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  All ({purchaseHistory.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryStatusFilter('Draft')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                    historyStatusFilter === 'Draft'
+                      ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Drafts
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryStatusFilter('Submitted')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    historyStatusFilter === 'Submitted'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Submitted
+                </button>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search history..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full text-xs pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-semibold text-slate-800 dark:text-white"
+                />
+              </div>
             </div>
           </div>
 
@@ -2530,6 +2748,11 @@ export default function PurchaseReport({ token, user }) {
                 ) : (
                   purchaseHistory
                     .filter(p => {
+                      if (historyStatusFilter === 'Draft') {
+                        if (!p.isDraft && p.status !== 'Draft') return false;
+                      } else if (historyStatusFilter === 'Submitted') {
+                        if (p.isDraft || p.status === 'Draft') return false;
+                      }
                       if (!searchQuery) return true;
                       const s = searchQuery.toLowerCase();
                       return (
@@ -2549,7 +2772,14 @@ export default function PurchaseReport({ token, user }) {
                           <tr className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                             <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
                               <div>{new Date(p.date || p.createdAt).toLocaleDateString('en-IN')}</div>
-                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">{p.purchaseNo}</span>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">{p.purchaseNo}</span>
+                                {(p.isDraft || p.status === 'Draft') && (
+                                  <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300">
+                                    Draft
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             <td className="py-3 px-4 font-bold text-slate-800 dark:text-white">
@@ -2631,24 +2861,30 @@ export default function PurchaseReport({ token, user }) {
                             </td>
 
                             <td className="py-3 px-4">
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                                displayStatus === 'Paid'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                  : displayStatus === 'Partially Paid'
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                              }`}>
-                                {displayStatus}
-                              </span>
+                              {(p.isDraft || p.status === 'Draft') ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300">
+                                  Draft
+                                </span>
+                              ) : (
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
+                                  displayStatus === 'Paid'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    : displayStatus === 'Partially Paid'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                }`}>
+                                  {displayStatus}
+                                </span>
+                              )}
                             </td>
 
                             <td className="py-3 px-4 text-center">
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedVoucher(p)}
+                                  onClick={(e) => handleOpenPreview(p, e)}
                                   className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors"
-                                  title="View Purchase Voucher"
+                                  title="Preview Purchase Entry"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
@@ -2658,13 +2894,24 @@ export default function PurchaseReport({ token, user }) {
                                     type="button"
                                     onClick={() => handleStartEdit(p)}
                                     className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors"
-                                    title="Edit Purchase Entry"
+                                    title={p.isDraft || p.status === 'Draft' ? "Resume / Edit Draft" : "Edit Purchase Entry"}
                                   >
                                     <Pencil className="w-4 h-4" />
                                   </button>
                                 )}
 
-                                {['Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Accounts Manager'].includes(user?.role) && (
+                                {(p.isDraft || p.status === 'Draft') && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleDeleteDraft(p._id, e)}
+                                    className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                                    title="Delete Draft Purchase Entry"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+
+                                {!p.isDraft && p.status !== 'Draft' && ['Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Accounts Manager'].includes(user?.role) && (
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -2982,6 +3229,340 @@ export default function PurchaseReport({ token, user }) {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* DRAWER: RESPONSIVE SLIDE-OVER PURCHASE ENTRY PREVIEW                      */}
+      {/* ========================================================================= */}
+      {selectedPreviewPurchase && (() => {
+        const p = selectedPreviewPurchase;
+        const isDraftRecord = Boolean(p.isDraft || p.status === 'Draft');
+        const displayStatus = p.paymentStatus === 'Unpaid' ? 'Credit' : (p.paymentStatus || 'Credit');
+        const vendor = vendorsList.find(v => v._id === p.vendorId || v.name === p.vendorName);
+        const vendorName = p.vendorName || (vendor ? vendor.name : 'Draft / Unassigned Vendor');
+        const isInterstate = vendor && vendor.gstNumber ? !vendor.gstNumber.trim().startsWith('36') : false;
+
+        const itemsList = p.items || [];
+        const subtotal = p.totals?.subtotal || 0;
+        const totalDiscount = p.totals?.totalDiscount || 0;
+        const taxableAmount = p.totals?.taxableAmount || 0;
+        const cgstTotal = p.totals?.cgstTotal !== undefined ? p.totals.cgstTotal : (p.totals?.gstTotal || 0) / 2;
+        const sgstTotal = p.totals?.sgstTotal !== undefined ? p.totals.sgstTotal : (p.totals?.gstTotal || 0) / 2;
+        const igstTotal = p.totals?.igstTotal !== undefined ? p.totals.igstTotal : (p.totals?.gstTotal || 0);
+        const totalGst = p.totals?.gstTotal || 0;
+        const roundOff = p.totals?.roundOff || 0;
+        const grandTotal = p.totals?.grandTotal || 0;
+        const amountPaid = p.amountPaid || 0;
+        const balanceDue = Math.max(0, grandTotal - amountPaid);
+
+        const allAttachments = (p.attachments && p.attachments.length > 0)
+          ? p.attachments
+          : (p.attachmentUrl ? [{ url: p.attachmentUrl, name: p.attachmentName || 'Invoice Document', type: p.attachmentType || 'image/jpeg' }] : []);
+
+        return (
+          <div 
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex justify-end animate-fade-in"
+            onClick={handleClosePreview}
+          >
+            <div 
+              className="w-full sm:max-w-2xl lg:max-w-3xl h-full bg-white dark:bg-slate-900 shadow-2xl overflow-y-auto flex flex-col z-50 animate-slide-left border-l border-slate-200 dark:border-slate-800"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Drawer Top Navigation & Actions Bar */}
+              <div className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 z-10 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-black font-mono text-indigo-600 dark:text-indigo-400">
+                      {p.purchaseNo}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                      isDraftRecord
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300'
+                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300'
+                    }`}>
+                      {isDraftRecord ? 'Draft' : 'Submitted'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                    Purchase Entry Preview • {new Date(p.date || p.createdAt || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  {['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Accounts Executive', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Executive'].includes(user?.role) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = p;
+                        handleClosePreview();
+                        handleStartEdit(target);
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/40 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold transition-all"
+                      title={isDraftRecord ? "Resume / Edit Draft" : "Edit Purchase Entry"}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>{isDraftRecord ? 'Resume / Edit Draft' : 'Edit'}</span>
+                    </button>
+                  )}
+
+                  {isDraftRecord && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteDraft(p._id, e)}
+                      className="p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
+                      title="Delete Draft Purchase Entry"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVoucher(p)}
+                    className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                    title="Print Purchase Voucher"
+                  >
+                    <Printer className="w-4 h-4 text-slate-700 dark:text-slate-200" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleClosePreview}
+                    className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title="Close preview"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Drawer Content */}
+              <div className="p-4 sm:p-6 space-y-5 text-xs text-slate-800 dark:text-slate-200">
+                {/* Meta Overview Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Supplier Card */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 space-y-2">
+                    <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black uppercase text-[10px] tracking-wider">
+                      <Building2 className="w-3.5 h-3.5" /> Supplier / Vendor
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-sm text-slate-900 dark:text-white">{vendorName}</p>
+                      {vendor?.vendorCode && <p className="text-[11px] text-slate-400 font-mono">Code: {vendor.vendorCode}</p>}
+                      {vendor?.mobile && (
+                        <p className="text-slate-500 flex items-center gap-1 mt-0.5">
+                          <Phone className="w-3 h-3 text-slate-400" /> {vendor.mobile}
+                        </p>
+                      )}
+                      {vendor?.email && <p className="text-slate-500 mt-0.5">{vendor.email}</p>}
+                      {vendor?.gstNumber && <p className="text-slate-500 font-mono text-[11px] mt-0.5">GSTIN: {vendor.gstNumber}</p>}
+                      {vendor?.address && <p className="text-slate-500 mt-1">{vendor.address}</p>}
+                    </div>
+                  </div>
+
+                  {/* Invoice & Payment Card */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 space-y-2">
+                    <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black uppercase text-[10px] tracking-wider">
+                      <Receipt className="w-3.5 h-3.5" /> Invoice & Payment
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-[11px]">Invoice Ref:</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">{p.invoiceNo || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-slate-400 text-[11px]">Invoice Date:</span>
+                        <span className="text-slate-700 dark:text-slate-300 font-semibold">
+                          {p.invoiceDate ? new Date(p.invoiceDate).toLocaleDateString('en-IN') : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-750 flex items-center justify-between">
+                        <div>
+                          <span className="text-slate-400 text-[10px] block">Payment Status</span>
+                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                            displayStatus === 'Paid'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : displayStatus === 'Partially Paid'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                          }`}>
+                            {displayStatus}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-slate-400 text-[10px] block">Amount Paid</span>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{amountPaid.toFixed(2)}</span>
+                          {balanceDue > 0 && (
+                            <span className="text-[10px] text-rose-600 block">Due: ₹{balanceDue.toFixed(2)}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Purchase Items Table */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-indigo-500" /> Procurement Items ({itemsList.length})
+                    </h4>
+                    <span className="text-xs font-bold text-slate-500 font-mono">
+                      Subtotal: ₹{subtotal.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 font-black text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2.5 px-3">#</th>
+                          <th className="py-2.5 px-3">Part Description</th>
+                          <th className="py-2.5 px-3">Brand</th>
+                          <th className="py-2.5 px-3">Qty</th>
+                          <th className="py-2.5 px-3">Price (₹)</th>
+                          <th className="py-2.5 px-3">Disc (₹)</th>
+                          <th className="py-2.5 px-3">Taxable (₹)</th>
+                          <th className="py-2.5 px-3">GST%</th>
+                          <th className="py-2.5 px-3 text-right">Total (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {itemsList.length > 0 ? (
+                          itemsList.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                              <td className="py-2 px-3 text-slate-400">{idx + 1}</td>
+                              <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                                <div>{item.partName || 'Part'}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  No: {item.partNumber || 'N/A'} {item.hsnCode ? `• HSN: ${item.hsnCode}` : ''}
+                                </div>
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-600 dark:text-slate-400">
+                                {item.supplierBrand || item.brand || '—'}
+                              </td>
+                              <td className="py-2 px-3 font-bold font-mono">{item.qty || 1}</td>
+                              <td className="py-2 px-3 font-mono">₹{Number(item.purchasePrice || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono text-amber-600">₹{Number(item.discountAmount || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono">₹{Number(item.taxableAmount || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 font-mono">{item.gstPercent || 18}%</td>
+                              <td className="py-2 px-3 font-mono font-bold text-right">₹{Number(item.total || 0).toFixed(2)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="9" className="py-4 text-center text-slate-400 italic">No purchase items recorded.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Financial Summary & GST Breakdown */}
+                <div className="bg-slate-50 dark:bg-slate-850/60 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                  <h4 className="font-extrabold uppercase text-[10px] text-slate-400 tracking-wider">Financial Breakdown</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total Cost Price</span>
+                      <span className="font-mono font-bold">₹{subtotal.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total Discount</span>
+                      <span className="font-mono font-bold text-amber-600">₹{totalDiscount.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Taxable Amount</span>
+                      <span className="font-mono font-bold">₹{taxableAmount.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Total GST</span>
+                      <span className="font-mono font-bold text-purple-600 dark:text-purple-400">₹{totalGst.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-750 pt-3 mt-2">
+                    <div className="text-[11px] text-slate-500">
+                      {isInterstate ? (
+                        <span>IGST: ₹{igstTotal.toFixed(2)}</span>
+                      ) : (
+                        <span>CGST: ₹{cgstTotal.toFixed(2)} • SGST: ₹{sgstTotal.toFixed(2)}</span>
+                      )}
+                      {roundOff !== 0 && (
+                        <span className="ml-2 font-mono">Round Off: ₹{roundOff.toFixed(2)}</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">Grand Total</span>
+                      <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                        ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Uploaded Documents & Attachments Section */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-indigo-500" /> Attached Invoices & Documents ({allAttachments.length})
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => triggerReupload(p)}
+                      disabled={uploadingPurchaseId === p._id}
+                      className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                    >
+                      📤 {uploadingPurchaseId === p._id ? 'Uploading...' : 'Upload / Replace Document'}
+                    </button>
+                  </div>
+
+                  {allAttachments.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {allAttachments.map((att, idx) => (
+                        <div 
+                          key={idx}
+                          className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-lg">📄</span>
+                            <div className="min-w-0">
+                              <p className="font-bold text-[11px] truncate text-slate-800 dark:text-slate-200">
+                                {att.name || att.originalName || `Document ${idx + 1}`}
+                              </p>
+                              <span className="text-[10px] text-slate-400 block">
+                                {att.type || att.mimeType || 'Document'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleViewAttachment(e, p, idx)}
+                            className="shrink-0 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-955/30 text-indigo-650 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
+                          >
+                            <Eye className="w-3 h-3" /> View / Download
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-slate-400 italic">
+                      No invoice documents attached to this purchase entry.
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes (if present) */}
+                {p.notes && (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-850/40 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <span className="font-extrabold uppercase text-[10px] text-slate-400 block mb-1">Notes</span>
+                    <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">{p.notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* MODAL 1: VIEW PURCHASE VOUCHER                                            */}

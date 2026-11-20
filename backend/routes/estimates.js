@@ -14,6 +14,11 @@ const generateEstimateNo = async () => {
   return await getNextSequence('EST', 'Estimate');
 };
 
+const generateDraftEstimateNo = async () => {
+  const seq = await getNextSequence('EST-DRAFT', 'EstimateDraft');
+  return seq || `EST-DRAFT-${Date.now().toString().slice(-6)}`;
+};
+
 const numberToWords = (num) => {
   const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
   const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
@@ -239,9 +244,15 @@ router.get('/', auth, async (req, res) => {
     const { status, jobCardId, search } = req.query;
     let query = {};
     if (status) {
-      if (status === 'Waiting for Approval' || status === 'Sent') {
+      if (status === 'Draft') {
+        query.$or = [{ status: 'Draft' }, { isDraft: true }];
+      } else if (status === 'Submitted') {
+        query.isDraft = { $ne: true };
+        query.status = { $ne: 'Draft' };
+      } else if (status === 'Waiting for Approval' || status === 'Sent') {
         query.status = { $in: ['Waiting for Approval', 'Sent'] };
-      } else {
+        query.isDraft = { $ne: true };
+      } else if (status !== 'All') {
         query.status = status;
       }
     }
@@ -315,12 +326,63 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// Create estimate
+// Create estimate or save draft
 router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive'), async (req, res) => {
   try {
     const { jobCardId, parts, labour, manualOverride, manualGrandTotal, overriddenGrandTotal, grandTotal } = req.body;
-    
-    // Check if Job Card exists
+    const isDraftRequest = Boolean(req.body.isDraft || req.body.status === 'Draft' || req.body.action === 'save_draft');
+
+    // 1. DRAFT CREATION: Save partial information without strict validation or stock checks
+    if (isDraftRequest) {
+      const estimateNo = await generateDraftEstimateNo();
+      let isInterstate = false;
+      let jobCard = null;
+      if (jobCardId) {
+        jobCard = await JobCard.findById(jobCardId);
+        if (jobCard && jobCard.customerId) {
+          const customer = await Customer.findById(jobCard.customerId);
+          isInterstate = checkIsInterstate(customer);
+        }
+      }
+
+      const calculations = recalculateEstimate(parts || [], labour || [], isInterstate);
+      const isManual = Boolean(manualOverride);
+      const rawOverrideTotal = manualGrandTotal !== undefined ? manualGrandTotal : (overriddenGrandTotal !== undefined ? overriddenGrandTotal : grandTotal);
+      const parsedOverride = (isManual && rawOverrideTotal !== undefined && rawOverrideTotal !== null && rawOverrideTotal !== '')
+        ? Number(rawOverrideTotal)
+        : null;
+
+      if (parsedOverride !== null && !isNaN(parsedOverride) && parsedOverride >= 0) {
+        calculations.totals.grandTotal = parsedOverride;
+        calculations.amountInWords = numberToWords(parsedOverride);
+      }
+
+      const estimate = new Estimate({
+        estimateNo,
+        jobCardId: jobCard ? jobCard._id : (jobCardId || undefined),
+        draftCustomerInfo: req.body.draftCustomerInfo || {},
+        parts: calculations.parts,
+        labour: calculations.labour,
+        totals: calculations.totals,
+        amountInWords: calculations.amountInWords,
+        manualOverride: isManual && parsedOverride !== null,
+        manualGrandTotal: parsedOverride,
+        status: 'Draft',
+        isDraft: true,
+      });
+
+      await estimate.save();
+      await logAction(req.user, 'ESTIMATE_DRAFT_CREATE', `Saved Draft Estimate ${estimateNo}`, req);
+      console.log(`[Estimate] Saved draft estimate successfully: ID=${estimate._id}, DraftNo=${estimate.estimateNo}`);
+
+      return res.status(201).send({
+        success: true,
+        message: 'Draft saved successfully.',
+        estimate
+      });
+    }
+
+    // 2. FINAL SUBMISSION: Requires valid Job Card and passes stock checks
     const jobCard = await JobCard.findById(jobCardId);
     if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
 
@@ -365,21 +427,18 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
       amountInWords: calculations.amountInWords,
       manualOverride: isManual && parsedOverride !== null,
       manualGrandTotal: parsedOverride,
-      status: 'Draft',
+      status: 'Waiting for Approval',
+      isDraft: false,
     });
 
     await estimate.save();
     
-    // Auto-update Job Card status to Inspection or ready to repair
+    // Auto-update Job Card status to Estimation
     await JobCard.findByIdAndUpdate(jobCardId, { status: 'Estimation', estAmt: calculations.totals.grandTotal });
 
     await logAction(req.user, 'ESTIMATE_CREATE', `Created Estimate ${estimateNo} for Job Card ${jobCard.jobCardNo}`, req);
-
-    // [Stage 2] Estimate saved
     console.log(`[Estimate] [Stage 2] Estimate saved successfully: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, JobCard=${jobCard.jobCardNo}`);
 
-    // Note: Estimate is created in Draft mode. WhatsApp Customer Estimate PDF and Waiting for Approval notification
-    // are dispatched when admin clicks Send on the Estimates page, preventing premature dispatches.
     res.status(201).send(estimate);
   } catch (error) {
     res.status(400).send({ error: 'Failed to create estimate: ' + error.message });
@@ -568,9 +627,78 @@ const executeEstimateApproval = async ({ estimate, user, req, isAdditionalWork, 
 router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', 'Accounts Executive'), async (req, res) => {
   try {
     const { parts, labour, status, manualOverride, manualGrandTotal, overriddenGrandTotal, grandTotal } = req.body;
+    const isDraftRequest = Boolean(req.body.isDraft || req.body.status === 'Draft' || req.body.action === 'save_draft');
+
     const estimate = await Estimate.findById(req.params.id);
     if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });
 
+    // 1. UPDATE DRAFT
+    if (isDraftRequest || (estimate.isDraft && (req.body.saveAsDraft || req.body.action === 'save_draft'))) {
+      const targetJcId = req.body.jobCardId || estimate.jobCardId;
+      let isInterstate = false;
+      if (targetJcId) {
+        const jc = await JobCard.findById(targetJcId);
+        if (jc && jc.customerId) {
+          const customer = await Customer.findById(jc.customerId);
+          isInterstate = checkIsInterstate(customer);
+          estimate.jobCardId = jc._id;
+        }
+      }
+      if (req.body.draftCustomerInfo) {
+        estimate.draftCustomerInfo = req.body.draftCustomerInfo;
+      }
+
+      const calculations = recalculateEstimate(parts || estimate.parts, labour || estimate.labour, isInterstate);
+      const isManual = manualOverride !== undefined ? Boolean(manualOverride) : estimate.manualOverride;
+      const rawOverrideTotal = manualGrandTotal !== undefined ? manualGrandTotal : (overriddenGrandTotal !== undefined ? overriddenGrandTotal : grandTotal);
+      const parsedOverride = (isManual && rawOverrideTotal !== undefined && rawOverrideTotal !== null && rawOverrideTotal !== '')
+        ? Number(rawOverrideTotal)
+        : (isManual && estimate.manualGrandTotal ? Number(estimate.manualGrandTotal) : null);
+
+      if (parsedOverride !== null && !isNaN(parsedOverride) && parsedOverride >= 0) {
+        calculations.totals.grandTotal = parsedOverride;
+        calculations.amountInWords = numberToWords(parsedOverride);
+        estimate.manualOverride = true;
+        estimate.manualGrandTotal = parsedOverride;
+      }
+
+      estimate.parts = calculations.parts;
+      estimate.labour = calculations.labour;
+      estimate.totals = calculations.totals;
+      estimate.amountInWords = calculations.amountInWords;
+      estimate.status = 'Draft';
+      estimate.isDraft = true;
+
+      await estimate.save();
+      await logAction(req.user, 'ESTIMATE_DRAFT_UPDATE', `Updated Draft Estimate ${estimate.estimateNo}`, req);
+
+      return res.send({
+        success: true,
+        message: 'Draft saved successfully.',
+        estimate
+      });
+    }
+
+    // 2. CONVERT DRAFT TO SUBMITTED ESTIMATE
+    if (estimate.isDraft && !isDraftRequest) {
+      const targetJcId = req.body.jobCardId || estimate.jobCardId;
+      if (!targetJcId) {
+        return res.status(400).send({ error: 'Please select a Job Card reference to submit this estimate.' });
+      }
+      const jc = await JobCard.findById(targetJcId);
+      if (!jc) {
+        return res.status(404).send({ error: 'Selected Job Card not found.' });
+      }
+      estimate.jobCardId = jc._id;
+
+      if (estimate.estimateNo.startsWith('EST-DRAFT') || estimate.estimateNo.includes('DRAFT')) {
+        estimate.estimateNo = await generateEstimateNo();
+      }
+      estimate.isDraft = false;
+      estimate.status = 'Waiting for Approval';
+    }
+
+    // 3. REGULAR ESTIMATE UPDATE
     if (parts) {
       const Inventory = require('../models/Inventory');
       for (const part of parts) {
@@ -1480,11 +1608,17 @@ router.post('/:id/parts/return', auth, restrictTo('Admin', 'Spares', 'Service', 
   }
 });
 
-// DELETE: Delete an Estimate permanently (Admin only)
-router.delete('/:id', auth, restrictTo('Admin', 'Accounts', 'Accounts Executive'), async (req, res) => {
+// DELETE: Delete an Estimate or Draft
+router.delete('/:id', auth, restrictTo('Super Admin', 'Admin', 'Accounts', 'Accounts Executive', 'Service', 'Body Shop'), async (req, res) => {
   try {
     const estimate = await Estimate.findById(req.params.id);
     if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });
+
+    // Non-admins can only delete Draft estimates
+    const isAdminOrAccounts = ['Super Admin', 'Admin', 'Accounts', 'Accounts Executive'].includes(req.user?.role);
+    if (!isAdminOrAccounts && !estimate.isDraft && estimate.status !== 'Draft') {
+      return res.status(403).send({ error: 'Only authorized administrators can delete finalized estimates.' });
+    }
 
     await Estimate.findByIdAndDelete(req.params.id);
 

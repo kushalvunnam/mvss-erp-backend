@@ -60,6 +60,11 @@ const { getNextSequence } = require('../utils/documentNumbering');
 const generatePurchaseNo = async () => {
   return await getNextSequence('PUR', 'Purchase');
 };
+
+const generateDraftPurchaseNo = async () => {
+  const seq = await getNextSequence('PUR-DRAFT', 'PurchaseDraft');
+  return seq || `PUR-DRAFT-${Date.now().toString().slice(-6)}`;
+};
 router.use(auth, restrictTo('Super Admin', 'Admin', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'));
 
 // Upload single or multiple attachments
@@ -416,8 +421,17 @@ router.post('/:id/reupload-attachment', handleUpload, async (req, res) => {
 // List all purchases with search & vendor filter
 router.get('/', async (req, res) => {
   try {
-    const { search, vendorId, paymentStatus } = req.query;
+    const { search, vendorId, paymentStatus, status } = req.query;
     let query = {};
+
+    if (status) {
+      if (status === 'Draft') {
+        query.$or = [{ status: 'Draft' }, { isDraft: true }];
+      } else if (status === 'Submitted') {
+        query.isDraft = { $ne: true };
+        query.status = { $ne: 'Draft' };
+      }
+    }
 
     if (vendorId) query.vendorId = vendorId;
     if (paymentStatus) {
@@ -478,10 +492,138 @@ router.get('/check-duplicate', async (req, res) => {
   }
 });
 
-// Create Purchase Entry (Restocks Inventory & Updates Vendor Balances)
+// Create Purchase Entry (Restocks Inventory & Updates Vendor Balances) or Save as Draft
 router.post('/', async (req, res) => {
   try {
     const { vendorId, invoiceNo, invoiceDate, items, paymentStatus, amountPaid, notes, updatePurchasePrice = true, updateMRP = true } = req.body;
+    const isDraftRequest = Boolean(req.body.isDraft || req.body.status === 'Draft' || req.body.action === 'save_draft');
+
+    // 1. DRAFT CREATION: Save partial information without restocking inventory or altering accounts
+    if (isDraftRequest) {
+      const purchaseNo = await generateDraftPurchaseNo();
+      let vendor = null;
+      if (vendorId) {
+        vendor = await Vendor.findById(vendorId);
+      }
+      const vendorName = req.body.vendorName || (vendor ? vendor.name : 'Draft Vendor');
+      const draftInvoiceNo = (invoiceNo && String(invoiceNo).trim())
+        ? String(invoiceNo).trim()
+        : `DRAFT-${purchaseNo}`;
+
+      const roundToTwo = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
+      let totalQtySum = 0;
+      let subtotalSum = 0;
+      let totalDiscountSum = 0;
+      let taxableAmountSum = 0;
+      let gstTotalSum = 0;
+      let cgstTotalSum = 0;
+      let sgstTotalSum = 0;
+      let igstTotalSum = 0;
+
+      const processedItems = (items || []).map(item => {
+        const qty = Math.max(0, Number(item.qty) || 0);
+        const purchasePrice = Math.max(0, Number(item.purchasePrice) || 0);
+        const sellingPrice = Math.max(0, Number(item.sellingPrice) || purchasePrice);
+        const mrp = Math.max(0, Number(item.mrp) || sellingPrice);
+        const grossItemValue = roundToTwo(qty * purchasePrice);
+        const discountAmount = Math.max(0, Number(item.discountAmount) || 0);
+        const itemTaxable = Math.max(0, roundToTwo(grossItemValue - discountAmount));
+        const gstPercent = Number(item.gstPercent) !== undefined ? Number(item.gstPercent) : 18;
+        const isInterstate = req.body.billingType === 'Inter-State';
+        const itemGst = roundToTwo(itemTaxable * (gstPercent / 100));
+        const itemTotal = roundToTwo(itemTaxable + itemGst);
+        const cgst = isInterstate ? 0 : roundToTwo(itemGst / 2);
+        const sgst = isInterstate ? 0 : roundToTwo(itemGst / 2);
+        const igst = isInterstate ? itemGst : 0;
+
+        totalQtySum += qty;
+        subtotalSum += grossItemValue;
+        totalDiscountSum += discountAmount;
+        taxableAmountSum += itemTaxable;
+        gstTotalSum += itemGst;
+        cgstTotalSum += cgst;
+        sgstTotalSum += sgst;
+        igstTotalSum += igst;
+
+        return {
+          partId: item.partId || undefined,
+          partNumber: item.partNumber ? String(item.partNumber).trim() : '',
+          partName: item.partName ? String(item.partName).trim() : '',
+          qty,
+          purchasePrice,
+          sellingPrice,
+          mrp,
+          hsnCode: item.hsnCode || '8708',
+          warehouse: item.warehouse || 'Main Store',
+          discountPercent: Number(item.discountPercent) || 0,
+          discountAmount,
+          discountType: item.discountType || 'Percent',
+          discountValue: Number(item.discountValue) || 0,
+          discountPerUnit: Number(item.discountPerUnit) || 0,
+          gstPercent,
+          taxableAmount: itemTaxable,
+          gstAmount: itemGst,
+          cgst,
+          sgst,
+          igst,
+          rackLocation: item.rackLocation || '',
+          total: itemTotal,
+          brand: item.brand || '',
+          supplierBrand: item.supplierBrand || '',
+          vehicleMake: item.vehicleMake || '',
+          vehicleModel: item.vehicleModel || '',
+          compatibility: item.compatibility || '',
+          oemBrand: item.oemBrand || '',
+          warranty: item.warranty || ''
+        };
+      });
+
+      const rawGrandTotal = taxableAmountSum + gstTotalSum;
+      const roundedGrandTotal = roundToTwo(Math.round(rawGrandTotal));
+      const roundOff = roundToTwo(roundedGrandTotal - rawGrandTotal);
+
+      const purchase = new Purchase({
+        purchaseNo,
+        vendorId: vendor ? vendor._id : (vendorId || undefined),
+        vendorName,
+        date: req.body.date ? new Date(req.body.date) : new Date(),
+        invoiceNo: draftInvoiceNo,
+        invoiceDate: invoiceDate ? new Date(invoiceDate) : undefined,
+        items: processedItems,
+        totals: {
+          totalQty: totalQtySum,
+          subtotal: subtotalSum,
+          totalDiscount: totalDiscountSum,
+          taxableAmount: taxableAmountSum,
+          gstTotal: gstTotalSum,
+          cgstTotal: cgstTotalSum,
+          sgstTotal: sgstTotalSum,
+          igstTotal: igstTotalSum,
+          roundOff,
+          grandTotal: roundedGrandTotal
+        },
+        paymentStatus: paymentStatus || 'Credit',
+        amountPaid: Number(amountPaid) || 0,
+        notes: notes || '',
+        createdBy: req.user ? `${req.user.name || req.user.username} (${req.user.role})` : 'Staff',
+        attachments: req.body.attachments || [],
+        status: 'Draft',
+        isDraft: true
+      });
+
+      await purchase.save();
+      await logAction(req.user, 'PURCHASE_DRAFT_CREATE', `Saved Draft Purchase Entry ${purchaseNo}`, req);
+      console.log(`[Purchases] Saved draft purchase entry successfully: ID=${purchase._id}, DraftNo=${purchase.purchaseNo}`);
+
+      // CRITICAL: ZERO stock adjustments and ZERO accounting updates for Drafts!
+      return res.status(201).send({
+        success: true,
+        message: 'Draft saved successfully.',
+        purchase
+      });
+    }
+
+    // 2. FINAL SUBMISSION
     if (!vendorId || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).send({ error: 'Vendor ID and at least one purchase item are required.' });
     }
@@ -852,7 +994,7 @@ router.get('/:id/check-in-use', async (req, res) => {
   }
 });
 
-// Edit Purchase Entry
+// Edit Purchase Entry or Draft
 router.put('/:id', async (req, res) => {
   try {
     const editAuthorized = ['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Spares', 'Store', 'Store User', 'Store Manager', 'Accounts', 'Purchase Executive', 'Accounts Executive'].includes(req.user?.role);
@@ -861,12 +1003,145 @@ router.put('/:id', async (req, res) => {
     }
 
     const { vendorId, invoiceNo, invoiceDate, items, paymentStatus, amountPaid, notes, reason } = req.body;
-    if (!vendorId || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).send({ error: 'Vendor ID and at least one purchase item are required.' });
-    }
+    const isDraftRequest = Boolean(req.body.isDraft || req.body.status === 'Draft' || req.body.action === 'save_draft');
 
     const purchase = await Purchase.findById(req.params.id);
     if (!purchase) return res.status(404).send({ error: 'Purchase entry not found.' });
+
+    // 1. UPDATE EXISTING DRAFT (Zero inventory restock and zero accounting impact)
+    if (isDraftRequest || (purchase.isDraft && (req.body.saveAsDraft || req.body.action === 'save_draft'))) {
+      let vendor = null;
+      if (vendorId) {
+        vendor = await Vendor.findById(vendorId);
+      }
+      const vendorName = req.body.vendorName || (vendor ? vendor.name : purchase.vendorName || 'Draft Vendor');
+      const draftInvoiceNo = (invoiceNo && String(invoiceNo).trim())
+        ? String(invoiceNo).trim()
+        : (purchase.invoiceNo || `DRAFT-${purchase.purchaseNo}`);
+
+      const roundToTwo = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
+      let totalQtySum = 0;
+      let subtotalSum = 0;
+      let totalDiscountSum = 0;
+      let taxableAmountSum = 0;
+      let gstTotalSum = 0;
+      let cgstTotalSum = 0;
+      let sgstTotalSum = 0;
+      let igstTotalSum = 0;
+
+      const processedItems = (items || purchase.items || []).map(item => {
+        const qty = Math.max(0, Number(item.qty) || 0);
+        const purchasePrice = Math.max(0, Number(item.purchasePrice) || 0);
+        const sellingPrice = Math.max(0, Number(item.sellingPrice) || purchasePrice);
+        const mrp = Math.max(0, Number(item.mrp) || sellingPrice);
+        const grossItemValue = roundToTwo(qty * purchasePrice);
+        const discountAmount = Math.max(0, Number(item.discountAmount) || 0);
+        const itemTaxable = Math.max(0, roundToTwo(grossItemValue - discountAmount));
+        const gstPercent = Number(item.gstPercent) !== undefined ? Number(item.gstPercent) : 18;
+        const isInterstate = req.body.billingType === 'Inter-State';
+        const itemGst = roundToTwo(itemTaxable * (gstPercent / 100));
+        const itemTotal = roundToTwo(itemTaxable + itemGst);
+        const cgst = isInterstate ? 0 : roundToTwo(itemGst / 2);
+        const sgst = isInterstate ? 0 : roundToTwo(itemGst / 2);
+        const igst = isInterstate ? itemGst : 0;
+
+        totalQtySum += qty;
+        subtotalSum += grossItemValue;
+        totalDiscountSum += discountAmount;
+        taxableAmountSum += itemTaxable;
+        gstTotalSum += itemGst;
+        cgstTotalSum += cgst;
+        sgstTotalSum += sgst;
+        igstTotalSum += igst;
+
+        return {
+          partId: item.partId || undefined,
+          partNumber: item.partNumber ? String(item.partNumber).trim() : '',
+          partName: item.partName ? String(item.partName).trim() : '',
+          qty,
+          purchasePrice,
+          sellingPrice,
+          mrp,
+          hsnCode: item.hsnCode || '8708',
+          warehouse: item.warehouse || 'Main Store',
+          discountPercent: Number(item.discountPercent) || 0,
+          discountAmount,
+          discountType: item.discountType || 'Percent',
+          discountValue: Number(item.discountValue) || 0,
+          discountPerUnit: Number(item.discountPerUnit) || 0,
+          gstPercent,
+          taxableAmount: itemTaxable,
+          gstAmount: itemGst,
+          cgst,
+          sgst,
+          igst,
+          rackLocation: item.rackLocation || '',
+          total: itemTotal,
+          brand: item.brand || '',
+          supplierBrand: item.supplierBrand || '',
+          vehicleMake: item.vehicleMake || '',
+          vehicleModel: item.vehicleModel || '',
+          compatibility: item.compatibility || '',
+          oemBrand: item.oemBrand || '',
+          warranty: item.warranty || ''
+        };
+      });
+
+      const rawGrandTotal = taxableAmountSum + gstTotalSum;
+      const roundedGrandTotal = roundToTwo(Math.round(rawGrandTotal));
+      const roundOff = roundToTwo(roundedGrandTotal - rawGrandTotal);
+
+      purchase.vendorId = vendor ? vendor._id : (vendorId || purchase.vendorId);
+      purchase.vendorName = vendorName;
+      purchase.invoiceNo = draftInvoiceNo;
+      purchase.invoiceDate = invoiceDate ? new Date(invoiceDate) : purchase.invoiceDate;
+      purchase.items = processedItems;
+      purchase.totals = {
+        totalQty: totalQtySum,
+        subtotal: subtotalSum,
+        totalDiscount: totalDiscountSum,
+        taxableAmount: taxableAmountSum,
+        gstTotal: gstTotalSum,
+        cgstTotal: cgstTotalSum,
+        sgstTotal: sgstTotalSum,
+        igstTotal: igstTotalSum,
+        roundOff,
+        grandTotal: roundedGrandTotal
+      };
+      purchase.paymentStatus = paymentStatus || purchase.paymentStatus || 'Credit';
+      purchase.amountPaid = amountPaid !== undefined ? Number(amountPaid) : purchase.amountPaid;
+      purchase.notes = notes !== undefined ? notes : purchase.notes;
+      purchase.updatedBy = req.user ? `${req.user.name || req.user.username} (${req.user.role})` : 'Staff';
+      if (req.body.attachments) purchase.attachments = req.body.attachments;
+      purchase.status = 'Draft';
+      purchase.isDraft = true;
+
+      await purchase.save();
+      await logAction(req.user, 'PURCHASE_DRAFT_UPDATE', `Updated Draft Purchase Entry ${purchase.purchaseNo}`, req);
+
+      return res.send({
+        success: true,
+        message: 'Draft saved successfully.',
+        purchase
+      });
+    }
+
+    // 2. CONVERT DRAFT TO SUBMITTED PURCHASE
+    const wasDraft = Boolean(purchase.isDraft);
+    if (wasDraft && !isDraftRequest) {
+      if (!vendorId || !items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).send({ error: 'Vendor ID and at least one purchase item are required to submit.' });
+      }
+      if (purchase.purchaseNo.startsWith('PUR-DRAFT') || purchase.purchaseNo.includes('DRAFT')) {
+        purchase.purchaseNo = await generatePurchaseNo();
+      }
+      purchase.isDraft = false;
+      purchase.status = 'Submitted';
+    }
+
+    if (!vendorId || !items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).send({ error: 'Vendor ID and at least one purchase item are required.' });
+    }
 
     const oldVendor = await Vendor.findById(purchase.vendorId);
     const newVendor = await Vendor.findById(vendorId);
@@ -879,6 +1154,7 @@ router.put('/:id', async (req, res) => {
       const duplicateExists = await Purchase.findOne({
         _id: { $ne: req.params.id },
         vendorId: newVendor._id,
+        isDraft: false,
         invoiceNo: { $regex: new RegExp('^' + escapedInvoiceNo + '$', 'i') }
       });
 
@@ -908,27 +1184,29 @@ router.put('/:id', async (req, res) => {
 
     const roundToTwo = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
-    // 1. Revert inventory quantities of the old items
-    for (const oldItem of purchase.items) {
-      let invItem = null;
-      if (oldItem.partId) {
-        invItem = await Inventory.findById(oldItem.partId);
+    // 1. Revert inventory quantities of the old items ONLY if previously submitted (not draft)
+    if (!wasDraft) {
+      for (const oldItem of purchase.items) {
+        let invItem = null;
+        if (oldItem.partId) {
+          invItem = await Inventory.findById(oldItem.partId);
+        }
+        if (!invItem && oldItem.partNumber) {
+          invItem = await Inventory.findOne({ partNumber: oldItem.partNumber.trim() });
+        }
+        if (invItem) {
+          invItem.stockQuantity = Math.max(0, invItem.stockQuantity - oldItem.qty);
+          await invItem.save();
+        }
       }
-      if (!invItem && oldItem.partNumber) {
-        invItem = await Inventory.findOne({ partNumber: oldItem.partNumber.trim() });
-      }
-      if (invItem) {
-        invItem.stockQuantity = Math.max(0, invItem.stockQuantity - oldItem.qty);
-        await invItem.save();
-      }
-    }
 
-    // 2. Revert old vendor totals
-    if (oldVendor) {
-      oldVendor.totalPurchaseValue = roundToTwo(Math.max(0, (oldVendor.totalPurchaseValue || 0) - purchase.totals.grandTotal));
-      oldVendor.totalPaidAmount = roundToTwo(Math.max(0, (oldVendor.totalPaidAmount || 0) - purchase.amountPaid));
-      oldVendor.outstandingBalance = roundToTwo(Math.max(0, oldVendor.totalPurchaseValue - oldVendor.totalPaidAmount));
-      await oldVendor.save();
+      // 2. Revert old vendor totals
+      if (oldVendor) {
+        oldVendor.totalPurchaseValue = roundToTwo(Math.max(0, (oldVendor.totalPurchaseValue || 0) - (purchase.totals?.grandTotal || 0)));
+        oldVendor.totalPaidAmount = roundToTwo(Math.max(0, (oldVendor.totalPaidAmount || 0) - (purchase.amountPaid || 0)));
+        oldVendor.outstandingBalance = roundToTwo(Math.max(0, oldVendor.totalPurchaseValue - oldVendor.totalPaidAmount));
+        await oldVendor.save();
+      }
     }
 
     // 3. Process new/edited items
@@ -1202,6 +1480,59 @@ router.put('/:id', async (req, res) => {
     res.send(purchase);
   } catch (error) {
     res.status(400).send({ error: 'Failed to edit purchase entry: ' + error.message });
+  }
+});
+
+// Delete Purchase Entry or Draft
+router.delete('/:id', async (req, res) => {
+  try {
+    const deleteAuthorized = ['Super Admin', 'Admin', 'Purchase Manager', 'Accounts Manager', 'Accounts', 'Accounts Executive', 'Spares', 'Store', 'Store User', 'Store Manager', 'Purchase Executive'].includes(req.user?.role);
+    if (!deleteAuthorized) {
+      return res.status(403).send({ error: 'You are not authorized to delete purchases.' });
+    }
+
+    const purchase = await Purchase.findById(req.params.id);
+    if (!purchase) return res.status(404).send({ error: 'Purchase entry not found.' });
+
+    // If it's a draft, allow deleting cleanly without stock/financial reversions
+    if (purchase.isDraft || purchase.status === 'Draft') {
+      await Purchase.findByIdAndDelete(req.params.id);
+      await logAction(req.user, 'PURCHASE_DRAFT_DELETE', `Deleted Draft Purchase Entry ${purchase.purchaseNo}`, req);
+      return res.send({ success: true, message: 'Draft purchase deleted successfully.' });
+    }
+
+    // Only Admin / Accounts Manager can delete finalized purchases
+    const isAdmin = ['Super Admin', 'Admin', 'Accounts Manager'].includes(req.user?.role);
+    if (!isAdmin) {
+      return res.status(403).send({ error: 'Only administrators can delete submitted purchase entries.' });
+    }
+
+    // Revert inventory quantities for finalized purchase
+    for (const item of purchase.items) {
+      let invItem = null;
+      if (item.partId) invItem = await Inventory.findById(item.partId);
+      if (!invItem && item.partNumber) invItem = await Inventory.findOne({ partNumber: item.partNumber.trim() });
+      if (invItem) {
+        invItem.stockQuantity = Math.max(0, invItem.stockQuantity - item.qty);
+        await invItem.save();
+      }
+    }
+
+    // Revert vendor balance
+    if (purchase.vendorId) {
+      const vendor = await Vendor.findById(purchase.vendorId);
+      if (vendor) {
+        const unpaidAmount = Math.max(0, (purchase.totals?.grandTotal || 0) - (purchase.amountPaid || 0));
+        vendor.outstandingBalance = Math.max(0, (vendor.outstandingBalance || 0) - unpaidAmount);
+        await vendor.save();
+      }
+    }
+
+    await Purchase.findByIdAndDelete(req.params.id);
+    await logAction(req.user, 'PURCHASE_DELETE', `Deleted Purchase Entry ${purchase.purchaseNo}`, req);
+    return res.send({ success: true, message: 'Purchase entry deleted successfully.' });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to delete purchase: ' + error.message });
   }
 });
 

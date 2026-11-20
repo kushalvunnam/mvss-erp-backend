@@ -7,7 +7,7 @@ const estimateItemSchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: true,
+    default: '',
   },
   partNo: {
     type: String,
@@ -23,8 +23,8 @@ const estimateItemSchema = new mongoose.Schema({
   },
   qty: {
     type: Number,
-    required: true,
-    min: 1,
+    default: 1,
+    min: 0,
   },
   qtyIssued: {
     type: Number,
@@ -38,7 +38,7 @@ const estimateItemSchema = new mongoose.Schema({
   },
   rate: {
     type: Number,
-    required: true,
+    default: 0,
     min: 0,
   },
   discount: {
@@ -48,7 +48,6 @@ const estimateItemSchema = new mongoose.Schema({
   },
   taxableValue: {
     type: Number,
-    required: true,
     default: 0,
   },
   cgstAmount: {
@@ -70,15 +69,15 @@ const estimateItemSchema = new mongoose.Schema({
   },
   amount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   gstAmount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   total: {
     type: Number,
-    required: true,
+    default: 0,
   },
   status: {
     type: String,
@@ -90,11 +89,11 @@ const estimateItemSchema = new mongoose.Schema({
 const labourItemSchema = new mongoose.Schema({
   description: {
     type: String,
-    required: true,
+    default: '',
   },
   rate: {
     type: Number,
-    required: true,
+    default: 0,
     min: 0,
   },
   discount: {
@@ -104,7 +103,6 @@ const labourItemSchema = new mongoose.Schema({
   },
   taxableValue: {
     type: Number,
-    required: true,
     default: 0,
   },
   cgstAmount: {
@@ -126,15 +124,15 @@ const labourItemSchema = new mongoose.Schema({
   },
   amount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   gstAmount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   total: {
     type: Number,
-    required: true,
+    default: 0,
   }
 });
 
@@ -152,8 +150,19 @@ const estimateSchema = new mongoose.Schema({
   jobCardId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'JobCard',
-    required: true,
+    required: false,
     index: true,
+  },
+  isDraft: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+  draftCustomerInfo: {
+    customerName: { type: String, default: '' },
+    contactNumber: { type: String, default: '' },
+    vehicleNumber: { type: String, default: '' },
+    vehicleModel: { type: String, default: '' }
   },
   parts: [estimateItemSchema],
   labour: [labourItemSchema],
@@ -167,6 +176,7 @@ const estimateSchema = new mongoose.Schema({
     type: String,
     enum: ['Draft', 'Sent', 'Waiting for Approval', 'Approved', 'Rejected', 'Revised'],
     default: 'Draft',
+    index: true,
   },
   rejectionReason: {
     type: String,
