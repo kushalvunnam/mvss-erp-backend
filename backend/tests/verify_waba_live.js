@@ -14,20 +14,23 @@ const RENDER_BASE = 'https://mvss-erp-backend.onrender.com';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function waitForDeploy() {
-  console.log('[1/4] Waiting for Render deployment of commit b7b047c to become live...');
+async function waitForDeploy(token) {
+  console.log('[1/4] Waiting for Render deployment of commit 2fda55b to become live...');
   const maxAttempts = 60; // 60 * 10s = 10 minutes
   for (let i = 1; i <= maxAttempts; i++) {
     try {
       const res = await axios.get(`${RENDER_BASE}/api/whatsapp/deep-audit`, {
+        headers: { Authorization: `Bearer ${token}` },
         validateStatus: () => true,
-        timeout: 8000
+        timeout: 15000
       });
-      if (res.status === 401) {
-        console.log(`[Render Deployment Ready] /api/whatsapp/deep-audit responded with HTTP 401 on attempt ${i}. Deployed!`);
-        return true;
+      // The old build had missing axios in routes/whatsapp.js which caused me.status === 0
+      // When 2fda55b is live, me will return an actual HTTP status (> 0, e.g. 200 or 400)
+      if (res.status === 200 && res.data?.me && res.data.me.status !== 0) {
+        console.log(`[Render Deployment Ready] /api/whatsapp/deep-audit responded with live data on attempt ${i}. Deployed!`);
+        return res.data;
       }
-      console.log(`[Attempt ${i}/${maxAttempts}] HTTP status: ${res.status}. Waiting 10s for build/rollout...`);
+      console.log(`[Attempt ${i}/${maxAttempts}] HTTP status: ${res.status}, me.status: ${res.data?.me?.status}. Waiting 10s for build/rollout...`);
     } catch (err) {
       console.log(`[Attempt ${i}/${maxAttempts}] Connection note: ${err.message}. Waiting 10s...`);
     }
@@ -37,9 +40,7 @@ async function waitForDeploy() {
 }
 
 async function runVerification() {
-  await waitForDeploy();
-
-  console.log('[2/4] Generating authenticated admin JWT...');
+  console.log('[1/3] Generating authenticated admin JWT...');
   await mongoose.connect(directUri);
   const User = require('../models/User');
   const user = await User.findOne({ active: true, role: 'Super Admin' }) || await User.findOne({ active: true });
@@ -47,13 +48,10 @@ async function runVerification() {
   await mongoose.disconnect();
   console.log(`Admin user authenticated: ${user.name} (${user.role})`);
 
-  console.log('[3/4] Querying /api/whatsapp/deep-audit on live Render backend...');
-  const deepRes = await axios.get(`${RENDER_BASE}/api/whatsapp/deep-audit`, {
-    headers: { Authorization: `Bearer ${token}` },
-    timeout: 45000
-  });
+  console.log('[2/3] Waiting for Render deployment of commit 2fda55b to become live...');
+  const deep = await waitForDeploy(token);
 
-  console.log('[4/4] Querying /api/whatsapp/meta-status on live Render backend...');
+  console.log('[3/3] Querying /api/whatsapp/meta-status on live Render backend...');
   const metaStatusRes = await axios.get(`${RENDER_BASE}/api/whatsapp/meta-status`, {
     headers: { Authorization: `Bearer ${token}` },
     timeout: 30000
@@ -63,7 +61,6 @@ async function runVerification() {
   console.log('            LIVE META WABA AUDIT & VERIFICATION REPORT          ');
   console.log('===============================================================\n');
 
-  const deep = deepRes.data;
   const metaStatus = metaStatusRes.data;
 
   // 1. Candidate WABA 1718873676471685 Node details

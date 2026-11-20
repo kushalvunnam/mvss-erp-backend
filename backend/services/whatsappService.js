@@ -673,12 +673,72 @@ const syncMetaTemplates = async (customAxios = axios) => {
         console.warn('[WhatsApp Meta Audit] META_WA_PHONE_NUMBER_ID is not configured.');
     }
 
+    // 2b. Direct Endpoint Diagnostics for Target Identifiers
+    auditReport.directDiagnostics = {};
+    const testEndpoints = [
+        { key: 'targetWaba_1718873676471685_raw', url: `${GRAPH_API_BASE_URL}/1718873676471685` },
+        { key: 'targetWaba_1718873676471685_metadata', url: `${GRAPH_API_BASE_URL}/1718873676471685?metadata=1` },
+        { key: 'targetWaba_1718873676471685_fields', url: `${GRAPH_API_BASE_URL}/1718873676471685?fields=id,name,timezone_id,message_template_namespace` },
+        { key: 'targetWaba_1718873676471685_phone_numbers', url: `${GRAPH_API_BASE_URL}/1718873676471685/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating` },
+        { key: 'targetWaba_1718873676471685_templates', url: `${GRAPH_API_BASE_URL}/1718873676471685/message_templates?fields=id,name,status,language&limit=10` },
+        { key: 'targetPhone_1435390016330145_raw', url: `${GRAPH_API_BASE_URL}/1435390016330145` },
+        { key: 'targetPhone_1435390016330145_metadata', url: `${GRAPH_API_BASE_URL}/1435390016330145?metadata=1` },
+        { key: 'targetPhone_1435390016330145_fields', url: `${GRAPH_API_BASE_URL}/1435390016330145?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating,status,account_mode` },
+        { key: 'messagingAccount_4778078332414981_raw', url: `${GRAPH_API_BASE_URL}/4778078332414981` },
+        { key: 'messagingAccount_4778078332414981_metadata', url: `${GRAPH_API_BASE_URL}/4778078332414981?metadata=1` },
+        { key: 'messagingAccount_4778078332414981_phone_numbers', url: `${GRAPH_API_BASE_URL}/4778078332414981/phone_numbers?fields=id,display_phone_number,verified_name` },
+        { key: 'me_assigned_wabas', url: `${GRAPH_API_BASE_URL}/me/assigned_whatsapp_business_accounts?fields=id,name,currency,timezone_id,message_template_namespace` },
+        { key: 'me_owned_wabas', url: `${GRAPH_API_BASE_URL}/me/owned_whatsapp_business_accounts?fields=id,name` },
+        { key: 'me_businesses', url: `${GRAPH_API_BASE_URL}/me/businesses?fields=id,name` },
+        { key: 'business_1983617422302091_owned_wabas', url: `${GRAPH_API_BASE_URL}/1983617422302091/owned_whatsapp_business_accounts?fields=id,name,message_template_namespace` },
+        { key: 'business_1983617422302091_client_wabas', url: `${GRAPH_API_BASE_URL}/1983617422302091/client_whatsapp_business_accounts?fields=id,name,message_template_namespace` }
+    ];
+
+    for (const ep of testEndpoints) {
+        try {
+            const resp = await customAxios.get(ep.url, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 8000
+            });
+            auditReport.directDiagnostics[ep.key] = { success: true, status: resp.status, data: resp.data };
+        } catch (err) {
+            const errObj = err.response?.data?.error || {};
+            auditReport.directDiagnostics[ep.key] = {
+                success: false,
+                status: err.response?.status || 0,
+                code: errObj.code || err.code,
+                subcode: errObj.error_subcode,
+                type: errObj.type,
+                message: errObj.message || err.message,
+                fbtrace_id: errObj.fbtrace_id
+            };
+        }
+    }
+
+    let verifiedWaba = null;
+
+    // Check if target WABA 1718873676471685 directly returned phone numbers that include phoneNumberId
+    const wabaDirectPhones = auditReport.directDiagnostics['targetWaba_1718873676471685_phone_numbers']?.data?.data;
+    if (Array.isArray(wabaDirectPhones)) {
+        console.log(`[WhatsApp Meta Audit] Direct target WABA 1718873676471685 phone list: ${wabaDirectPhones.map(p => `${p.id} (${p.display_phone_number})`).join(', ') || 'none'}`);
+        const matched = wabaDirectPhones.find(p => p.id === phoneNumberId);
+        if (matched) {
+            verifiedWaba = {
+                id: '1718873676471685',
+                name: 'MVSS Automobiles (WABA 1718873676471685)',
+                source: 'direct_waba_1718873676471685',
+                matchedPhone: matched
+            };
+            resolvedVerifiedWabaId = '1718873676471685';
+            console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED via direct WABA check: WABA ID 1718873676471685 owns Phone Number ID ${phoneNumberId} (${matched.display_phone_number || 'N/A'})`);
+        }
+    }
+
     // 3. Discover Candidate WABAs via supported Meta Graph API flows and verify which one owns phoneNumberId
     const candidateWabas = await discoverAccessibleWabas(customAxios, token, configuredWabaId);
-    let verifiedWaba = null;
     const candidatesChecked = [];
 
-    if (candidateWabas.length > 0 && phoneNumberId) {
+    if (!verifiedWaba && candidateWabas.length > 0 && phoneNumberId) {
         console.log(`[WhatsApp Meta Audit] Verifying ${candidateWabas.length} candidate WABA(s) against Phone Number ID ${phoneNumberId}...`);
         for (const cand of candidateWabas) {
             const candSummary = {

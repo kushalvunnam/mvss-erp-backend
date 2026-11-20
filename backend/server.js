@@ -402,8 +402,8 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    version: 'production-v2.0.0-all-advance-payment-modes-fixed',
-    description: 'All 7 advance payment modes (Cash, UPI, Card, Bank Transfer, Cheque, QR / Scanner Payment, Other) supported and validated without enum errors'
+    version: 'production-v2.1.0-waba-verification-diagnostic',
+    description: 'All 7 advance payment modes supported, reports balance calculations aligned, and WhatsApp WABA verification diagnostics active'
   });
 });
 
