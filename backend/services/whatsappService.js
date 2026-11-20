@@ -2,8 +2,8 @@ const axios = require('axios');
 const WhatsAppLog = require('../models/WhatsAppLog');
 
 // Official Meta WhatsApp Business Account & Sender configuration
-// Sender: +91 91771 77509 | Phone Number ID: 1446113211917959 | WABA ID: 2021254895254703
-const OFFICIAL_PHONE_NUMBER_ID = '1446113211917959';
+// Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 4778078332414981 / 2021254895254703
+const OFFICIAL_PHONE_NUMBER_ID = '1435390016330145';
 const OFFICIAL_WABA_ID = '2021254895254703';
 const OFFICIAL_SENDER_PHONE = '919177177509';
 
@@ -31,8 +31,8 @@ const getEffectiveSenderPhone = () => {
     return envPhone;
 };
 
-// Centralized Graph API version configuration (default: v25.0)
-const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v25.0';
+// Centralized Graph API version configuration (default: v22.0)
+const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v22.0';
 const GRAPH_API_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
@@ -486,14 +486,33 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
         }
     };
 
-    // 1. Direct /me/owned_whatsapp_business_accounts
-    await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/owned_whatsapp_business_accounts?fields=id,name`, '/me/owned_whatsapp_business_accounts');
+    // 0. Direct reverse lookup from Phone Number ID to owning WABA
+    const targetPhoneId = getEffectivePhoneNumberId();
+    if (targetPhoneId) {
+        try {
+            const phoneWabaRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${targetPhoneId}?fields=id,whatsapp_business_account{id,name}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const waba = phoneWabaRes.data?.whatsapp_business_account;
+            if (waba && waba.id) {
+                candidates.set(waba.id, {
+                    id: waba.id,
+                    name: waba.name || `Owning WABA of ${targetPhoneId}`,
+                    source: `phone_node_reverse_lookup_${targetPhoneId}`
+                });
+                console.log(`[WhatsApp Meta Audit] REVERSE LOOKUP CONFIRMED: Phone Number ID ${targetPhoneId} is owned by WABA ID ${waba.id} (${waba.name || 'N/A'})`);
+            }
+        } catch (phoneErr) {
+            const errDetails = getMetaErrorDetails(phoneErr);
+            console.log(`[WhatsApp Meta Audit] Phone ${targetPhoneId} owning WABA lookup note: ${errDetails.formatted}`);
+        }
+    }
 
-    // 2. Direct /me/assigned_whatsapp_business_accounts
+    // 1. Direct /me/assigned_whatsapp_business_accounts (supported for System Users)
     await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/assigned_whatsapp_business_accounts?fields=id,name`, '/me/assigned_whatsapp_business_accounts');
 
-    // 3. Direct /me/whatsapp_business_accounts
-    await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/whatsapp_business_accounts?fields=id,name`, '/me/whatsapp_business_accounts');
+    // 2. Direct /me/owned_whatsapp_business_accounts
+    await tryFetchWabas(`${GRAPH_API_BASE_URL}/me/owned_whatsapp_business_accounts?fields=id,name`, '/me/owned_whatsapp_business_accounts');
 
     // 4. Direct /me/businesses (Meta Business Portfolios), then /{business_id}/owned_whatsapp_business_accounts
     try {
