@@ -456,6 +456,104 @@ router.get('/meta-status', auth, restrictTo('Admin', 'Super Admin'), async (req,
     }
 });
 
+// Deep diagnostic audit endpoint for Meta WhatsApp credentials and accounts
+router.get('/deep-audit', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    const token = process.env.META_WA_ACCESS_TOKEN;
+    if (!token) {
+        return res.status(500).json({ error: 'META_WA_ACCESS_TOKEN is missing on server' });
+    }
+
+    const safeGet = async (url) => {
+        try {
+            const resp = await axios.get(url, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 8000
+            });
+            return { success: true, status: resp.status, data: resp.data };
+        } catch (err) {
+            const errObj = err.response?.data?.error || {};
+            return {
+                success: false,
+                status: err.response?.status || 0,
+                code: errObj.code,
+                subcode: errObj.error_subcode,
+                type: errObj.type,
+                message: errObj.message,
+                fbtrace_id: errObj.fbtrace_id
+            };
+        }
+    };
+
+    try {
+        const audit = {
+            timestamp: new Date().toISOString(),
+            configuredEnv: {
+                phoneNumberId: process.env.META_WA_PHONE_NUMBER_ID || 'UNSET',
+                businessAccountId: process.env.META_WA_BUSINESS_ACCOUNT_ID || 'UNSET',
+                businessPhone: process.env.WHATSAPP_BUSINESS_PHONE || 'UNSET',
+                hasToken: Boolean(token),
+                tokenPrefix: token ? token.substring(0, 6) + '...' : 'NONE'
+            }
+        };
+
+        // 1. debug_token
+        audit.debugToken = await safeGet(`https://graph.facebook.com/debug_token?input_token=${token}&access_token=${token}`);
+
+        // 2. /me & /me/permissions
+        audit.me = await safeGet('https://graph.facebook.com/v22.0/me?fields=id,name');
+        audit.permissions = await safeGet('https://graph.facebook.com/v22.0/me/permissions');
+
+        // 3. /me account edges
+        audit.meBusinesses = await safeGet('https://graph.facebook.com/v22.0/me/businesses?fields=id,name');
+        audit.meOwnedWabas = await safeGet('https://graph.facebook.com/v22.0/me/owned_whatsapp_business_accounts?fields=id,name');
+        audit.meAssignedWabas = await safeGet('https://graph.facebook.com/v22.0/me/assigned_whatsapp_business_accounts?fields=id,name');
+        audit.meWabas = await safeGet('https://graph.facebook.com/v22.0/me/whatsapp_business_accounts?fields=id,name');
+
+        // 4. Introspect 4778078332414981 (Candidate Messaging Account ID)
+        audit.targetAccount_4778078332414981 = {
+            metadata: await safeGet('https://graph.facebook.com/v22.0/4778078332414981?metadata=1'),
+            basic: await safeGet('https://graph.facebook.com/v22.0/4778078332414981?fields=id,name,currency,timezone_id,account_mode'),
+            phoneNumbers: await safeGet('https://graph.facebook.com/v22.0/4778078332414981/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating'),
+            templates: await safeGet('https://graph.facebook.com/v22.0/4778078332414981/message_templates?fields=id,name,status,language&limit=10'),
+            ownedWabas: await safeGet('https://graph.facebook.com/v22.0/4778078332414981/owned_whatsapp_business_accounts?fields=id,name'),
+            clientWabas: await safeGet('https://graph.facebook.com/v22.0/4778078332414981/client_whatsapp_business_accounts?fields=id,name')
+        };
+
+        // 5. Introspect 1435390016330145 (Phone Number ID)
+        audit.targetPhone_1435390016330145 = {
+            metadata: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?metadata=1'),
+            basic: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating'),
+            wabaEdge_v22: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?fields=whatsapp_business_account{id,name}'),
+            wabaEdge_v21: await safeGet('https://graph.facebook.com/v21.0/1435390016330145?fields=whatsapp_business_account{id,name}'),
+            wabaEdge_v20: await safeGet('https://graph.facebook.com/v20.0/1435390016330145?fields=whatsapp_business_account{id,name}')
+        };
+
+        // 6. Introspect other known IDs: 2021254895254703, 1070579342641923, 1983617422302091, 3953189031490997
+        audit.otherCandidates = {
+            id_2021254895254703: {
+                metadata: await safeGet('https://graph.facebook.com/v22.0/2021254895254703?metadata=1'),
+                phones: await safeGet('https://graph.facebook.com/v22.0/2021254895254703/phone_numbers?fields=id,display_phone_number,verified_name')
+            },
+            id_1070579342641923: {
+                phones: await safeGet('https://graph.facebook.com/v22.0/1070579342641923/phone_numbers?fields=id,display_phone_number,verified_name')
+            },
+            id_1983617422302091: {
+                ownedWabas: await safeGet('https://graph.facebook.com/v22.0/1983617422302091/owned_whatsapp_business_accounts?fields=id,name'),
+                clientWabas: await safeGet('https://graph.facebook.com/v22.0/1983617422302091/client_whatsapp_business_accounts?fields=id,name')
+            },
+            id_3953189031490997: {
+                metadata: await safeGet('https://graph.facebook.com/v22.0/3953189031490997?metadata=1'),
+                phones: await safeGet('https://graph.facebook.com/v22.0/3953189031490997/phone_numbers?fields=id,display_phone_number,verified_name')
+            }
+        };
+
+        return res.json(audit);
+    } catch (err) {
+        console.error('[WhatsApp] deep-audit unexpected error:', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // =========================================================================
 // PHASE 13: AUTHENTICATED ADMIN PRODUCTION TEST ENDPOINT
 // =========================================================================
