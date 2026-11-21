@@ -33,6 +33,14 @@ const whatsappLogSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: {}
   },
+  senderPhone: {
+    type: String,
+    default: '919177177509'
+  },
+  phoneNumberId: {
+    type: String,
+    default: '1435390016330145'
+  },
   direction: {
     type: String,
     enum: ['outbound', 'inbound'],

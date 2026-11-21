@@ -3,8 +3,9 @@ const path = require('path');
 
 // Setup environment for testing
 process.env.META_WA_ACCESS_TOKEN = 'mock_valid_token_abc';
-process.env.META_WA_PHONE_NUMBER_ID = '1446113211917959';
-process.env.META_WA_BUSINESS_ACCOUNT_ID = '2021254895254703';
+process.env.META_WA_PHONE_NUMBER_ID = '1435390016330145';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '1718873676471685';
+process.env.WHATSAPP_BUSINESS_PHONE = '919177177509';
 
 const {
   sendTemplateMessage,
@@ -539,7 +540,7 @@ async function runTests() {
   // =========================================================================
   assert.strictEqual(maskPhoneNumber('8008092742'), '800****742');
   assert.strictEqual(maskPhoneNumber('918008092742'), '918****742');
-  assert.strictEqual(maskPhoneNumber('7674819765'), '767****765');
+  assert.strictEqual(maskPhoneNumber('9876543210'), '987****210');
   assert.strictEqual(maskPhoneNumber(''), 'missing');
   assert.strictEqual(maskPhoneNumber(null), 'missing');
   console.log('✔ Test 14 Passed: Phone masking utility masks middle digits cleanly for safe logging.');
@@ -557,7 +558,7 @@ async function runTests() {
   const recipient2 = {
     _id: 'cust_002_id',
     name: 'Customer Two',
-    mobile: '7674819765',
+    mobile: '9876543210',
     whatsappOptIn: true
   };
 
@@ -611,7 +612,7 @@ async function runTests() {
 
   assert.strictEqual(dispatchedRecipients.length, 2);
   assert.strictEqual(dispatchedRecipients[0], '918008092742');
-  assert.strictEqual(dispatchedRecipients[1], '917674819765');
+  assert.strictEqual(dispatchedRecipients[1], '919876543210');
   console.log('✔ Test 15 Passed: Multi-recipient dispatch verified for 2 distinct customer records dynamically extracted.');
 
   // =========================================================================

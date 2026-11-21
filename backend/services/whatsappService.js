@@ -11,7 +11,7 @@ let resolvedVerifiedWabaId = null;
 
 const getEffectivePhoneNumberId = () => {
     const envId = process.env.META_WA_PHONE_NUMBER_ID;
-    if (!envId || envId === '1391083524077434') {
+    if (!envId || envId === '1391083524077434' || envId === '1446113211917959') {
         return OFFICIAL_PHONE_NUMBER_ID;
     }
     return envId;
@@ -20,7 +20,7 @@ const getEffectivePhoneNumberId = () => {
 const getEffectiveWabaId = () => {
     if (resolvedVerifiedWabaId) return resolvedVerifiedWabaId;
     const envWaba = process.env.META_WA_BUSINESS_ACCOUNT_ID;
-    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923' || envWaba === '4778078332414981') {
+    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923' || envWaba === '4778078332414981' || envWaba === '2021254895254703') {
         return OFFICIAL_WABA_ID;
     }
     return envWaba;
@@ -679,7 +679,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
         { key: 'targetWaba_1718873676471685_raw', url: `${GRAPH_API_BASE_URL}/1718873676471685` },
         { key: 'targetWaba_1718873676471685_metadata', url: `${GRAPH_API_BASE_URL}/1718873676471685?metadata=1` },
         { key: 'targetWaba_1718873676471685_fields', url: `${GRAPH_API_BASE_URL}/1718873676471685?fields=id,name,timezone_id,message_template_namespace` },
-        { key: 'targetWaba_1718873676471685_phone_numbers', url: `${GRAPH_API_BASE_URL}/1718873676471685/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating` },
+        { key: 'targetWaba_1718873676471685_phone_numbers', url: `${GRAPH_API_BASE_URL}/1718873676471685/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating` },
         { key: 'targetWaba_1718873676471685_templates', url: `${GRAPH_API_BASE_URL}/1718873676471685/message_templates?fields=id,name,status,language&limit=10` },
         { key: 'targetPhone_1435390016330145_raw', url: `${GRAPH_API_BASE_URL}/1435390016330145` },
         { key: 'targetPhone_1435390016330145_metadata', url: `${GRAPH_API_BASE_URL}/1435390016330145?metadata=1` },
@@ -751,7 +751,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
                 matched: false
             };
             try {
-                const phonesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${cand.id}/phone_numbers?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating`, {
+                const phonesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${cand.id}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const phoneList = phonesRes.data?.data || [];
@@ -760,7 +760,6 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     id: p.id,
                     display_phone_number: p.display_phone_number,
                     verified_name: p.verified_name,
-                    code_verification_status: p.code_verification_status,
                     quality_rating: p.quality_rating
                 }));
                 console.log(`[WhatsApp Meta Audit] Candidate WABA ${cand.id} (${cand.name}) owns ${phoneList.length} phone number(s): ${phoneList.map(p => `${p.id} (${p.display_phone_number})`).join(', ') || 'none'}`);
@@ -1039,6 +1038,8 @@ const sendTemplateMessage = async ({
                         $setOnInsert: {
                             recipientName,
                             recipientPhone: normalizedPhone,
+                            senderPhone: getEffectiveSenderPhone(),
+                            phoneNumberId: phoneNumberId,
                             templateName: finalTemplateName,
                             messageType: 'template',
                             direction: 'outbound',
@@ -1302,6 +1303,8 @@ const sendDocumentMessage = async ({
                         $setOnInsert: {
                             recipientName,
                             recipientPhone: normalizedPhone,
+                            senderPhone: getEffectiveSenderPhone(),
+                            phoneNumberId: phoneNumberId,
                             templateName: 'document_attachment',
                             messageType: 'document',
                             direction: 'outbound',
@@ -1518,6 +1521,8 @@ const sendImageMessage = async ({
                         $setOnInsert: {
                             recipientName,
                             recipientPhone: normalizedPhone,
+                            senderPhone: getEffectiveSenderPhone(),
+                            phoneNumberId: phoneNumberId,
                             templateName: 'image_attachment',
                             messageType: 'image',
                             direction: 'outbound',
