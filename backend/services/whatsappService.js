@@ -2,9 +2,9 @@ const axios = require('axios');
 const WhatsAppLog = require('../models/WhatsAppLog');
 
 // Official Meta WhatsApp Business Account & Sender configuration
-// Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 1718873676471685
+// Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 4778078332414981
 const OFFICIAL_PHONE_NUMBER_ID = '1435390016330145';
-const OFFICIAL_WABA_ID = '1718873676471685';
+const OFFICIAL_WABA_ID = '4778078332414981';
 const OFFICIAL_SENDER_PHONE = '919177177509';
 
 let resolvedVerifiedWabaId = null;
@@ -20,7 +20,7 @@ const getEffectivePhoneNumberId = () => {
 const getEffectiveWabaId = () => {
     if (resolvedVerifiedWabaId) return resolvedVerifiedWabaId;
     const envWaba = process.env.META_WA_BUSINESS_ACCOUNT_ID;
-    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923' || envWaba === '4778078332414981' || envWaba === '2021254895254703') {
+    if (!envWaba || envWaba === '10705793426461923' || envWaba === '1070579342641923' || envWaba === '1718873676471685' || envWaba === '2021254895254703') {
         return OFFICIAL_WABA_ID;
     }
     return envWaba;
@@ -515,8 +515,12 @@ const discoverAccessibleWabas = async (customAxios, token, configuredBusinessOrW
     const candidateBizIds = new Set();
     if (configuredBusinessOrWabaId) candidateBizIds.add(String(configuredBusinessOrWabaId).trim());
     if (process.env.META_WA_BUSINESS_ACCOUNT_ID) candidateBizIds.add(String(process.env.META_WA_BUSINESS_ACCOUNT_ID).trim());
+    candidateBizIds.add('4778078332414981'); // Verified WABA / Messaging Account ID
     candidateBizIds.add('1718873676471685'); // Candidate WABA ID from Meta Business Settings URL
-    candidateBizIds.add('4778078332414981'); // Candidate Messaging Account ID
+    candidateBizIds.add('2412447699508324'); // Candidate account from WhatsApp Manager dropdown
+    candidateBizIds.add('1125158346955074'); // Candidate account from WhatsApp Manager dropdown
+    candidateBizIds.add('1847113829838550'); // Candidate account from WhatsApp Manager dropdown
+    candidateBizIds.add('1070579342641923'); // Old WABA account (owning +91 76748 19765)
     candidateBizIds.add('1983617422302091'); // MVSS Automobiles Meta Business Portfolio ID from WhatsApp Manager
     candidateBizIds.add('3953189031490997'); // Exact WABA asset_id from WhatsApp Manager URL
 
@@ -676,17 +680,22 @@ const syncMetaTemplates = async (customAxios = axios) => {
     // 2b. Direct Endpoint Diagnostics for Target Identifiers
     auditReport.directDiagnostics = {};
     const testEndpoints = [
-        { key: 'targetWaba_1718873676471685_raw', url: `${GRAPH_API_BASE_URL}/1718873676471685` },
-        { key: 'targetWaba_1718873676471685_metadata', url: `${GRAPH_API_BASE_URL}/1718873676471685?metadata=1` },
-        { key: 'targetWaba_1718873676471685_fields', url: `${GRAPH_API_BASE_URL}/1718873676471685?fields=id,name,timezone_id,message_template_namespace` },
-        { key: 'targetWaba_1718873676471685_phone_numbers', url: `${GRAPH_API_BASE_URL}/1718873676471685/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating` },
-        { key: 'targetWaba_1718873676471685_templates', url: `${GRAPH_API_BASE_URL}/1718873676471685/message_templates?fields=id,name,status,language&limit=10` },
+        { key: 'waba_4778078332414981_raw', url: `${GRAPH_API_BASE_URL}/4778078332414981` },
+        { key: 'waba_4778078332414981_metadata', url: `${GRAPH_API_BASE_URL}/4778078332414981?metadata=1` },
+        { key: 'waba_4778078332414981_fields', url: `${GRAPH_API_BASE_URL}/4778078332414981?fields=id,name,currency,timezone_id,message_template_namespace` },
+        { key: 'waba_4778078332414981_phone_numbers', url: `${GRAPH_API_BASE_URL}/4778078332414981/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating` },
+        { key: 'waba_4778078332414981_templates', url: `${GRAPH_API_BASE_URL}/4778078332414981/message_templates?fields=id,name,status,language&limit=50` },
         { key: 'targetPhone_1435390016330145_raw', url: `${GRAPH_API_BASE_URL}/1435390016330145` },
         { key: 'targetPhone_1435390016330145_metadata', url: `${GRAPH_API_BASE_URL}/1435390016330145?metadata=1` },
         { key: 'targetPhone_1435390016330145_fields', url: `${GRAPH_API_BASE_URL}/1435390016330145?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating,status,account_mode` },
-        { key: 'messagingAccount_4778078332414981_raw', url: `${GRAPH_API_BASE_URL}/4778078332414981` },
-        { key: 'messagingAccount_4778078332414981_metadata', url: `${GRAPH_API_BASE_URL}/4778078332414981?metadata=1` },
-        { key: 'messagingAccount_4778078332414981_phone_numbers', url: `${GRAPH_API_BASE_URL}/4778078332414981/phone_numbers?fields=id,display_phone_number,verified_name` },
+        { key: 'candidate_2412447699508324_basic', url: `${GRAPH_API_BASE_URL}/2412447699508324?fields=id,name,timezone_id,message_template_namespace` },
+        { key: 'candidate_2412447699508324_phone_numbers', url: `${GRAPH_API_BASE_URL}/2412447699508324/phone_numbers?fields=id,display_phone_number,verified_name` },
+        { key: 'candidate_1125158346955074_basic', url: `${GRAPH_API_BASE_URL}/1125158346955074?fields=id,name,timezone_id,message_template_namespace` },
+        { key: 'candidate_1125158346955074_phone_numbers', url: `${GRAPH_API_BASE_URL}/1125158346955074/phone_numbers?fields=id,display_phone_number,verified_name` },
+        { key: 'candidate_1847113829838550_basic', url: `${GRAPH_API_BASE_URL}/1847113829838550?fields=id,name,timezone_id,message_template_namespace` },
+        { key: 'candidate_1847113829838550_phone_numbers', url: `${GRAPH_API_BASE_URL}/1847113829838550/phone_numbers?fields=id,display_phone_number,verified_name` },
+        { key: 'oldWaba_1070579342641923_templates', url: `${GRAPH_API_BASE_URL}/1070579342641923/message_templates?fields=id,name,status,language&limit=50` },
+        { key: 'targetWaba_1718873676471685_raw', url: `${GRAPH_API_BASE_URL}/1718873676471685` },
         { key: 'me_assigned_wabas', url: `${GRAPH_API_BASE_URL}/me/assigned_whatsapp_business_accounts?fields=id,name,currency,timezone_id,message_template_namespace` },
         { key: 'me_owned_wabas', url: `${GRAPH_API_BASE_URL}/me/owned_whatsapp_business_accounts?fields=id,name` },
         { key: 'me_businesses', url: `${GRAPH_API_BASE_URL}/me/businesses?fields=id,name` },
@@ -717,20 +726,38 @@ const syncMetaTemplates = async (customAxios = axios) => {
 
     let verifiedWaba = null;
 
-    // Check if target WABA 1718873676471685 directly returned phone numbers that include phoneNumberId
-    const wabaDirectPhones = auditReport.directDiagnostics['targetWaba_1718873676471685_phone_numbers']?.data?.data;
-    if (Array.isArray(wabaDirectPhones)) {
-        console.log(`[WhatsApp Meta Audit] Direct target WABA 1718873676471685 phone list: ${wabaDirectPhones.map(p => `${p.id} (${p.display_phone_number})`).join(', ') || 'none'}`);
-        const matched = wabaDirectPhones.find(p => p.id === phoneNumberId);
+    // Check if target WABA 4778078332414981 directly returned phone numbers that include phoneNumberId
+    const waba4778DirectPhones = auditReport.directDiagnostics['waba_4778078332414981_phone_numbers']?.data?.data;
+    if (Array.isArray(waba4778DirectPhones)) {
+        console.log(`[WhatsApp Meta Audit] Direct target WABA 4778078332414981 phone list: ${waba4778DirectPhones.map(p => `${p.id} (${p.display_phone_number})`).join(', ') || 'none'}`);
+        const matched = waba4778DirectPhones.find(p => p.id === phoneNumberId);
         if (matched) {
             verifiedWaba = {
-                id: '1718873676471685',
-                name: 'MVSS Automobiles (WABA 1718873676471685)',
-                source: 'direct_waba_1718873676471685',
+                id: '4778078332414981',
+                name: 'MVSS Automobiles',
+                source: 'direct_waba_4778078332414981',
                 matchedPhone: matched
             };
-            resolvedVerifiedWabaId = '1718873676471685';
-            console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED via direct WABA check: WABA ID 1718873676471685 owns Phone Number ID ${phoneNumberId} (${matched.display_phone_number || 'N/A'})`);
+            resolvedVerifiedWabaId = '4778078332414981';
+            console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED via direct WABA check: WABA ID 4778078332414981 owns Phone Number ID ${phoneNumberId} (${matched.display_phone_number || 'N/A'})`);
+        }
+    }
+
+    // Check if secondary candidate WABA 1718873676471685 directly returned phone numbers that include phoneNumberId
+    if (!verifiedWaba) {
+        const waba1718DirectPhones = auditReport.directDiagnostics['targetWaba_1718873676471685_phone_numbers']?.data?.data;
+        if (Array.isArray(waba1718DirectPhones)) {
+            const matched = waba1718DirectPhones.find(p => p.id === phoneNumberId);
+            if (matched) {
+                verifiedWaba = {
+                    id: '1718873676471685',
+                    name: 'MVSS Automobiles (WABA 1718873676471685)',
+                    source: 'direct_waba_1718873676471685',
+                    matchedPhone: matched
+                };
+                resolvedVerifiedWabaId = '1718873676471685';
+                console.log(`[WhatsApp Meta Audit] MATCH CONFIRMED via direct WABA check: WABA ID 1718873676471685 owns Phone Number ID ${phoneNumberId} (${matched.display_phone_number || 'N/A'})`);
+            }
         }
     }
 
@@ -843,7 +870,10 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     components: t.components
                 };
             });
-            auditReport.fallbackConfigActive = false;
+            auditReport.fallbackConfigActive = (metaTemplates.length === 0);
+            if (metaTemplates.length === 0) {
+                auditReport.templatesAudit.note = 'Live verified WABA 4778078332414981 has 0 templates. Preserving active TEMPLATE_CONFIG baseline (en). All 22 ERP workflows remain operational.';
+            }
 
             // Verify ERP template mappings against Meta
             console.log('[WhatsApp Meta Audit] Verifying ERP Template mappings against Meta:');

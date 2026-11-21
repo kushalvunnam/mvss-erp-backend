@@ -543,18 +543,31 @@ router.get('/deep-audit', auth, restrictTo('Admin', 'Super Admin'), async (req, 
             basic: await safeGet('https://graph.facebook.com/v22.0/1435390016330145?fields=id,display_phone_number,verified_name,code_verification_status,quality_rating,status,account_mode,name_status,new_name_status')
         };
 
-        // 6. Introspect other known IDs: 2021254895254703, 1070579342641923, 1983617422302091, 3953189031490997
+        // 6. Introspect other known candidate IDs from Meta Business Settings & WhatsApp Manager
         audit.otherCandidates = {
+            id_2412447699508324: {
+                basic: await safeGet('https://graph.facebook.com/v22.0/2412447699508324?fields=id,name,timezone_id,message_template_namespace'),
+                phones: await safeGet('https://graph.facebook.com/v22.0/2412447699508324/phone_numbers?fields=id,display_phone_number,verified_name')
+            },
+            id_1125158346955074: {
+                basic: await safeGet('https://graph.facebook.com/v22.0/1125158346955074?fields=id,name,timezone_id,message_template_namespace'),
+                phones: await safeGet('https://graph.facebook.com/v22.0/1125158346955074/phone_numbers?fields=id,display_phone_number,verified_name')
+            },
+            id_1847113829838550: {
+                basic: await safeGet('https://graph.facebook.com/v22.0/1847113829838550?fields=id,name,timezone_id,message_template_namespace'),
+                phones: await safeGet('https://graph.facebook.com/v22.0/1847113829838550/phone_numbers?fields=id,display_phone_number,verified_name')
+            },
+            id_1070579342641923: {
+                phones: await safeGet('https://graph.facebook.com/v22.0/1070579342641923/phone_numbers?fields=id,display_phone_number,verified_name'),
+                templates: await safeGet('https://graph.facebook.com/v22.0/1070579342641923/message_templates?fields=id,name,status,language&limit=50')
+            },
+            id_1983617422302091: {
+                ownedWabas: await safeGet('https://graph.facebook.com/v22.0/1983617422302091/owned_whatsapp_business_accounts?fields=id,name,message_template_namespace'),
+                clientWabas: await safeGet('https://graph.facebook.com/v22.0/1983617422302091/client_whatsapp_business_accounts?fields=id,name,message_template_namespace')
+            },
             id_2021254895254703: {
                 metadata: await safeGet('https://graph.facebook.com/v22.0/2021254895254703?metadata=1'),
                 phones: await safeGet('https://graph.facebook.com/v22.0/2021254895254703/phone_numbers?fields=id,display_phone_number,verified_name')
-            },
-            id_1070579342641923: {
-                phones: await safeGet('https://graph.facebook.com/v22.0/1070579342641923/phone_numbers?fields=id,display_phone_number,verified_name')
-            },
-            id_1983617422302091: {
-                ownedWabas: await safeGet('https://graph.facebook.com/v22.0/1983617422302091/owned_whatsapp_business_accounts?fields=id,name'),
-                clientWabas: await safeGet('https://graph.facebook.com/v22.0/1983617422302091/client_whatsapp_business_accounts?fields=id,name')
             },
             id_3953189031490997: {
                 metadata: await safeGet('https://graph.facebook.com/v22.0/3953189031490997?metadata=1'),

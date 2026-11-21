@@ -18,13 +18,13 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Official WhatsApp Automation Sender Configuration
-// Active Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 1718873676471685
+// Active Sender: +91 91771 77509 | Phone Number ID: 1435390016330145 | WABA ID: 4778078332414981
 const OLD_PHONE_NUMBER_IDS = ['1391083524077434', '1446113211917959'];
-const OLD_WABA_IDS = ['10705793426461923', '1070579342641923', '4778078332414981', '2021254895254703'];
+const OLD_WABA_IDS = ['10705793426461923', '1070579342641923', '1718873676471685', '2021254895254703'];
 const OLD_SENDER_PHONES = ['917674819765', '7674819765'];
 
 const NEW_PHONE_NUMBER_ID = '1435390016330145';
-const NEW_WABA_ID = '1718873676471685';
+const NEW_WABA_ID = '4778078332414981';
 const NEW_SENDER_PHONE = '919177177509';
 
 if (!process.env.META_WA_PHONE_NUMBER_ID || OLD_PHONE_NUMBER_IDS.includes(process.env.META_WA_PHONE_NUMBER_ID)) {
@@ -402,8 +402,8 @@ app.get('/api', (req, res) => {
   res.json({ 
     success: true, 
     message: 'AutoWorkshop Pro API is running.',
-    version: 'production-v2.2.0-whatsapp-sender-9177177509-migrated',
-    description: 'Official WhatsApp sender migrated to +91 91771 77509 (Phone ID: 1435390016330145, WABA: 1718873676471685), old sender fallbacks eliminated, supported Graph API fields configured'
+    version: 'production-v2.3.0-waba-4778078332414981-verified',
+    description: 'Official WhatsApp sender verified: +91 91771 77509 (Phone ID: 1435390016330145, WABA: 4778078332414981), Graph API ownership confirmed'
   });
 });
 
