@@ -862,9 +862,18 @@ const syncMetaTemplates = async (customAxios = axios) => {
             console.warn('[WhatsApp Meta Audit] Preserving static TEMPLATE_CONFIG baseline (en).');
         }
     } else {
-        const errorMsg = candidateWabas.length > 0 
+        let errorMsg = candidateWabas.length > 0 
             ? `WABA verification failed: None of the ${candidateWabas.length} candidate WABA accounts own Phone Number ID ${phoneNumberId}`
             : `WABA verification failed: No candidate WABAs could be discovered from token or configured ID ${configuredWabaId}`;
+        
+        const waba1718Diag = auditReport.directDiagnostics?.['targetWaba_1718873676471685_raw'];
+        if (waba1718Diag?.subcode === 2388339 || waba1718Diag?.code === 100) {
+            auditReport.wabaVerification.assetAssignmentMissing = true;
+            auditReport.wabaVerification.targetWabaId = '1718873676471685';
+            auditReport.wabaVerification.systemUserId = '122113813605505849';
+            auditReport.wabaVerification.requiredAction = 'In Meta Business Settings -> Accounts -> WhatsApp Accounts -> select WABA 1718873676471685 -> click "Assign People / System Users" -> select System User "Employee" and grant "Full Control"';
+            errorMsg = `WABA verification pending: Target WABA 1718873676471685 requires System User asset assignment in Meta Business Settings (Meta Code 100, Subcode 2388339). None of the other candidate WABA accounts own Phone Number ID ${phoneNumberId}.`;
+        }
         
         auditReport.wabaVerification.verified = false;
         auditReport.wabaVerification.error = errorMsg;
