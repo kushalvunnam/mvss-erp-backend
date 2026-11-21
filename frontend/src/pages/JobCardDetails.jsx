@@ -1511,10 +1511,10 @@ export default function JobCardDetails({ jcId, token, user, onBack, onCreateEsti
           )}
           {jc.status === 'Inspect Stage' && (
             <button
-              onClick={onCreateEstimate}
+              onClick={() => onCreateEstimate && onCreateEstimate(estimate?._id)}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
             >
-              <FileCheck className="w-4 h-4" /> Prepare Estimate
+              <FileCheck className="w-4 h-4" /> {estimate ? 'Edit Estimate' : 'Prepare Estimate'}
             </button>
           )}
           {jc.status === 'Estimation' && (

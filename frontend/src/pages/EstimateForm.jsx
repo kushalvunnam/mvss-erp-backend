@@ -188,6 +188,11 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   const { data: labourInventory } = useInventoryCache(token, 'labour');
   const inventory = partsInventory;
   
+  // Persistent edit ID: preserve across page refresh or navigation
+  const initialEditId = editId || sessionStorage.getItem('active_edit_estimate_id') || null;
+  const [activeEditId, setActiveEditId] = useState(initialEditId);
+  const submittingRef = React.useRef(false);
+
   // Selection
   const [selectedJcId, setSelectedJcId] = useState('');
 
@@ -295,24 +300,20 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     const fetchData = async () => {
       try {
         const headers = { Authorization: `Bearer ${token}` };
-        
-        // Note: active jobcards list is handled dynamically by JobCardSearchableDropdown
-
-        // If a specific jobcard ID is passed via localStorage
-        const storedJcId = localStorage.getItem('create_estimate_jc_id');
-        if (storedJcId) {
-          setSelectedJcId(storedJcId);
-          localStorage.removeItem('create_estimate_jc_id');
-        }
+        const targetId = activeEditId;
 
         // If editing an existing estimate
-        if (editId) {
-          const estRes = await fetch(`${API_BASE_URL}/estimates/${editId}`, { headers });
+        if (targetId) {
+          sessionStorage.setItem('active_edit_estimate_id', targetId);
+          const estRes = await fetch(`${API_BASE_URL}/estimates/${targetId}`, { headers });
           if (estRes.ok) {
             const est = await estRes.json();
             setExistingEstimate(est);
-            setSelectedJcId(est.jobCardId._id);
-            setPartsList(est.parts.map(p => {
+            const jcId = est.jobCardId?._id || est.jobCardId || '';
+            if (jcId) {
+              setSelectedJcId(jcId);
+            }
+            setPartsList((est.parts || []).map(p => {
               const qty = p.qty || 1;
               const rate = p.rate || 0;
               const gst = p.gstPercent || 0;
@@ -329,9 +330,9 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
               });
               return {
                 partId: p.partId?._id || p.partId || '',
-                name: p.name,
-                partNo: p.partNo,
-                hsnCode: p.hsnCode,
+                name: p.name || '',
+                partNo: p.partNo || '',
+                hsnCode: p.hsnCode || '',
                 unit: p.unit || 'Pcs',
                 qty: qty.toString(),
                 mrp: pricing.mrp.toFixed(2),
@@ -346,7 +347,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 status: p.status || 'Pending'
               };
             }));
-            setLabourList(est.labour.map(l => {
+            setLabourList((est.labour || []).map(l => {
               const qty = 1;
               const rate = l.rate || 0;
               const gst = l.gstPercent || 0;
@@ -360,7 +361,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
                 changedField: 'discountAmount'
               });
               return {
-                description: l.description,
+                description: l.description || '',
                 qty: '1',
                 mrp: pricing.mrp.toFixed(2),
                 rate: pricing.unitBasic.toFixed(2),
@@ -377,6 +378,38 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
               setManualOverride(true);
               setOverriddenGrandTotal((est.manualGrandTotal || est.totals?.grandTotal || '').toString());
             }
+          } else {
+            console.error(`Failed to load estimate ${targetId}`);
+            sessionStorage.removeItem('active_edit_estimate_id');
+            alert(`Could not load estimate with ID ${targetId}. Returning to list.`);
+            onCancel();
+            return;
+          }
+        } else {
+          // If a specific jobcard ID is passed via localStorage
+          const storedJcId = localStorage.getItem('create_estimate_jc_id');
+          if (storedJcId) {
+            setSelectedJcId(storedJcId);
+            localStorage.removeItem('create_estimate_jc_id');
+
+            // Prevent duplicate creation: check if this Job Card already has an existing active/draft estimate
+            try {
+              const checkRes = await fetch(`${API_BASE_URL}/estimates?jobCardId=${storedJcId}`, { headers });
+              if (checkRes.ok) {
+                const existingList = await checkRes.json();
+                if (Array.isArray(existingList) && existingList.length > 0) {
+                  const matchedEst = existingList.find(e => e.status !== 'Rejected' && e.status !== 'Cancelled') || existingList[0];
+                  if (matchedEst) {
+                    console.log(`[EstimateForm] Job Card ${storedJcId} already has estimate ${matchedEst.estimateNo} (${matchedEst._id}). Switching to EDIT mode to prevent duplicate.`);
+                    setActiveEditId(matchedEst._id);
+                    sessionStorage.setItem('active_edit_estimate_id', matchedEst._id);
+                    return;
+                  }
+                }
+              }
+            } catch (chkErr) {
+              console.error('Error checking existing estimate for Job Card:', chkErr);
+            }
           }
         }
       } catch (err) {
@@ -384,7 +417,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       }
     };
     fetchData();
-  }, [token, editId]);
+  }, [token, activeEditId]);
 
   // Compile Job Card inspection audit report data for matching and UI
   const getInspectionAudit = () => {
@@ -846,7 +879,8 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSaveDraft = async () => {
-    if (isSavingDraft || isSaving) return;
+    if (submittingRef.current || isSavingDraft || isSaving) return;
+    submittingRef.current = true;
     setIsSavingDraft(true);
 
     try {
@@ -886,7 +920,12 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       const isManual = Boolean(manualOverride);
       const parsedOverride = (isManual && overriddenGrandTotal !== '') ? parseFloat(overriddenGrandTotal) || 0 : null;
 
+      const targetId = activeEditId || existingEstimate?._id || editId;
+      const isEdit = Boolean(targetId);
+
       const payload = {
+        _id: targetId || undefined,
+        estimateId: targetId || undefined,
         jobCardId: selectedJcId || null,
         parts: cleanedParts,
         labour: cleanedLabour,
@@ -899,10 +938,10 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         action: 'save_draft'
       };
 
-      const url = editId
-        ? `${API_BASE_URL}/estimates/${editId}`
+      const url = isEdit
+        ? `${API_BASE_URL}/estimates/${targetId}`
         : `${API_BASE_URL}/estimates`;
-      const method = editId ? 'PUT' : 'POST';
+      const method = isEdit ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
         method,
@@ -914,6 +953,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       });
 
       if (res.ok) {
+        sessionStorage.removeItem('active_edit_estimate_id');
         alert('Draft saved successfully.');
         onSaved();
       } else {
@@ -924,12 +964,13 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       console.error(err);
       alert('An error occurred while saving the draft.');
     } finally {
+      submittingRef.current = false;
       setIsSavingDraft(false);
     }
   };
 
   const handleSave = async () => {
-    if (isSaving || isSavingDraft) return;
+    if (submittingRef.current || isSaving || isSavingDraft) return;
 
     if (!selectedJcId) {
       alert('Please select a Job Card first.');
@@ -975,12 +1016,18 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       return;
     }
 
+    submittingRef.current = true;
     setIsSaving(true);
     const isRevising = Boolean(existingEstimate && existingEstimate.status !== 'Draft');
     const isManual = Boolean(manualOverride);
     const parsedOverride = (isManual && overriddenGrandTotal !== '') ? parseFloat(overriddenGrandTotal) || 0 : null;
 
+    const targetId = activeEditId || existingEstimate?._id || editId;
+    const isEdit = Boolean(targetId);
+
     const payload = {
+      _id: targetId || undefined,
+      estimateId: targetId || undefined,
       jobCardId: selectedJcId,
       parts: cleanedParts,
       labour: cleanedLabour,
@@ -990,10 +1037,10 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       reason: revisionReason ? revisionReason.trim() : undefined
     };
 
-    const url = editId
-      ? `${API_BASE_URL}/estimates/${editId}`
+    const url = isEdit
+      ? `${API_BASE_URL}/estimates/${targetId}`
       : `${API_BASE_URL}/estimates`;
-    const method = editId ? 'PUT' : 'POST';
+    const method = isEdit ? 'PUT' : 'POST';
 
     try {
       const res = await fetch(url, {
@@ -1006,8 +1053,11 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       });
 
       if (res.ok) {
+        sessionStorage.removeItem('active_edit_estimate_id');
         if (isRevising) {
           alert('Estimate successfully saved as REVISED. An authorized user must explicitly approve the revised estimate.');
+        } else if (isEdit) {
+          alert(`Estimate ${existingEstimate?.estimateNo || ''} updated successfully.`);
         }
         onSaved();
       } else {
@@ -1018,6 +1068,7 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
       console.error(err);
       alert('An error occurred while saving the estimate.');
     } finally {
+      submittingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -1026,15 +1077,32 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl max-w-5xl mx-auto select-none animate-fade-in">
       <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4 mb-6">
         <div>
-          <h2 className="text-base font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-            {editId ? 'Edit Estimate' : 'Create Proforma Estimate'}
-          </h2>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-base font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+              {activeEditId ? 'Edit Estimate' : 'Create Proforma Estimate'}
+            </h2>
+            {activeEditId && (
+              <span className="px-2.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-xs rounded-lg">
+                {existingEstimate?.estimateNo || 'Loading...'}
+              </span>
+            )}
+            {activeEditId && existingEstimate?.status && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                {existingEstimate.status}
+              </span>
+            )}
+          </div>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-            Build Parts & Labour cost breakdown
+            {activeEditId
+              ? `Updating existing estimate (${existingEstimate?.estimateNo || activeEditId}) in place without generating a new estimate number`
+              : 'Build Parts & Labour cost breakdown'}
           </p>
         </div>
         <button
-          onClick={onCancel}
+          onClick={() => {
+            sessionStorage.removeItem('active_edit_estimate_id');
+            onCancel();
+          }}
           className="text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-1.5 rounded-xl border border-slate-250/20"
         >
           Cancel
@@ -1045,12 +1113,12 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         {/* Job Card Selection */}
         <div className="bg-slate-50 dark:bg-slate-950/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-850">
           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
-            Select Job Card Reference
+            Select Job Card Reference {activeEditId ? '(Locked in Edit Mode)' : ''}
           </label>
           <JobCardSearchableDropdown
             value={selectedJcId}
             onSelect={setSelectedJcId}
-            disabled={!!editId}
+            disabled={!!activeEditId}
             className="w-full max-w-md"
             token={token}
           />
@@ -1677,7 +1745,10 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
         <div className="flex justify-end items-center gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
-            onClick={onCancel}
+            onClick={() => {
+              sessionStorage.removeItem('active_edit_estimate_id');
+              onCancel();
+            }}
             disabled={isSaving || isSavingDraft}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors"
           >
@@ -1700,7 +1771,9 @@ export default function EstimateForm({ token, user, onSaved, onCancel, editId = 
             className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 flex items-center gap-2"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {existingEstimate && existingEstimate.status !== 'Draft' ? 'Save Revised Estimate' : 'Save Estimate'}
+            {existingEstimate && existingEstimate.status !== 'Draft'
+              ? 'Save Revised Estimate'
+              : (activeEditId ? `Update Estimate (${existingEstimate?.estimateNo || ''})` : 'Save Estimate')}
           </button>
         </div>
 

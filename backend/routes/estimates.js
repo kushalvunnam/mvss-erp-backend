@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Estimate = require('../models/Estimate');
 const JobCard = require('../models/JobCard');
 const Customer = require('../models/Customer');
@@ -15,9 +16,20 @@ const generateEstimateNo = async () => {
 };
 
 const generateDraftEstimateNo = async () => {
-  const seq = await getNextSequence('EST-DRAFT', 'EstimateDraft');
-  return seq || `EST-DRAFT-${Date.now().toString().slice(-6)}`;
+  return `EST-DRAFT-${Date.now().toString().slice(-6)}`;
 };
+
+// Deduplication map and in-flight mutex to prevent rapid double-click duplicate creation
+const recentPostSubmissions = new Map();
+const inFlightPostRequests = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of recentPostSubmissions.entries()) {
+    if (now - val.timestamp > 15000) {
+      recentPostSubmissions.delete(key);
+    }
+  }
+}, 30000);
 
 const numberToWords = (num) => {
   const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
@@ -332,20 +344,133 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
     const { jobCardId, parts, labour, manualOverride, manualGrandTotal, overriddenGrandTotal, grandTotal } = req.body;
     const isDraftRequest = Boolean(req.body.isDraft || req.body.status === 'Draft' || req.body.action === 'save_draft');
 
-    // 1. DRAFT CREATION: Save partial information without strict validation or stock checks
-    if (isDraftRequest) {
-      const estimateNo = await generateDraftEstimateNo();
-      let isInterstate = false;
-      let jobCard = null;
-      if (jobCardId) {
-        jobCard = await JobCard.findById(jobCardId);
-        if (jobCard && jobCard.customerId) {
-          const customer = await Customer.findById(jobCard.customerId);
-          isInterstate = checkIsInterstate(customer);
+    // SAFEGUARD 1: Reject create requests that include an existing estimate ID
+    const incomingId = req.body._id || req.body.estimateId || req.body.id;
+    if (incomingId && mongoose.Types.ObjectId.isValid(incomingId)) {
+      return res.status(400).send({
+        error: `Cannot create estimate: Payload contains existing estimate ID (${incomingId}). Use PUT /api/estimates/${incomingId} to update existing records in place.`
+      });
+    }
+
+    // SAFEGUARD 2: Rapid duplicate submission prevention (e.g. double-click)
+    const userId = req.user?._id ? req.user._id.toString() : 'system';
+    const jcKey = jobCardId ? jobCardId.toString() : 'no_jc';
+    const dedupeKey = `${userId}_${jcKey}_${isDraftRequest ? 'draft' : 'final'}`;
+
+    if (inFlightPostRequests.has(dedupeKey)) {
+      console.warn(`[Estimate] In-flight concurrent POST detected for ${dedupeKey}. Awaiting resolution to prevent duplicate.`);
+      try {
+        const inFlightRes = await inFlightPostRequests.get(dedupeKey);
+        return res.status(200).send(inFlightRes);
+      } catch (inFlightErr) {
+        // Fall through if in-flight failed
+      }
+    }
+
+    const cached = recentPostSubmissions.get(dedupeKey);
+    if (cached && (Date.now() - cached.timestamp < 3000)) {
+      console.warn(`[Estimate] Duplicate rapid POST submission detected for ${dedupeKey} within ${Date.now() - cached.timestamp}ms. Returning already created estimate to prevent duplicates.`);
+      return res.status(cached.status || 201).send(cached.result);
+    }
+
+    let resolveInFlight;
+    let rejectInFlight;
+    const inFlightPromise = new Promise((resolve, reject) => {
+      resolveInFlight = resolve;
+      rejectInFlight = reject;
+    });
+    inFlightPostRequests.set(dedupeKey, inFlightPromise);
+
+    try {
+      // 1. DRAFT CREATION: Save partial information without strict validation or stock checks
+      if (isDraftRequest) {
+        const estimateNo = await generateDraftEstimateNo();
+        let isInterstate = false;
+        let jobCard = null;
+        if (jobCardId) {
+          jobCard = await JobCard.findById(jobCardId);
+          if (jobCard && jobCard.customerId) {
+            const customer = await Customer.findById(jobCard.customerId);
+            isInterstate = checkIsInterstate(customer);
+          }
+        }
+
+        const calculations = recalculateEstimate(parts || [], labour || [], isInterstate);
+        const isManual = Boolean(manualOverride);
+        const rawOverrideTotal = manualGrandTotal !== undefined ? manualGrandTotal : (overriddenGrandTotal !== undefined ? overriddenGrandTotal : grandTotal);
+        const parsedOverride = (isManual && rawOverrideTotal !== undefined && rawOverrideTotal !== null && rawOverrideTotal !== '')
+          ? Number(rawOverrideTotal)
+          : null;
+
+        if (parsedOverride !== null && !isNaN(parsedOverride) && parsedOverride >= 0) {
+          calculations.totals.grandTotal = parsedOverride;
+          calculations.amountInWords = numberToWords(parsedOverride);
+        }
+
+        const estimate = new Estimate({
+          estimateNo,
+          jobCardId: jobCard ? jobCard._id : (jobCardId || undefined),
+          draftCustomerInfo: req.body.draftCustomerInfo || {},
+          parts: calculations.parts,
+          labour: calculations.labour,
+          totals: calculations.totals,
+          amountInWords: calculations.amountInWords,
+          manualOverride: isManual && parsedOverride !== null,
+          manualGrandTotal: parsedOverride,
+          status: 'Draft',
+          isDraft: true,
+        });
+
+        await estimate.save();
+        await logAction(req.user, 'ESTIMATE_DRAFT_CREATE', `Saved Draft Estimate ${estimateNo}`, req);
+        console.log(`[Estimate] Saved draft estimate successfully: ID=${estimate._id}, DraftNo=${estimate.estimateNo}`);
+
+        const responsePayload = {
+          success: true,
+          message: 'Draft saved successfully.',
+          estimate
+        };
+        recentPostSubmissions.set(dedupeKey, { timestamp: Date.now(), result: responsePayload, status: 201 });
+        resolveInFlight(responsePayload);
+
+        return res.status(201).send(responsePayload);
+      }
+
+      // 2. FINAL SUBMISSION: Requires valid Job Card and passes stock checks
+      const jobCard = await JobCard.findById(jobCardId);
+      if (!jobCard) {
+        const err = new Error('Job Card not found.');
+        rejectInFlight(err);
+        return res.status(404).send({ error: 'Job Card not found.' });
+      }
+
+      // Resolve customer and check if interstate
+      const customer = await Customer.findById(jobCard.customerId);
+      const isInterstate = checkIsInterstate(customer);
+
+      // Check stock availability automatically
+      const Inventory = require('../models/Inventory');
+      if (parts && parts.length > 0) {
+        for (const part of parts) {
+          if (part.partId) {
+            const invItem = await Inventory.findById(part.partId);
+            if (!invItem) {
+              const err = new Error(`Inventory item not found for part: ${part.name}`);
+              rejectInFlight(err);
+              return res.status(404).send({ error: `Inventory item not found for part: ${part.name}` });
+            }
+            if (invItem.stockQuantity < Number(part.qty)) {
+              const err = new Error(`Insufficient stock for part: ${part.name}`);
+              rejectInFlight(err);
+              return res.status(400).send({ error: `Insufficient stock for part: ${part.name} (${invItem.partNumber}). Available: ${invItem.stockQuantity}, Requested: ${part.qty}` });
+            }
+          }
         }
       }
 
-      const calculations = recalculateEstimate(parts || [], labour || [], isInterstate);
+      const estimateNo = await generateEstimateNo();
+      const calculations = recalculateEstimate(parts, labour, isInterstate);
+
       const isManual = Boolean(manualOverride);
       const rawOverrideTotal = manualGrandTotal !== undefined ? manualGrandTotal : (overriddenGrandTotal !== undefined ? overriddenGrandTotal : grandTotal);
       const parsedOverride = (isManual && rawOverrideTotal !== undefined && rawOverrideTotal !== null && rawOverrideTotal !== '')
@@ -359,87 +484,35 @@ router.post('/', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop', '
 
       const estimate = new Estimate({
         estimateNo,
-        jobCardId: jobCard ? jobCard._id : (jobCardId || undefined),
-        draftCustomerInfo: req.body.draftCustomerInfo || {},
+        jobCardId,
         parts: calculations.parts,
         labour: calculations.labour,
         totals: calculations.totals,
         amountInWords: calculations.amountInWords,
         manualOverride: isManual && parsedOverride !== null,
         manualGrandTotal: parsedOverride,
-        status: 'Draft',
-        isDraft: true,
+        status: 'Waiting for Approval',
+        isDraft: false,
       });
 
       await estimate.save();
-      await logAction(req.user, 'ESTIMATE_DRAFT_CREATE', `Saved Draft Estimate ${estimateNo}`, req);
-      console.log(`[Estimate] Saved draft estimate successfully: ID=${estimate._id}, DraftNo=${estimate.estimateNo}`);
+      
+      // Auto-update Job Card status to Estimation
+      await JobCard.findByIdAndUpdate(jobCardId, { status: 'Estimation', estAmt: calculations.totals.grandTotal });
 
-      return res.status(201).send({
-        success: true,
-        message: 'Draft saved successfully.',
-        estimate
-      });
+      await logAction(req.user, 'ESTIMATE_CREATE', `Created Estimate ${estimateNo} for Job Card ${jobCard.jobCardNo}`, req);
+      console.log(`[Estimate] [Stage 2] Estimate saved successfully: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, JobCard=${jobCard.jobCardNo}`);
+
+      recentPostSubmissions.set(dedupeKey, { timestamp: Date.now(), result: estimate, status: 201 });
+      resolveInFlight(estimate);
+
+      res.status(201).send(estimate);
+    } catch (innerError) {
+      rejectInFlight(innerError);
+      throw innerError;
+    } finally {
+      inFlightPostRequests.delete(dedupeKey);
     }
-
-    // 2. FINAL SUBMISSION: Requires valid Job Card and passes stock checks
-    const jobCard = await JobCard.findById(jobCardId);
-    if (!jobCard) return res.status(404).send({ error: 'Job Card not found.' });
-
-    // Resolve customer and check if interstate
-    const customer = await Customer.findById(jobCard.customerId);
-    const isInterstate = checkIsInterstate(customer);
-
-    // Check stock availability automatically
-    const Inventory = require('../models/Inventory');
-    if (parts && parts.length > 0) {
-      for (const part of parts) {
-        if (part.partId) {
-          const invItem = await Inventory.findById(part.partId);
-          if (!invItem) return res.status(404).send({ error: `Inventory item not found for part: ${part.name}` });
-          if (invItem.stockQuantity < Number(part.qty)) {
-            return res.status(400).send({ error: `Insufficient stock for part: ${part.name} (${invItem.partNumber}). Available: ${invItem.stockQuantity}, Requested: ${part.qty}` });
-          }
-        }
-      }
-    }
-
-    const estimateNo = await generateEstimateNo();
-    const calculations = recalculateEstimate(parts, labour, isInterstate);
-
-    const isManual = Boolean(manualOverride);
-    const rawOverrideTotal = manualGrandTotal !== undefined ? manualGrandTotal : (overriddenGrandTotal !== undefined ? overriddenGrandTotal : grandTotal);
-    const parsedOverride = (isManual && rawOverrideTotal !== undefined && rawOverrideTotal !== null && rawOverrideTotal !== '')
-      ? Number(rawOverrideTotal)
-      : null;
-
-    if (parsedOverride !== null && !isNaN(parsedOverride) && parsedOverride >= 0) {
-      calculations.totals.grandTotal = parsedOverride;
-      calculations.amountInWords = numberToWords(parsedOverride);
-    }
-
-    const estimate = new Estimate({
-      estimateNo,
-      jobCardId,
-      parts: calculations.parts,
-      labour: calculations.labour,
-      totals: calculations.totals,
-      amountInWords: calculations.amountInWords,
-      manualOverride: isManual && parsedOverride !== null,
-      manualGrandTotal: parsedOverride,
-      status: 'Waiting for Approval',
-      isDraft: false,
-    });
-
-    await estimate.save();
-    
-    // Auto-update Job Card status to Estimation
-    await JobCard.findByIdAndUpdate(jobCardId, { status: 'Estimation', estAmt: calculations.totals.grandTotal });
-
-    await logAction(req.user, 'ESTIMATE_CREATE', `Created Estimate ${estimateNo} for Job Card ${jobCard.jobCardNo}`, req);
-    console.log(`[Estimate] [Stage 2] Estimate saved successfully: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, JobCard=${jobCard.jobCardNo}`);
-
-    res.status(201).send(estimate);
   } catch (error) {
     res.status(400).send({ error: 'Failed to create estimate: ' + error.message });
   }
@@ -629,8 +702,18 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
     const { parts, labour, status, manualOverride, manualGrandTotal, overriddenGrandTotal, grandTotal } = req.body;
     const isDraftRequest = Boolean(req.body.isDraft || req.body.status === 'Draft' || req.body.action === 'save_draft');
 
+    // 1. Strict validation: Verify ID format and check record existence before updating
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).send({ error: `Estimate not found with ID: ${req.params.id}` });
+    }
+
     const estimate = await Estimate.findById(req.params.id);
-    if (!estimate) return res.status(404).send({ error: 'Estimate not found.' });
+    if (!estimate) return res.status(404).send({ error: `Estimate not found with ID: ${req.params.id}` });
+
+    // Store immutable original estimate number to strictly prevent regeneration during regular update
+    const originalEstimateNo = estimate.estimateNo;
+    estimate.modifiedBy = req.user?._id;
+    estimate.modifiedAt = new Date();
 
     // 1. UPDATE DRAFT
     if (isDraftRequest || (estimate.isDraft && (req.body.saveAsDraft || req.body.action === 'save_draft'))) {
@@ -668,6 +751,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
       estimate.amountInWords = calculations.amountInWords;
       estimate.status = 'Draft';
       estimate.isDraft = true;
+      estimate.estimateNo = originalEstimateNo; // Preserve exact number
 
       await estimate.save();
       await logAction(req.user, 'ESTIMATE_DRAFT_UPDATE', `Updated Draft Estimate ${estimate.estimateNo}`, req);
@@ -691,8 +775,10 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
       }
       estimate.jobCardId = jc._id;
 
-      if (estimate.estimateNo.startsWith('EST-DRAFT') || estimate.estimateNo.includes('DRAFT')) {
+      if (originalEstimateNo.startsWith('EST-DRAFT') || originalEstimateNo.includes('DRAFT')) {
         estimate.estimateNo = await generateEstimateNo();
+      } else {
+        estimate.estimateNo = originalEstimateNo;
       }
       estimate.isDraft = false;
       estimate.status = 'Waiting for Approval';
@@ -771,6 +857,11 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
         estimate.status = status;
       }
 
+      // STRICT IN-PLACE GUARANTEE: Never change estimate number during regular update
+      if (!originalEstimateNo.startsWith('EST-DRAFT') && !originalEstimateNo.includes('DRAFT')) {
+        estimate.estimateNo = originalEstimateNo;
+      }
+
       await estimate.save();
 
       // Sync linked Job Card estAmt
@@ -779,7 +870,7 @@ router.put('/:id', auth, restrictTo('Admin', 'Service', 'Accounts', 'Body Shop',
       }
 
       await logAction(req.user, 'ESTIMATE_UPDATE', `Updated Estimate ${estimate.estimateNo}. Status: ${estimate.status}, Amount: ₹${effectiveNewAmount}`, req);
-      console.log(`[Estimate] [Stage 2] Estimate updated successfully: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, Status=${estimate.status}, Amount=${effectiveNewAmount}`);
+      console.log(`[Estimate] [Stage 2] Estimate updated successfully in place: ID=${estimate._id}, EstimateNo=${estimate.estimateNo}, Status=${estimate.status}, Amount=${effectiveNewAmount}`);
 
       return res.send(estimate);
     }

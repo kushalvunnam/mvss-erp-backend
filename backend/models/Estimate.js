@@ -240,6 +240,13 @@ const estimateSchema = new mongoose.Schema({
     sentByName: { type: String, default: '' },
     error: { type: String, default: '' }
   }],
+  modifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  modifiedAt: {
+    type: Date
+  },
   date: {
     type: Date,
     default: Date.now,

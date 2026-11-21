@@ -33,8 +33,12 @@ export default function Estimates({ token, user, setActiveTab }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit'
-  const [selectedEstId, setSelectedEstId] = useState(null);
+  const [selectedEstId, setSelectedEstId] = useState(() => {
+    return sessionStorage.getItem('active_edit_estimate_id') || null;
+  });
+  const [viewMode, setViewMode] = useState(() => {
+    return sessionStorage.getItem('active_edit_estimate_id') ? 'edit' : 'list';
+  });
   const [expandedId, setExpandedId] = useState(null);
   const [pdfType, setPdfType] = useState('customer');
   const [approvalModalEst, setApprovalModalEst] = useState(null);
@@ -336,20 +340,37 @@ export default function Estimates({ token, user, setActiveTab }) {
     }
   };
 
+  // Check if navigating from Job Cards or resuming persistent edit state
+  useEffect(() => {
+    const storedEditId = sessionStorage.getItem('active_edit_estimate_id');
+    const storedJcId = localStorage.getItem('create_estimate_jc_id');
+    if (storedEditId) {
+      setSelectedEstId(storedEditId);
+      setViewMode('edit');
+    } else if (storedJcId && viewMode === 'list') {
+      setViewMode('create');
+    }
+  }, []);
+
   const handleOpenEdit = (id, e) => {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
+    if (!id) return;
+    sessionStorage.setItem('active_edit_estimate_id', id);
     setSelectedEstId(id);
     setViewMode('edit');
   };
 
   const handleSaved = () => {
-    setViewMode('list');
+    sessionStorage.removeItem('active_edit_estimate_id');
     setSelectedEstId(null);
+    setViewMode('list');
+    fetchEstimates();
   };
 
   const handleCancel = () => {
-    setViewMode('list');
+    sessionStorage.removeItem('active_edit_estimate_id');
     setSelectedEstId(null);
+    setViewMode('list');
   };
 
   const handleConvertInvoice = (est, e) => {
@@ -365,7 +386,8 @@ export default function Estimates({ token, user, setActiveTab }) {
   }
 
   if (viewMode === 'edit') {
-    return <EstimateForm token={token} user={user} editId={selectedEstId} onSaved={handleSaved} onCancel={handleCancel} />;
+    const editTargetId = selectedEstId || sessionStorage.getItem('active_edit_estimate_id');
+    return <EstimateForm token={token} user={user} editId={editTargetId} onSaved={handleSaved} onCancel={handleCancel} />;
   }
 
   const printEstimate = (est) => {

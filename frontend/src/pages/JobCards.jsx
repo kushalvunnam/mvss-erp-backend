@@ -135,8 +135,13 @@ export default function JobCards({ token, user, setActiveTab, viewJcId = null, s
   };
 
   // Quick navigation handlers for details page
-  const handleCreateEstimate = () => {
-    // Navigate to estimates tab and flag to create for this jobcard
+  const handleCreateEstimate = (existingEstId) => {
+    // If an existing estimate ID is passed, navigate to edit it directly
+    if (existingEstId) {
+      sessionStorage.setItem('active_edit_estimate_id', existingEstId);
+    } else {
+      sessionStorage.removeItem('active_edit_estimate_id');
+    }
     localStorage.setItem('create_estimate_jc_id', selectedJcId);
     setActiveTab('estimates');
   };
