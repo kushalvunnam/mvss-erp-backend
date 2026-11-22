@@ -820,6 +820,39 @@ router.post('/setup-document-template', auth, restrictTo('Admin', 'Super Admin')
     }
 });
 
+// Submit all missing canonical ERP templates to Meta WABA and synchronize statuses
+router.post('/sync-missing-templates', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    try {
+        const { registerMissingTemplates, syncMetaTemplates } = require('../services/whatsappService');
+        const regResult = await registerMissingTemplates();
+        const audit = await syncMetaTemplates();
+        return res.json({
+            success: true,
+            registration: regResult,
+            audit
+        });
+    } catch (err) {
+        console.error('[WhatsApp] sync-missing-templates error:', err);
+        return res.status(500).json({ error: err.message || 'Failed to sync missing templates' });
+    }
+});
+
+router.post('/register-missing-templates', auth, restrictTo('Admin', 'Super Admin'), async (req, res) => {
+    try {
+        const { registerMissingTemplates, syncMetaTemplates } = require('../services/whatsappService');
+        const regResult = await registerMissingTemplates();
+        const audit = await syncMetaTemplates();
+        return res.json({
+            success: true,
+            registration: regResult,
+            audit
+        });
+    } catch (err) {
+        console.error('[WhatsApp] register-missing-templates error:', err);
+        return res.status(500).json({ error: err.message || 'Failed to register missing templates' });
+    }
+});
+
 // =========================================================================
 // PHASE 17: AUTOMATION CONFIGURATION & AUDIT ENDPOINTS
 // =========================================================================

@@ -268,7 +268,482 @@ const TEMPLATE_CONFIG = {
 };
 
 // Dynamic cache of templates verified directly from Meta Graph API
-const dynamicTemplateMap = new Map();
+const dynamicTemplateMap = new Map(); // APPROVED templates
+const pendingTemplateMap = new Map(); // PENDING approval templates
+const rejectedTemplateMap = new Map(); // REJECTED templates (with rejectedReason)
+
+/**
+ * Human-readable mapping of template names to user-friendly automation names
+ */
+const getHumanAutomationName = (name) => {
+    const map = {
+        'mvss_welcome_customer': 'Customer Welcome',
+        'mvss_job_card_created': 'Job Card Created',
+        'mvss_vehicle_received': 'Vehicle Received',
+        'estimate_awaiting_customer_approval': 'Estimate Awaiting Customer Approval',
+        'mvss_estimate_awaiting_customer_approval': 'Estimate Awaiting Approval (Alias)',
+        'mvss_customer_estimate_doc': 'Customer Estimate PDF Document',
+        'mvss_estimate_created': 'Estimate Created Notification',
+        'mvss_estimate_approved': 'Estimate Approved Confirmation',
+        'mvss_additional_work': 'Additional Work Authorization',
+        'mvss_service_delay': 'Service Delay Notification',
+        'mvss_vehicle_ready': 'Vehicle Ready for Delivery',
+        'mvss_job_completed': 'Job Completed / Quality Inspection',
+        'mvss_vehicle_delivered': 'Vehicle Delivered Confirmation',
+        'mvss_gate_pass_generated': 'Gate Pass Issued',
+        'mvss_payment_received': 'Payment Received Receipt',
+        'mvss_payment_due': 'Payment Due Reminder',
+        'mvss_feedback_request': 'Customer Feedback Request',
+        'mvss_insurance_claim_update': 'Insurance Claim Status Update',
+        'mvss_booking_confirmation': 'Service Booking Confirmation',
+        'service_booking_confirmation': 'Booking Confirmation (Short)',
+        'mvss_vehicle_photos_available': 'Vehicle Photos Available',
+        'mvss_vehicle_photos': 'Vehicle Photos Attachment',
+        'mvss_service_remainder': 'Service Due Reminder',
+        'mvss_customer_followup': 'Customer Follow-up Check',
+        'mvss_service_support': 'Customer Service Support',
+        'mvss_inspection_completed': 'Inspection Completed (Disabled)',
+        'mvss_invoice_generated': 'Invoice Generated (Disabled)',
+        'mvss_work_started': 'Work Started (Disabled)'
+    };
+    return map[name] || name;
+};
+
+/**
+ * Canonical specifications for all MVSS Automobiles ERP templates.
+ * Used for automated registration in Meta WABA and strict parameter auditing.
+ */
+const CANONICAL_TEMPLATES = {
+    'mvss_welcome_customer': {
+        name: 'mvss_welcome_customer',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 2,
+        variableMapping: ['Customer Name', 'Vehicle Number'],
+        automationKey: 'welcome',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nWelcome to MVSS Automobiles! Your vehicle {{2}} has been registered with us for service and care.\n\nThank you for choosing MVSS Automobiles.',
+                example: { body_text: [['Valued Customer', 'TS09EA1234']] }
+            }
+        ]
+    },
+    'mvss_job_card_created': {
+        name: 'mvss_job_card_created',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Job Card Number', 'Vehicle Number', 'Service Details'],
+        automationKey: 'job_card_created',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nJob Card {{2}} has been created for your vehicle {{3}} at MVSS Automobiles.\n\nService Details: {{4}}\n\nWe will keep you updated on the progress.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'MVSS/JC/26-27/053', 'TS09EA1234', 'General Service']] }
+            }
+        ]
+    },
+    'mvss_vehicle_received': {
+        name: 'mvss_vehicle_received',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'vehicle_received',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nYour vehicle {{2}} has been received at MVSS Automobiles workshop for Job Card {{3}}.\n\nOur service team will begin inspection shortly.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    'estimate_awaiting_customer_approval': {
+        name: 'estimate_awaiting_customer_approval',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Estimate Number', 'Estimated Amount'],
+        automationKey: 'estimate_created',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThe service estimate for your vehicle {{2}} is ready for your review.\n\nEstimate No: {{3}}\nEstimated Total: ₹{{4}}\n\nPlease reply with "APPROVED" to authorize the work or contact us for any clarification.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/001', '14,500.00']] }
+            }
+        ]
+    },
+    'mvss_estimate_awaiting_customer_approval': {
+        name: 'mvss_estimate_awaiting_customer_approval',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Estimate Number', 'Estimated Amount'],
+        automationKey: 'estimate_created',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThe service estimate for your vehicle {{2}} is ready for your review.\n\nEstimate No: {{3}}\nEstimated Total: ₹{{4}}\n\nPlease reply with "APPROVED" to authorize the work or contact us for any clarification.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/001', '14,500.00']] }
+            }
+        ]
+    },
+    'mvss_customer_estimate_doc': {
+        name: 'mvss_customer_estimate_doc',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        headerFormat: 'DOCUMENT',
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Estimate Number', 'Job Card Number', 'Estimated Amount'],
+        automationKey: 'estimate_created',
+        components: [
+            {
+                type: 'HEADER',
+                format: 'DOCUMENT'
+            },
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThe service estimate for your vehicle {{2}} has been prepared by MVSS Automobiles.\n\nEstimate No: {{3}}\nJob Card No: {{4}}\nEstimated Amount: ₹{{5}}\n\nPlease review the attached estimate PDF.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/001', 'MVSS/JC/26-27/053', '14,500.00']] }
+            }
+        ]
+    },
+    'mvss_estimate_created': {
+        name: 'mvss_estimate_created',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Estimate Number', 'Job Card Number', 'Estimated Amount'],
+        automationKey: 'estimate_created',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nA service estimate has been generated for your vehicle {{2}} at MVSS Automobiles.\n\nEstimate No: {{3}}\nJob Card No: {{4}}\nTotal Estimate: ₹{{5}}\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/001', 'MVSS/JC/26-27/053', '14,500.00']] }
+            }
+        ]
+    },
+    'mvss_estimate_approved': {
+        name: 'mvss_estimate_approved',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Estimate Number', 'Job Card Number', 'Approved Amount'],
+        automationKey: 'estimate_approved',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThank you for approving the service estimate for your vehicle {{2}}.\n\nEstimate No: {{3}}\nJob Card No: {{4}}\nApproved Total: ₹{{5}}\n\nOur technicians will proceed with the service work.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/EST/26-27/001', 'MVSS/JC/26-27/053', '14,500.00']] }
+            }
+        ]
+    },
+    'mvss_additional_work': {
+        name: 'mvss_additional_work',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number', 'Additional Work Description', 'Amount'],
+        automationKey: 'estimate_approved',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nAdditional work has been identified for your vehicle {{2}} under Job Card {{3}}.\n\nWork Details: {{4}}\nAmount: ₹{{5}}\n\nPlease contact your service advisor or reply to authorize this additional work.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053', 'Brake pad replacement', '4,200.00']] }
+            }
+        ]
+    },
+    'mvss_service_delay': {
+        name: 'mvss_service_delay',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number', 'Delay Reason / Status'],
+        automationKey: 'service_delay',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nWe wanted to inform you of an update regarding your vehicle {{2}} for Job Card {{3}}.\n\nStatus: {{4}}\n\nWe are working to complete the service as quickly as possible. Thank you for your patience.\n\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053', 'Waiting for spare parts arrival']] }
+            }
+        ]
+    },
+    'mvss_vehicle_ready': {
+        name: 'mvss_vehicle_ready',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'vehicle_ready',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nGreat news! Your vehicle {{2}} is ready for delivery at MVSS Automobiles.\n\nJob Card No: {{3}}\n\nPlease visit our service center to collect your vehicle.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    'mvss_job_completed': {
+        name: 'mvss_job_completed',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'job_completed',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nAll service and repair work has been completed for your vehicle {{2}} under Job Card {{3}}.\n\nOur team is conducting the final quality inspection.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    'mvss_vehicle_delivered': {
+        name: 'mvss_vehicle_delivered',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number', 'Invoice Number'],
+        automationKey: 'vehicle_delivered',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nYour vehicle {{2}} has been successfully delivered under Job Card {{3}} with Invoice No: {{4}}.\n\nThank you for choosing MVSS Automobiles! We wish you a safe drive.\n\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053', 'MVSS/INV/26-27/005']] }
+            }
+        ]
+    },
+    'mvss_gate_pass_generated': {
+        name: 'mvss_gate_pass_generated',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number', 'Gate Pass Number'],
+        automationKey: 'gate_pass',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nA Gate Pass has been issued for your vehicle {{2}}.\n\nGate Pass No: {{4}}\nJob Card No: {{3}}\n\nPlease present this Gate Pass at security for vehicle exit.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053', 'MVSS/GP/26-27/012']] }
+            }
+        ]
+    },
+    'mvss_payment_received': {
+        name: 'mvss_payment_received',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Invoice Number', 'Amount Paid', 'Payment Status'],
+        automationKey: 'payment_received',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nWe have received payment of ₹{{4}} for your vehicle {{2}} towards Invoice No: {{3}}.\n\nStatus: {{5}}\n\nThank you for your business!\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/INV/26-27/001', '16,800.00', 'Paid']] }
+            }
+        ]
+    },
+    'mvss_payment_due': {
+        name: 'mvss_payment_due',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Invoice Number', 'Balance Due Amount'],
+        automationKey: 'payment_due',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThis is a gentle payment reminder for your vehicle {{2}}.\n\nInvoice No: {{3}}\nOutstanding Balance: ₹{{4}}\n\nPlease arrange for payment at your earliest convenience.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/INV/26-27/001', '3,500.00']] }
+            }
+        ]
+    },
+    'mvss_feedback_request': {
+        name: 'mvss_feedback_request',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 2,
+        variableMapping: ['Customer Name', 'Feedback Rating Prompt'],
+        automationKey: 'feedback_request',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThank you for visiting MVSS Automobiles!\n\n{{2}}\n\nYour feedback helps us continuously improve our service.\n\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'For vehicle TS09EA1234: Reply directly with a rating from 1 to 5 stars (1=Poor, 5=Excellent) and a short description of your experience.']] }
+            }
+        ]
+    },
+    'mvss_insurance_claim_update': {
+        name: 'mvss_insurance_claim_update',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Claim Number', 'Claim Status'],
+        automationKey: 'insurance_claim',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nInsurance claim update for your vehicle {{2}}:\n\nClaim No: {{3}}\nCurrent Status: {{4}}\n\nWe will notify you of further developments.\n\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'CLM-2026-008', 'Approved']] }
+            }
+        ]
+    },
+    'mvss_booking_confirmation': {
+        name: 'mvss_booking_confirmation',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Service Type', 'Preferred Date', 'Workshop Name'],
+        automationKey: 'booking_confirmation',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nYour service booking at {{5}} is confirmed for vehicle {{2}}.\n\nService: {{3}}\nPreferred Date: {{4}}\n\nWe look forward to serving you!\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'Periodic Maintenance', '2026-11-25', 'MVSS Automobiles']] }
+            }
+        ]
+    },
+    'service_booking_confirmation': {
+        name: 'service_booking_confirmation',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 2,
+        variableMapping: ['Customer Name', 'Booking Details'],
+        automationKey: 'booking_confirmation',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nYour service appointment at MVSS Automobiles is confirmed.\n\nDetails: {{2}}\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'Service booked for vehicle TS09EA1234 on 2026-11-25']] }
+            }
+        ]
+    },
+    'mvss_vehicle_photos_available': {
+        name: 'mvss_vehicle_photos_available',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'vehicle_photos',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nMVSS Automobiles has vehicle inspection/service photos available for your vehicle {{2}}.\n\nJob Card No: {{3}}.\n\nPlease reply to this message to receive your vehicle photos.\n\nThank you,\nMVSS Automobiles.',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    'mvss_vehicle_photos': {
+        name: 'mvss_vehicle_photos',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'vehicle_photos',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nService photos for your vehicle {{2}} (Job Card {{3}}) are available from MVSS Automobiles.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    'mvss_service_remainder': {
+        name: 'mvss_service_remainder',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 4,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Due Date', 'Recommended Service'],
+        automationKey: 'service_remainder',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nThis is a friendly service reminder from MVSS Automobiles for your vehicle {{2}}.\n\nDue Date: {{3}}\nRecommended Service: {{4}}\n\nPlease contact us to schedule your appointment.',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', '2026-12-01', 'Periodic Maintenance']] }
+            }
+        ]
+    },
+    'mvss_customer_followup': {
+        name: 'mvss_customer_followup',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 1,
+        variableMapping: ['Customer Name'],
+        automationKey: 'customer_followup',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nGreetings from MVSS Automobiles! We hope your vehicle is performing well after its recent service. If you need any assistance, please feel free to reach out to us.',
+                example: { body_text: [['Valued Customer']] }
+            }
+        ]
+    },
+    'mvss_service_support': {
+        name: 'mvss_service_support',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'service_support',
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nRegarding your inquiry for vehicle {{2}} under Job Card {{3}}: our customer support team is available to assist you. Please reply to this message or call our helpline.',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    // The 3 explicitly disabled automations per client directive
+    'mvss_inspection_completed': {
+        name: 'mvss_inspection_completed',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'inspection_completed',
+        disabled: true,
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nQuality inspection has been completed for your vehicle {{2}} under Job Card {{3}} at MVSS Automobiles.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    },
+    'mvss_invoice_generated': {
+        name: 'mvss_invoice_generated',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 5,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Invoice Number', 'Job Card Number', 'Grand Total'],
+        automationKey: 'invoice_generated',
+        disabled: true,
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nAn invoice has been generated for your vehicle {{2}} at MVSS Automobiles.\n\nInvoice No: {{3}}\nJob Card No: {{4}}\nTotal Amount: ₹{{5}}\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/INV/26-27/005', 'MVSS/JC/26-27/053', '16,800.00']] }
+            }
+        ]
+    },
+    'mvss_work_started': {
+        name: 'mvss_work_started',
+        category: 'UTILITY',
+        language: 'en',
+        paramCount: 3,
+        variableMapping: ['Customer Name', 'Vehicle Number', 'Job Card Number'],
+        automationKey: 'work_started',
+        disabled: true,
+        components: [
+            {
+                type: 'BODY',
+                text: 'Dear {{1}},\n\nService work has commenced on your vehicle {{2}} for Job Card {{3}} at MVSS Automobiles.\n\nWe will keep you updated on progress.\n\nThank you,\nMVSS Automobiles',
+                example: { body_text: [['Valued Customer', 'TS09EA1234', 'MVSS/JC/26-27/053']] }
+            }
+        ]
+    }
+};
 
 /**
  * Central Automation Kill-Switches & Feature Flags
@@ -366,47 +841,69 @@ const getAutomationStatus = () => {
 };
 
 /**
- * Resolves a template specification from dynamicTemplateMap (or fallback TEMPLATE_CONFIG),
- * supporting exact names, alias variations (with/without mvss_ prefix, underscores/hyphens).
+ * Resolves a template specification across dynamicTemplateMap (APPROVED), pendingTemplateMap (PENDING),
+ * and rejectedTemplateMap (REJECTED), supporting exact names and alias variations.
  */
 const resolveTemplateSpec = (requestedName) => {
     if (!requestedName) return null;
 
-    // 1. Exact match in dynamicTemplateMap
-    if (dynamicTemplateMap.has(requestedName)) {
-        return dynamicTemplateMap.get(requestedName);
-    }
+    const findInMap = (map) => {
+        if (!map || map.size === 0) return null;
+        if (map.has(requestedName)) return map.get(requestedName);
+        const withoutPrefix = requestedName.replace(/^mvss_/, '');
+        const withPrefix = requestedName.startsWith('mvss_') ? requestedName : `mvss_${requestedName}`;
 
-    // 2. Exact match with/without 'mvss_' prefix
-    const withoutPrefix = requestedName.replace(/^mvss_/, '');
-    const withPrefix = requestedName.startsWith('mvss_') ? requestedName : `mvss_${requestedName}`;
+        if (map.has(withoutPrefix)) return map.get(withoutPrefix);
+        if (map.has(withPrefix)) return map.get(withPrefix);
 
-    if (dynamicTemplateMap.has(withoutPrefix)) {
-        return dynamicTemplateMap.get(withoutPrefix);
-    }
-    if (dynamicTemplateMap.has(withPrefix)) {
-        return dynamicTemplateMap.get(withPrefix);
-    }
-
-    // 3. Normalized alphanumeric search in dynamicTemplateMap
-    const cleanRequested = requestedName.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanWithout = withoutPrefix.toLowerCase().replace(/[^a-z0-9]/g, '');
-    for (const [name, spec] of dynamicTemplateMap.entries()) {
-        const cleanName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (cleanName === cleanRequested || cleanName === cleanWithout) {
-            return spec;
+        const cleanRequested = requestedName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanWithout = withoutPrefix.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const [name, spec] of map.entries()) {
+            const cleanName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanName === cleanRequested || cleanName === cleanWithout) {
+                return spec;
+            }
         }
+        return null;
+    };
+
+    // 1. Check APPROVED dynamic cache
+    const approved = findInMap(dynamicTemplateMap);
+    if (approved) {
+        return { ...approved, status: 'APPROVED' };
     }
 
-    // 4. Fallback to static TEMPLATE_CONFIG
-    const staticSpec = TEMPLATE_CONFIG[requestedName] || TEMPLATE_CONFIG[withPrefix] || TEMPLATE_CONFIG[withoutPrefix];
-    if (staticSpec) {
+    // 2. Check PENDING approval cache
+    const pending = findInMap(pendingTemplateMap);
+    if (pending) {
+        return { ...pending, status: 'PENDING' };
+    }
+
+    // 3. Check REJECTED cache
+    const rejected = findInMap(rejectedTemplateMap);
+    if (rejected) {
+        return { ...rejected, status: 'REJECTED' };
+    }
+
+    // 4. Fallback to canonical or static configuration
+    const canonical = CANONICAL_TEMPLATES[requestedName] ||
+                      CANONICAL_TEMPLATES[requestedName.replace(/^mvss_/, '')] ||
+                      CANONICAL_TEMPLATES[`mvss_${requestedName}`];
+    const staticSpec = TEMPLATE_CONFIG[requestedName] ||
+                       TEMPLATE_CONFIG[requestedName.replace(/^mvss_/, '')] ||
+                       TEMPLATE_CONFIG[`mvss_${requestedName}`];
+
+    if (canonical || staticSpec) {
+        // If dynamic sync has run at least once (dynamicTemplateMap or pendingTemplateMap has entries),
+        // any template not found in Meta is NOT_REGISTERED
+        const hasLiveSyncRun = (dynamicTemplateMap.size > 0 || pendingTemplateMap.size > 0 || rejectedTemplateMap.size > 0);
         return {
-            name: requestedName,
-            language: staticSpec.lang || 'en',
-            status: staticSpec.status || 'APPROVED',
-            paramCount: staticSpec.paramCount,
-            headerFormat: staticSpec.headerFormat || null
+            name: canonical?.name || requestedName,
+            language: canonical?.language || staticSpec?.lang || 'en',
+            status: hasLiveSyncRun ? 'NOT_REGISTERED' : (staticSpec?.status || 'APPROVED'),
+            paramCount: canonical?.paramCount ?? staticSpec?.paramCount ?? 0,
+            headerFormat: canonical?.headerFormat || staticSpec?.headerFormat || null,
+            variableMapping: canonical?.variableMapping || []
         };
     }
 
@@ -824,11 +1321,15 @@ const syncMetaTemplates = async (customAxios = axios) => {
 
         // Fetch Message Templates using the verified WABA ID
         try {
-            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${verifiedWaba.id}/message_templates?fields=name,status,category,language,components&limit=100`, {
+            const templatesRes = await customAxios.get(`${GRAPH_API_BASE_URL}/${verifiedWaba.id}/message_templates?fields=name,status,category,language,components,rejected_reason&limit=100`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const metaTemplates = templatesRes.data?.data || [];
             console.log(`[WhatsApp Meta Audit] Successfully retrieved ${metaTemplates.length} template(s) from verified WABA (${verifiedWaba.id}).`);
+
+            dynamicTemplateMap.clear();
+            pendingTemplateMap.clear();
+            rejectedTemplateMap.clear();
 
             metaTemplates.forEach(t => {
                 const bodyComponent = t.components?.find(c => c.type && c.type.toUpperCase() === 'BODY');
@@ -841,7 +1342,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     paramCount = bodyComponent.example.body_text[0].length;
                 }
 
-                dynamicTemplateMap.set(t.name, {
+                const spec = {
                     name: t.name,
                     language: t.language,
                     status: t.status,
@@ -851,38 +1352,86 @@ const syncMetaTemplates = async (customAxios = axios) => {
                     headerFormat: headerComponent?.format || null,
                     components: t.components,
                     bodyText: bodyComponent?.text || null,
-                    example: bodyComponent?.example?.body_text?.[0] || null
-                });
-                console.log(`  - Meta Template -> Name: ${t.name} | Lang: ${t.language} | Status: ${t.status} | Format: ${headerComponent?.format || 'TEXT'} | Body Params: ${paramCount}`);
+                    example: bodyComponent?.example?.body_text?.[0] || null,
+                    rejectedReason: t.rejected_reason || null
+                };
+
+                if (t.status === 'APPROVED') {
+                    dynamicTemplateMap.set(t.name, spec);
+                } else if (t.status === 'PENDING') {
+                    pendingTemplateMap.set(t.name, spec);
+                } else if (t.status === 'REJECTED') {
+                    rejectedTemplateMap.set(t.name, spec);
+                } else {
+                    dynamicTemplateMap.set(t.name, spec);
+                }
+
+                console.log(`  - Meta Template -> Name: ${t.name} | Lang: ${t.language} | Status: ${t.status} | Category: ${t.category} | Params: ${paramCount}${t.rejected_reason ? ` | Rejection: ${t.rejected_reason}` : ''}`);
             });
 
             auditReport.templatesAudit.success = true;
-            auditReport.templatesAudit.count = metaTemplates.length;
+            auditReport.templatesAudit.totalCount = metaTemplates.length;
+            auditReport.templatesAudit.approvedCount = dynamicTemplateMap.size;
+            auditReport.templatesAudit.pendingCount = pendingTemplateMap.size;
+            auditReport.templatesAudit.rejectedCount = rejectedTemplateMap.size;
             auditReport.templatesAudit.templates = metaTemplates.map(t => {
                 const bodyComp = t.components?.find(c => c.type && c.type.toUpperCase() === 'BODY');
                 return {
                     name: t.name,
                     language: t.language,
                     status: t.status,
-                    paramCount: dynamicTemplateMap.get(t.name)?.paramCount || 0,
+                    category: t.category,
+                    paramCount: (dynamicTemplateMap.get(t.name) || pendingTemplateMap.get(t.name) || rejectedTemplateMap.get(t.name))?.paramCount || 0,
                     bodyText: bodyComp?.text || null,
                     example: bodyComp?.example?.body_text?.[0] || null,
+                    rejectedReason: t.rejected_reason || null,
                     components: t.components
                 };
             });
-            auditReport.fallbackConfigActive = (metaTemplates.length === 0);
-            if (metaTemplates.length === 0) {
-                auditReport.templatesAudit.note = 'Live verified WABA 4778078332414981 has 0 templates. Preserving active TEMPLATE_CONFIG baseline (en). All 22 ERP workflows remain operational.';
+
+            // Comprehensive per-automation audit linking canonical ERP workflows to Meta WABA approval status
+            auditReport.templatesAudit.automationsAudit = Object.entries(CANONICAL_TEMPLATES).map(([name, spec]) => {
+                const resolved = resolveTemplateSpec(name);
+                const isApproved = resolved && resolved.status === 'APPROVED';
+                const isPending = resolved && resolved.status === 'PENDING';
+                const isRejected = resolved && resolved.status === 'REJECTED';
+                const metaStatus = isApproved ? 'APPROVED' : (isPending ? 'Pending Approval' : (isRejected ? 'Rejected' : 'Not Registered in WABA'));
+                const autoKey = spec.automationKey || getAutomationKey(name);
+                const isEnabled = spec.disabled ? false : isAutomationEnabled(name);
+
+                return {
+                    automationName: getHumanAutomationName(name),
+                    templateName: name,
+                    templateAvailableInWaba: Boolean(resolved && resolved.status !== 'NOT_REGISTERED'),
+                    metaApprovalStatus: metaStatus,
+                    language: spec.language || 'en',
+                    paramCount: spec.paramCount,
+                    variableMapping: spec.variableMapping || [],
+                    senderNumber: OFFICIAL_SENDER_PHONE,
+                    senderDisplayPhone: '+91 91771 77509',
+                    automationEnabled: isEnabled,
+                    rejectedReason: resolved?.rejectedReason || null,
+                    readyForCustomerDispatch: isEnabled && isApproved
+                };
+            });
+
+            auditReport.fallbackConfigActive = (dynamicTemplateMap.size === 0);
+            if (dynamicTemplateMap.size === 0) {
+                auditReport.templatesAudit.note = `Live verified WABA ${verifiedWaba.id} currently has ${dynamicTemplateMap.size} APPROVED template(s) and ${pendingTemplateMap.size} PENDING template(s).`;
             }
 
             // Verify ERP template mappings against Meta
             console.log('[WhatsApp Meta Audit] Verifying ERP Template mappings against Meta:');
-            for (const [name, config] of Object.entries(TEMPLATE_CONFIG)) {
+            for (const [name, config] of Object.entries(CANONICAL_TEMPLATES)) {
                 const resolved = resolveTemplateSpec(name);
-                if (resolved && resolved.status !== 'CONFIG_FALLBACK') {
-                    console.log(`  [MATCH] ${name} -> Meta Name: ${resolved.name} | Lang: ${resolved.language} | Status: ${resolved.status} | Params: ${resolved.paramCount}`);
+                if (resolved && resolved.status === 'APPROVED') {
+                    console.log(`  [APPROVED] ${name} -> Lang: ${resolved.language} | Params: ${resolved.paramCount}`);
+                } else if (resolved && resolved.status === 'PENDING') {
+                    console.log(`  [PENDING APPROVAL] ${name} -> Awaiting Meta approval`);
+                } else if (resolved && resolved.status === 'REJECTED') {
+                    console.warn(`  [REJECTED] ${name} -> Meta rejection reason: ${resolved.rejectedReason || 'N/A'}`);
                 } else {
-                    console.warn(`  [MISSING IN META] ${name} -> NOT found in Meta WABA templates!`);
+                    console.warn(`  [NOT REGISTERED] ${name} -> Missing from WABA ${verifiedWaba.id}`);
                 }
             }
         } catch (tplErr) {
@@ -912,35 +1461,7 @@ const syncMetaTemplates = async (customAxios = axios) => {
         console.warn('[WhatsApp Meta Audit] Dynamic template sync skipped because WABA ID verification failed. Preserving static TEMPLATE_CONFIG baseline (en).');
     }
 
-    // 5. Direct verification for known Meta Template ID 1651560919739085 (mvss_job_card_created)
-    try {
-        const tplDirectRes = await customAxios.get(`${GRAPH_API_BASE_URL}/1651560919739085?fields=id,name,status,language,category,components`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (tplDirectRes.data?.id) {
-            const t = tplDirectRes.data;
-            const bodyComponent = t.components?.find(c => c.type === 'BODY');
-            let paramCount = 4;
-            if (bodyComponent && bodyComponent.text) {
-                const matches = bodyComponent.text.match(/\{\{\d+\}\}/g);
-                if (matches) paramCount = new Set(matches).size;
-            }
-            dynamicTemplateMap.set(t.name, {
-                name: t.name,
-                language: t.language,
-                status: t.status,
-                category: t.category,
-                id: t.id,
-                paramCount
-            });
-            console.log(`[WhatsApp Meta Audit] Confirmed Template ID ${t.id} directly on Meta: Name=${t.name} | Lang=${t.language} | Status=${t.status} | Params=${paramCount}`);
-        }
-    } catch (tplDirectErr) {
-        const errDetails = getMetaErrorDetails(tplDirectErr);
-        console.log(`[WhatsApp Meta Audit] Direct Template ID 1651560919739085 lookup note: ${errDetails.formatted}`);
-    }
-
-    console.log(`[WhatsApp Meta Audit] === Audit Complete. Baseline fallback active: ${auditReport.fallbackConfigActive ? 'YES (using verified TEMPLATE_CONFIG)' : 'NO (using live Meta sync)'} ===`);
+    console.log(`[WhatsApp Meta Audit] === Audit Complete. Approved Templates in cache: ${dynamicTemplateMap.size} | Pending: ${pendingTemplateMap.size} | Rejected: ${rejectedTemplateMap.size} ===`);
     return auditReport;
 };
 
@@ -1826,6 +2347,124 @@ const createDocumentTemplate = async (customAxios = axios) => {
     }
 };
 
+/**
+ * Register all missing canonical ERP templates with Meta WhatsApp Business Account (WABA).
+ * Uses category 'UTILITY' and language 'en'. Does NOT create duplicate templates.
+ */
+const registerMissingTemplates = async (customAxios = axios) => {
+    const token = process.env.META_WA_ACCESS_TOKEN;
+    const wabaId = getEffectiveWabaId();
+
+    if (!token || !wabaId) {
+        return { success: false, error: 'Meta credentials missing (META_WA_ACCESS_TOKEN or META_WA_BUSINESS_ACCOUNT_ID)' };
+    }
+
+    console.log(`[WhatsApp Template Registration] Starting missing template audit and registration for WABA ${wabaId}...`);
+
+    // 1. Fetch all currently existing templates in this WABA from Meta Graph API
+    let existingNames = new Set();
+    try {
+        const resp = await customAxios.get(`${GRAPH_API_BASE_URL}/${wabaId}/message_templates?fields=name,status,category,language&limit=100`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        (resp.data?.data || []).forEach(t => existingNames.add(t.name));
+        console.log(`[WhatsApp Template Registration] WABA ${wabaId} currently has ${existingNames.size} registered template(s): ${Array.from(existingNames).join(', ')}`);
+    } catch (fetchErr) {
+        console.warn(`[WhatsApp Template Registration] Could not fetch existing templates from Meta:`, fetchErr.message);
+    }
+
+    const summary = {
+        wabaId,
+        totalCanonical: Object.keys(CANONICAL_TEMPLATES).length,
+        alreadyExisting: [],
+        newlySubmitted: [],
+        failed: []
+    };
+
+    // 2. Iterate through canonical templates and submit those missing from WABA
+    for (const [name, tmpl] of Object.entries(CANONICAL_TEMPLATES)) {
+        if (existingNames.has(name)) {
+            summary.alreadyExisting.push(name);
+            continue;
+        }
+
+        try {
+            console.log(`[WhatsApp Template Registration] Submitting missing template '${name}' (${tmpl.category}, lang=${tmpl.language})...`);
+            
+            // Build template payload
+            let components = tmpl.components;
+            // If it's a document template and header has no example, create via createDocumentTemplate
+            if (tmpl.headerFormat === 'DOCUMENT' && name === 'mvss_customer_estimate_doc') {
+                const docRes = await createDocumentTemplate(customAxios);
+                if (docRes.success) {
+                    summary.newlySubmitted.push({
+                        name,
+                        id: docRes.data?.id,
+                        status: docRes.data?.status || 'PENDING',
+                        category: docRes.data?.category || 'UTILITY'
+                    });
+                } else {
+                    summary.failed.push({ name, error: docRes.error });
+                }
+                continue;
+            }
+
+            const payload = {
+                name: tmpl.name,
+                category: tmpl.category || 'UTILITY',
+                language: tmpl.language || 'en',
+                components
+            };
+
+            const submitRes = await customAxios.post(
+                `${GRAPH_API_BASE_URL}/${wabaId}/message_templates`,
+                payload,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            console.log(`[WhatsApp Template Registration] Successfully submitted '${name}' -> Meta ID: ${submitRes.data?.id}, Status: ${submitRes.data?.status || 'PENDING'}`);
+            summary.newlySubmitted.push({
+                name,
+                id: submitRes.data?.id,
+                status: submitRes.data?.status || 'PENDING',
+                category: submitRes.data?.category || 'UTILITY'
+            });
+        } catch (subErr) {
+            const errObj = subErr.response?.data?.error || {};
+            if (errObj.code === 100 && (errObj.error_subcode === 2388043 || errObj.message?.includes('already exists'))) {
+                console.log(`[WhatsApp Template Registration] '${name}' already exists on Meta.`);
+                summary.alreadyExisting.push(name);
+            } else {
+                const details = getMetaErrorDetails(subErr);
+                console.error(`[WhatsApp Template Registration] Failed to submit '${name}':`, details.formatted);
+                summary.failed.push({
+                    name,
+                    error: details.formatted,
+                    code: details.code,
+                    subcode: details.subcode
+                });
+            }
+        }
+    }
+
+    // 3. Trigger immediate sync to update live dynamic and pending template caches
+    try {
+        await syncMetaTemplates(customAxios);
+    } catch (syncErr) {
+        console.warn('[WhatsApp Template Registration] Post-registration sync error:', syncErr.message);
+    }
+
+    return {
+        success: true,
+        summary
+    };
+};
+
 module.exports = {
     sendTemplateMessage,
     sendDocumentMessage,
@@ -1836,11 +2475,16 @@ module.exports = {
     validateCustomerContact,
     syncMetaTemplates,
     createDocumentTemplate,
+    registerMissingTemplates,
     getMetaErrorDetails,
     resolveTemplateSpec,
     discoverAccessibleWabas,
     TEMPLATE_CONFIG,
+    CANONICAL_TEMPLATES,
+    getHumanAutomationName,
     dynamicTemplateMap,
+    pendingTemplateMap,
+    rejectedTemplateMap,
     isCustomerSessionActive,
     getCustomerSessionStatus,
     GRAPH_API_VERSION,

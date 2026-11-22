@@ -6,11 +6,15 @@ const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const dns = require('dns');
+try { dns.setServers(['8.8.8.8', '1.1.1.1']); } catch (e) {}
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 process.env.META_WA_ACCESS_TOKEN = process.env.META_WA_ACCESS_TOKEN || 'mock_token_for_disabled_test';
-process.env.META_WA_PHONE_NUMBER_ID = process.env.META_WA_PHONE_NUMBER_ID || '1446113211917959';
+process.env.META_WA_PHONE_NUMBER_ID = '1435390016330145';
+process.env.META_WA_BUSINESS_ACCOUNT_ID = '4778078332414981';
+process.env.WHATSAPP_BUSINESS_PHONE = '919177177509';
 
 const {
   isAutomationEnabled,
